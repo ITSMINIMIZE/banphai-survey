@@ -192,9 +192,12 @@ const App = {
         <button class="btn btn-primary" onclick="App.addMember()">+ เพิ่มสมาชิก</button>
       </div>
       ${hh.members.length > 0 ? `
-      <div style="background:#f0fdf4;border:1.5px solid #16a34a;border-radius:10px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;">
+      <div style="background:#f0fdf4;border:1.5px solid #16a34a;border-radius:10px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
         <div style="font-size:13px;color:#15803d;font-weight:600;">✅ บันทึกสมาชิก ${hh.members.length} คนแล้ว</div>
-        <button class="btn btn-primary btn-sm" onclick="App.addMember()" style="background:#16a34a;border-color:#16a34a;white-space:nowrap;">+ เพิ่มสมาชิกคนต่อไป</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-primary btn-sm" onclick="App.addMember()" style="background:#16a34a;border-color:#16a34a;white-space:nowrap;">+ เพิ่มสมาชิกคนต่อไป</button>
+          <button class="btn btn-primary btn-sm" onclick="App.nextHousehold()" style="white-space:nowrap;">➡️ บ้านถัดไป</button>
+        </div>
       </div>` : ''}
 
       ${hh.members.length === 0 ? `
@@ -814,6 +817,11 @@ const App = {
     this.navigate('household', this.hhId);
   },
 
+  nextHousehold() {
+    this.navigate('home');
+    setTimeout(() => this.openAddHousehold(), 150);
+  },
+
   addMember() {
     const m = DB.addMember(this.hhId, {});
     if (!m) return;
@@ -976,24 +984,11 @@ const App = {
         <input type="hidden" id="t_destinationCoords" value="${t?.destinationCoords || ''}" />
         ${t?.destinationCoords ? `<div style="font-size:11px;color:var(--gray-400);margin-top:3px;">📍 ${t.destinationCoords}</div>` : ''}
       </div>
-      <div class="form-grid">
-        <div class="form-row">
-          <label class="form-label">ลักษณะสถานที่</label>
-          <select id="t_destType" class="form-select" autocomplete="off">
-            <option value="">— เลือก —</option>${selOpt(OPT.locationType, t?.destinationType || '')}
-          </select>
-        </div>
-        <div class="form-row">
-          <label class="form-label">เวลาถึงปลายทาง (คำนวณอัตโนมัติ)</label>
-          <div style="display:flex;align-items:center;gap:8px;">
-            <div id="t_arriveDisplay"
-              style="flex:1;padding:9px 12px;background:var(--gray-50);border:1.5px solid var(--gray-200);
-                     border-radius:var(--radius-sm);font-size:14px;color:var(--gray-700);font-weight:600;">
-              ${t?.arrivalTime || '— กรอกเวลาออก + ระยะเวลาก่อน'}
-            </div>
-            <input type="hidden" id="t_arrive_hidden" value="${t?.arrivalTime || ''}" />
-          </div>
-        </div>
+      <div class="form-row">
+        <label class="form-label">ลักษณะสถานที่ปลายทาง</label>
+        <select id="t_destType" class="form-select" autocomplete="off">
+          <option value="">— เลือก —</option>${selOpt(OPT.locationType, t?.destinationType || '')}
+        </select>
       </div>
 
       <!-- ช่วงการเดินทาง -->
@@ -1019,6 +1014,17 @@ const App = {
           <input id="t_parkFee" class="form-input" type="number" min="0" inputmode="numeric" autocomplete="off"
             value="${t?.parkingFee || ''}" placeholder="0" />
         </div>
+      </div>
+
+      <!-- เวลาถึงปลายทาง — ท้ายสุด -->
+      <div class="form-row" style="margin-top:4px;">
+        <label class="form-label">เวลาถึงปลายทาง (คำนวณอัตโนมัติ)</label>
+        <div id="t_arriveDisplay"
+          style="padding:10px 14px;background:var(--gray-50);border:1.5px solid var(--gray-200);
+                 border-radius:var(--radius-sm);font-size:15px;color:var(--gray-700);font-weight:700;text-align:center;">
+          ${t?.arrivalTime || '— กรอกเวลาออก + ระยะเวลาก่อน'}
+        </div>
+        <input type="hidden" id="t_arrive_hidden" value="${t?.arrivalTime || ''}" />
       </div>`,
       `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
        <button class="btn btn-primary" onclick="App.saveTrip()">${isEdit ? 'บันทึกการแก้ไข' : 'เพิ่มการเดินทาง'}</button>`
@@ -1197,6 +1203,13 @@ const App = {
     if (!departureTime) { this.toast('กรุณากรอกเวลาออกเดินทาง', 'error'); return; }
     if (!segments.length || !segments[0].mode) {
       this.toast('กรุณาระบุวิธีเดินทางอย่างน้อย 1 ช่วง', 'error'); return;
+    }
+    // modes ที่บังคับกรอกค่าโดยสาร
+    const fareRequired = ['รถจักรยานยนต์รับจ้าง','รถสามล้อเครื่อง / แท็กซี่','รถสองแถว / รถประจำทาง','รถส่วนบุคคลรับจ้าง'];
+    for (let i = 0; i < segments.length; i++) {
+      if (fareRequired.includes(segments[i].mode) && !segments[i].fare) {
+        this.toast(`ช่วงที่ ${i+1} (${segments[i].mode}): กรุณากรอกค่าโดยสาร`, 'error'); return;
+      }
     }
 
     // validate เวลาออกต้องมากกว่าครั้งก่อน
