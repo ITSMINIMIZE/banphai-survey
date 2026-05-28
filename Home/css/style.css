@@ -241,6 +241,7 @@ body {
   margin-bottom: 5px;
 }
 .form-label .req { color: var(--danger); margin-left: 2px; }
+.form-label.req::after { content: ' *'; color: var(--danger); }
 .form-input, .form-select, .form-textarea {
   width: 100%;
   padding: 9px 12px;

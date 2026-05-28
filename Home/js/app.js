@@ -288,7 +288,7 @@ const App = {
 
       <div class="form-grid">
         <div class="form-row">
-          <label class="form-label">เพศ</label>
+          <label class="form-label req">เพศ</label>
           <div class="radio-group">
             ${['ชาย','หญิง'].map(g => `
               <div class="radio-opt ${m.gender === g ? 'sel' : ''}" onclick="App.selectGender('${g}',this)">
@@ -309,7 +309,7 @@ const App = {
           ${sel(OPT.homeStatus, m.homeStatus, 'f_homeStatus')}
         </div>
         <div class="form-row">
-          <label class="form-label">สถานะการทำงาน / เรียน</label>
+          <label class="form-label req">สถานะการทำงาน / เรียน</label>
           ${sel(OPT.workStatus, m.workStatus, 'f_workStatus')}
         </div>
       </div>
@@ -326,8 +326,19 @@ const App = {
       </div>
 
       <div class="form-row">
-        <label class="form-label">รายได้บุคคล (บาท/เดือน)</label>
-        ${sel(OPT.income, m.income, 'f_income')}
+        <label class="form-label req">รายได้บุคคล (บาท/เดือน)</label>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <input id="f_income" class="form-input" type="number" min="0" inputmode="numeric"
+            autocomplete="off" placeholder="เช่น 15000" style="flex:1;"
+            value="${m.income === 'ไม่ระบุ' ? '' : (m.income || '')}"
+            ${m.income === 'ไม่ระบุ' ? 'disabled' : ''} />
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap;cursor:pointer;flex-shrink:0;">
+            <input type="checkbox" id="f_income_ns" style="accent-color:var(--primary);width:16px;height:16px;"
+              ${m.income === 'ไม่ระบุ' ? 'checked' : ''}
+              onchange="const inp=document.getElementById('f_income');inp.disabled=this.checked;if(this.checked)inp.value='';" />
+            ไม่ระบุ
+          </label>
+        </div>
       </div>
 
       <hr class="divider" />
@@ -377,14 +388,39 @@ const App = {
   },
 
   savePersonalInfo() {
+    const gender    = document.getElementById('f_gender')?.value    || '';
+    const workStatus= document.getElementById('f_workStatus')?.value|| '';
+    const notSpec   = document.getElementById('f_income_ns')?.checked;
+    const incomeRaw = document.getElementById('f_income')?.value    || '';
+    const income    = notSpec ? 'ไม่ระบุ' : incomeRaw;
+
+    // --- validate required ---
+    if (!gender) { this.toast('กรุณาเลือกเพศ', 'error'); return; }
+
+    // --- gender quota check ---
+    const hh   = DB.getHousehold(this.hhId);
+    const grid = hh?.memberGrid || {};
+    const otherMembers = (hh?.members || []).filter(m => m.id !== this.memberId);
+    const maleKeys   = ['m_study','m_work','m_notw','m_child'];
+    const femaleKeys = ['f_study','f_work','f_notw','f_child'];
+    const maleCap    = maleKeys.reduce((s, k)   => s + (+(grid[k]||0)), 0);
+    const femaleCap  = femaleKeys.reduce((s, k) => s + (+(grid[k]||0)), 0);
+    const maleUsed   = otherMembers.filter(m => m.gender === 'ชาย').length;
+    const femaleUsed = otherMembers.filter(m => m.gender === 'หญิง').length;
+    if (gender === 'ชาย'  && maleUsed   >= maleCap)   { this.toast(`ครัวเรือนนี้มีเพศชายครบ ${maleCap} คนแล้ว`,   'error'); return; }
+    if (gender === 'หญิง' && femaleUsed >= femaleCap) { this.toast(`ครัวเรือนนี้มีเพศหญิงครบ ${femaleCap} คนแล้ว`, 'error'); return; }
+
+    if (!workStatus) { this.toast('กรุณาเลือกสถานะการทำงาน', 'error'); return; }
+    if (!notSpec && !incomeRaw) { this.toast('กรุณากรอกรายได้ หรือเลือก "ไม่ระบุ"', 'error'); return; }
+
     DB.updateMember(this.hhId, this.memberId, {
-      gender:               document.getElementById('f_gender')?.value || '',
+      gender,
       age:                  +(document.getElementById('f_age')?.value) || '',
       homeStatus:           document.getElementById('f_homeStatus')?.value || '',
-      workStatus:           document.getElementById('f_workStatus')?.value || '',
+      workStatus,
       occupation:           document.getElementById('f_occupation')?.value || '',
       education:            document.getElementById('f_education')?.value || '',
-      income:               document.getElementById('f_income')?.value || '',
+      income,
       workplaceName:        document.getElementById('f_wpName')?.value.trim()  || '',
       workplaceAlley:       document.getElementById('f_wpAlley')?.value.trim() || '',
       workplaceRoad:        document.getElementById('f_wpRoad')?.value.trim()  || '',
@@ -392,7 +428,19 @@ const App = {
       workplaceDistrict:    document.getElementById('f_wpDist')?.value.trim()  || '',
       workplaceProvince:    document.getElementById('f_wpProv')?.value.trim()  || ''
     });
-    this.toast('บันทึกข้อมูลบุคคลแล้ว', 'success');
+
+    // --- auto-update household income if sum > current ---
+    const updatedHH  = DB.getHousehold(this.hhId);
+    const memberSum  = (updatedHH?.members || []).reduce((s, m) => {
+      const n = +m.income;
+      return (!m.income || m.income === 'ไม่ระบุ' || isNaN(n)) ? s : s + n;
+    }, 0);
+    if (memberSum > 0 && memberSum > (+(updatedHH?.householdIncome) || 0)) {
+      DB.updateHousehold(this.hhId, { householdIncome: memberSum });
+      this.toast(`บันทึกแล้ว — อัพเดทรายได้ครัวเรือนเป็น ${memberSum.toLocaleString()} บาท`, 'success');
+    } else {
+      this.toast('บันทึกข้อมูลบุคคลแล้ว', 'success');
+    }
     // ไปหน้าการเดินทางต่อเลย
     this.memberTab = 'trips';
     this.render();
@@ -462,13 +510,27 @@ const App = {
     return d.toISOString().split('T')[0];
   },
 
-  openAddHousehold() {
-    const resOpts     = OPT.residentialType.map(r => `<option value="${r}">${r}</option>`).join('');
-    const incomeOpts  = OPT.income.map(i => `<option value="${i}">${i}</option>`).join('');
+  // ===== SURVEYOR NAME MEMORY =====
+  _loadSurveyorNames() {
+    return {
+      surveyor:   localStorage.getItem('_surveyor_name')   || '',
+      supervisor: localStorage.getItem('_supervisor_name') || ''
+    };
+  },
+  _saveSurveyorNames(surveyor, supervisor) {
+    if (surveyor)   localStorage.setItem('_surveyor_name',   surveyor);
+    if (supervisor) localStorage.setItem('_supervisor_name', supervisor);
+  },
 
-    // Member grid: icon card + select 0–5 (2 columns)
-    const gridCards = OPT.memberGridRows.map(row => {
+  // ===== SHARED: HOUSEHOLD FORM HTML =====
+  _hhFormHTML(hh) {
+    // hh = null for add, existing object for edit
+    const names      = this._loadSurveyorNames();
+    const resOpts    = OPT.residentialType.map(r =>
+      `<option value="${r}" ${r === hh?.residentialType ? 'selected' : ''}>${r}</option>`).join('');
+    const gridCards  = OPT.memberGridRows.map(row => {
       const [gender, status] = row.label.split(' — ');
+      const cur = hh?.memberGrid?.[row.key] || 0;
       return `<div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius-sm);padding:10px 12px;">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
           <span style="font-size:24px;line-height:1;">${row.icon}</span>
@@ -478,79 +540,93 @@ const App = {
           </div>
         </div>
         <select id="mg_${row.key}" class="form-select" autocomplete="off">
-          ${[0,1,2,3,4,5].map(n => `<option value="${n}">${n === 0 ? '0 คน' : n + ' คน'}</option>`).join('')}
+          ${[0,1,2,3,4,5].map(n => `<option value="${n}" ${n === +cur ? 'selected' : ''}>${n === 0 ? '0 คน' : n + ' คน'}</option>`).join('')}
         </select>
       </div>`;
     }).join('');
-
-    // Vehicle rows (hidden until checkbox ticked)
-    const vhRows = OPT.vehicleTypes.map(vt =>
-      `<tr id="vrow_${vt.key}" style="display:none;">
+    const vhRows = OPT.vehicleTypes.map(vt => {
+      const v    = hh?.vehicles?.[vt.key];
+      const show = v && ((+v.private||0)+(+v.company||0)+(+v.gov||0)) > 0;
+      return `<tr id="vrow_${vt.key}" style="${show ? '' : 'display:none'}">
         <td style="font-size:13px;padding:5px 8px;color:var(--gray-700);">${vt.icon} ${vt.label}</td>
-        <td style="padding:4px"><input type="number" min="0" inputmode="numeric" value="0" class="form-input" id="vp_${vt.key}" autocomplete="off" style="width:60px;padding:4px 6px;text-align:center;" /></td>
-        <td style="padding:4px"><input type="number" min="0" inputmode="numeric" value="0" class="form-input" id="vc_${vt.key}" autocomplete="off" style="width:60px;padding:4px 6px;text-align:center;" /></td>
-        <td style="padding:4px"><input type="number" min="0" inputmode="numeric" value="0" class="form-input" id="vg_${vt.key}" autocomplete="off" style="width:60px;padding:4px 6px;text-align:center;" /></td>
-      </tr>`
-    ).join('');
+        <td style="padding:4px"><input type="number" min="0" inputmode="numeric" value="${v?.private||0}" class="form-input" id="vp_${vt.key}" autocomplete="off" style="width:60px;padding:4px 6px;text-align:center;" /></td>
+        <td style="padding:4px"><input type="number" min="0" inputmode="numeric" value="${v?.company||0}" class="form-input" id="vc_${vt.key}" autocomplete="off" style="width:60px;padding:4px 6px;text-align:center;" /></td>
+        <td style="padding:4px"><input type="number" min="0" inputmode="numeric" value="${v?.gov||0}"     class="form-input" id="vg_${vt.key}" autocomplete="off" style="width:60px;padding:4px 6px;text-align:center;" /></td>
+      </tr>`;
+    }).join('');
 
-    this.showModal('🏠 เพิ่มครัวเรือนใหม่', `
+    return `
       <div class="section-label">ข้อมูลผู้สำรวจ</div>
       <div class="form-grid">
         <div class="form-row">
-          <label class="form-label">ชื่อ–สกุลผู้สำรวจ</label>
-          <input id="m_sname" class="form-input" autocomplete="off" placeholder="ชื่อ นามสกุล" />
+          <label class="form-label req">ชื่อ–สกุลผู้สำรวจ</label>
+          <input id="m_sname" class="form-input" autocomplete="off" placeholder="ชื่อ นามสกุล"
+            value="${hh ? (hh.surveyorName||'') : names.surveyor}" />
         </div>
         <div class="form-row">
-          <label class="form-label">ชื่อผู้ควบคุม / ตรวจสอบ</label>
-          <input id="m_supervisor" class="form-input" autocomplete="off" placeholder="ชื่อผู้ควบคุม" />
+          <label class="form-label req">ชื่อผู้ควบคุม</label>
+          <input id="m_supervisor" class="form-input" autocomplete="off" placeholder="ชื่อผู้ควบคุม"
+            value="${hh ? (hh.supervisorName||'') : names.supervisor}" />
         </div>
         <div class="form-row">
-          <label class="form-label">วันที่เดินทาง (วันที่สำรวจ)</label>
-          <input id="m_travelDate" class="form-input" type="date" autocomplete="off" value="${this._lastFriday()}" />
+          <label class="form-label req">วันที่เดินทาง</label>
+          <input id="m_travelDate" class="form-input" type="date" autocomplete="off"
+            value="${hh ? (hh.travelDate||this._lastFriday()) : this._lastFriday()}" />
         </div>
       </div>
 
       <div class="section-label">ที่อยู่</div>
+      <div class="form-row">
+        <label class="form-label req">พิกัด GPS</label>
+        <div style="display:flex;gap:6px;">
+          <input id="m_coords" class="form-input" autocomplete="off" placeholder="เช่น 16.0590, 102.7313"
+            style="flex:1;min-width:0;" value="${hh?.coordinates||''}" />
+          <button type="button" id="gpsBtn_m_coords" onclick="App._useGPS('m_coords')"
+            style="padding:9px 12px;background:#f0fdf4;color:#16a34a;border:1.5px solid #16a34a;
+                   border-radius:var(--radius-sm);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">📍 GPS</button>
+          <button type="button" onclick="MapPicker.open(document.getElementById('m_coords').value, v => { document.getElementById('m_coords').value = v; })"
+            style="padding:9px 12px;background:var(--primary-light);color:var(--primary);border:1.5px solid var(--primary);
+                   border-radius:var(--radius-sm);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">🗺</button>
+        </div>
+      </div>
       <div class="form-grid">
         <div class="form-row">
-          <label class="form-label">บ้านเลขที่</label>
-          <input id="m_houseNo" class="form-input" autocomplete="off" placeholder="เช่น 123/4" />
+          <label class="form-label req">บ้านเลขที่</label>
+          <input id="m_houseNo" class="form-input" autocomplete="off" placeholder="เช่น 123/4" value="${hh?.houseNo||''}" />
         </div>
         <div class="form-row">
           <label class="form-label">หมู่ที่</label>
-          <input id="m_moo" class="form-input" type="number" min="1" inputmode="numeric" autocomplete="off" placeholder="เช่น 5" />
+          <input id="m_moo" class="form-input" type="number" min="1" inputmode="numeric" autocomplete="off" placeholder="เช่น 5" value="${hh?.moo||''}" />
         </div>
       </div>
       <div class="form-grid">
         <div class="form-row">
           <label class="form-label">ตรอก / ซอย</label>
-          <input id="m_alley" class="form-input" autocomplete="off" />
+          <input id="m_alley" class="form-input" autocomplete="off" value="${hh?.alley||''}" />
         </div>
         <div class="form-row">
           <label class="form-label">ถนน</label>
-          <input id="m_road" class="form-input" autocomplete="off" />
+          <input id="m_road" class="form-input" autocomplete="off" value="${hh?.road||''}" />
+        </div>
+      </div>
+      <div class="form-grid">
+        <div class="form-row">
+          <label class="form-label req">ตำบล</label>
+          <input id="m_subdistrict" class="form-input" autocomplete="off" placeholder="เช่น บ้านไผ่" value="${hh?.subdistrict||''}" />
         </div>
         <div class="form-row">
-          <label class="form-label">โทรศัพท์ (10 หลัก)</label>
-          <input id="m_phone" class="form-input" type="tel" inputmode="numeric"
-            maxlength="10" pattern="0[0-9]{9}" placeholder="0xxxxxxxxx" autocomplete="off" />
+          <label class="form-label req">อำเภอ</label>
+          <input id="m_district" class="form-input" autocomplete="off" value="${hh?.district||'บ้านไผ่'}" />
+        </div>
+        <div class="form-row">
+          <label class="form-label">จังหวัด</label>
+          <input id="m_province" class="form-input" autocomplete="off" value="${hh?.province||'ขอนแก่น'}" />
         </div>
       </div>
       <div class="form-row">
-        <label class="form-label">พิกัด GPS</label>
-        <div style="display:flex;gap:6px;">
-          <input id="m_coords" class="form-input" autocomplete="off" placeholder="เช่น 16.0590, 102.7313" style="flex:1;min-width:0;" />
-          <button type="button" id="gpsBtn_m_coords" onclick="App._useGPS('m_coords')"
-            style="padding:9px 12px;background:#f0fdf4;color:#16a34a;border:1.5px solid #16a34a;
-                   border-radius:var(--radius-sm);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">
-            📍 GPS
-          </button>
-          <button type="button" onclick="MapPicker.open(document.getElementById('m_coords').value, v => { document.getElementById('m_coords').value = v; })"
-            style="padding:9px 12px;background:var(--primary-light);color:var(--primary);border:1.5px solid var(--primary);
-                   border-radius:var(--radius-sm);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">
-            🗺
-          </button>
-        </div>
+        <label class="form-label">โทรศัพท์ (10 หลัก)</label>
+        <input id="m_phone" class="form-input" type="tel" inputmode="numeric"
+          maxlength="10" pattern="0[0-9]{9}" placeholder="0xxxxxxxxx" autocomplete="off" value="${hh?.phone||''}" />
       </div>
 
       <div class="section-label">ประเภทที่อยู่อาศัย</div>
@@ -561,50 +637,102 @@ const App = {
       </div>
 
       <div class="section-label">จำนวนผู้อยู่อาศัยในครัวเรือน</div>
-      <div class="mg-input-grid">
-        ${gridCards}
-      </div>
+      <div class="mg-input-grid">${gridCards}</div>
 
       <div class="section-label">รายได้และยานพาหนะ</div>
       <div class="form-row">
-        <label class="form-label">รายได้ทั้งหมดของครัวเรือน (บาท/เดือน)</label>
-        <select id="m_income" class="form-select" autocomplete="off">
-          <option value="">— เลือก —</option>${incomeOpts}
-        </select>
+        <label class="form-label req">รายได้ทั้งหมดของครัวเรือน (บาท/เดือน)</label>
+        <input id="m_income" class="form-input" type="number" min="0" inputmode="numeric"
+          autocomplete="off" placeholder="เช่น 25000" value="${hh?.householdIncome||''}" />
       </div>
       <div class="form-row">
-        <label class="form-label">การครอบครองยานพาหนะ</label>
+        <label class="form-label req">การครอบครองยานพาหนะ</label>
         <div class="radio-group" id="m_vehicleGrp">
-          <div class="radio-opt" onclick="App._pickVehicle('ไม่มี',this)"><div class="radio-dot"></div>ไม่มียานพาหนะ</div>
-          <div class="radio-opt" onclick="App._pickVehicle('มี',this)"><div class="radio-dot"></div>มียานพาหนะ</div>
+          <div class="radio-opt ${hh?.hasVehicle==='ไม่มี'?'sel':''}" onclick="App._pickVehicle('ไม่มี',this)"><div class="radio-dot"></div>ไม่มียานพาหนะ</div>
+          <div class="radio-opt ${hh?.hasVehicle==='มี'?'sel':''}" onclick="App._pickVehicle('มี',this)"><div class="radio-dot"></div>มียานพาหนะ</div>
         </div>
-        <input type="hidden" id="m_vehicle" value="" />
+        <input type="hidden" id="m_vehicle" value="${hh?.hasVehicle||''}" />
       </div>
-
-      <div id="vehicleDetail" style="display:none;margin-top:10px;overflow-x:auto;border:1px solid var(--gray-200);border-radius:var(--radius-sm);">
-        <div style="padding:8px 12px;background:var(--gray-50);border-bottom:1px solid var(--gray-200);font-size:12px;font-weight:600;color:var(--gray-500);">
-          เลือกประเภทยานพาหนะที่มี → ระบุจำนวนคัน
-        </div>
+      <div id="vehicleDetail" style="display:${hh?.hasVehicle==='มี'?'block':'none'};margin-top:10px;overflow-x:auto;border:1px solid var(--gray-200);border-radius:var(--radius-sm);">
+        <div style="padding:8px 12px;background:var(--gray-50);border-bottom:1px solid var(--gray-200);font-size:12px;font-weight:600;color:var(--gray-500);">เลือกประเภทยานพาหนะที่มี → ระบุจำนวนคัน</div>
         <div style="padding:10px 12px;display:flex;gap:10px;flex-wrap:wrap;border-bottom:1px solid var(--gray-100);">
-          ${OPT.vehicleTypes.map(vt =>
-            `<label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;white-space:nowrap;">
-              <input type="checkbox" style="accent-color:var(--primary);" onchange="App._toggleVehicleRow('${vt.key}',this.checked)" />
-              ${vt.icon} ${vt.label}
-            </label>`
-          ).join('')}
+          ${OPT.vehicleTypes.map(vt => {
+            const v = hh?.vehicles?.[vt.key];
+            const checked = v && ((+v.private||0)+(+v.company||0)+(+v.gov||0)) > 0;
+            return `<label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;white-space:nowrap;">
+              <input type="checkbox" ${checked?'checked':''} style="accent-color:var(--primary);" onchange="App._toggleVehicleRow('${vt.key}',this.checked)" />
+              ${vt.icon} ${vt.label}</label>`;
+          }).join('')}
         </div>
         <table style="width:100%;border-collapse:collapse;">
-          <thead>
-            <tr style="background:var(--gray-50);">
-              <th style="padding:6px 8px;font-size:12px;color:var(--gray-500);text-align:left;font-weight:600;">ประเภท</th>
-              <th style="padding:6px 8px;font-size:12px;color:var(--gray-500);text-align:center;font-weight:600;">ส่วนตัว</th>
-              <th style="padding:6px 8px;font-size:12px;color:var(--gray-500);text-align:center;font-weight:600;">บริษัท</th>
-              <th style="padding:6px 8px;font-size:12px;color:var(--gray-500);text-align:center;font-weight:600;">ราชการ/รัฐ</th>
-            </tr>
-          </thead>
+          <thead><tr style="background:var(--gray-50);">
+            <th style="padding:6px 8px;font-size:12px;color:var(--gray-500);text-align:left;font-weight:600;">ประเภท</th>
+            <th style="padding:6px 8px;font-size:12px;color:var(--gray-500);text-align:center;font-weight:600;">ส่วนตัว</th>
+            <th style="padding:6px 8px;font-size:12px;color:var(--gray-500);text-align:center;font-weight:600;">บริษัท</th>
+            <th style="padding:6px 8px;font-size:12px;color:var(--gray-500);text-align:center;font-weight:600;">ราชการ/รัฐ</th>
+          </tr></thead>
           <tbody>${vhRows}</tbody>
         </table>
-      </div>`,
+      </div>`;
+  },
+
+  // ===== SHARED: HOUSEHOLD SAVE DATA =====
+  _readHhForm() {
+    const memberGrid = {};
+    OPT.memberGridRows.forEach(row => {
+      memberGrid[row.key] = +(document.getElementById('mg_' + row.key)?.value || 0);
+    });
+    const vehicle = document.getElementById('m_vehicle')?.value;
+    const vehicles = {};
+    if (vehicle === 'มี') {
+      OPT.vehicleTypes.forEach(vt => {
+        const p = +(document.getElementById('vp_' + vt.key)?.value || 0);
+        const c = +(document.getElementById('vc_' + vt.key)?.value || 0);
+        const g = +(document.getElementById('vg_' + vt.key)?.value || 0);
+        if (p || c || g) vehicles[vt.key] = { private: p, company: c, gov: g };
+      });
+    }
+    return {
+      surveyorName:    document.getElementById('m_sname')?.value.trim()       || '',
+      supervisorName:  document.getElementById('m_supervisor')?.value.trim()  || '',
+      travelDate:      document.getElementById('m_travelDate')?.value         || '',
+      coordinates:     document.getElementById('m_coords')?.value.trim()      || '',
+      houseNo:         document.getElementById('m_houseNo')?.value.trim()     || '',
+      moo:             document.getElementById('m_moo')?.value.trim()         || '',
+      alley:           document.getElementById('m_alley')?.value.trim()       || '',
+      road:            document.getElementById('m_road')?.value.trim()        || '',
+      subdistrict:     document.getElementById('m_subdistrict')?.value.trim() || '',
+      district:        document.getElementById('m_district')?.value.trim()    || 'บ้านไผ่',
+      province:        document.getElementById('m_province')?.value.trim()    || 'ขอนแก่น',
+      phone:           document.getElementById('m_phone')?.value.trim()       || '',
+      residentialType: document.getElementById('m_restype')?.value            || '',
+      memberGrid,
+      householdIncome: +(document.getElementById('m_income')?.value)          || 0,
+      hasVehicle:      vehicle                                                 || '',
+      vehicles
+    };
+  },
+
+  // ===== SHARED: HOUSEHOLD VALIDATION =====
+  _validateHhForm(data) {
+    const errs = [];
+    if (!data.surveyorName)    errs.push('ชื่อผู้สำรวจ');
+    if (!data.supervisorName)  errs.push('ชื่อผู้ควบคุม');
+    if (!data.travelDate)      errs.push('วันที่เดินทาง');
+    if (!data.coordinates)     errs.push('พิกัด GPS');
+    if (!data.houseNo)         errs.push('บ้านเลขที่');
+    if (!data.subdistrict)     errs.push('ตำบล');
+    if (!data.district)        errs.push('อำเภอ');
+    if (!data.residentialType) errs.push('ประเภทที่อยู่อาศัย');
+    const gridTotal = Object.values(data.memberGrid).reduce((s, v) => s + (+v||0), 0);
+    if (gridTotal === 0)       errs.push('จำนวนสมาชิก (ต้องมีอย่างน้อย 1 คน)');
+    if (!data.householdIncome) errs.push('รายได้ครัวเรือน');
+    if (!data.hasVehicle)      errs.push('การครอบครองยานพาหนะ');
+    return errs;
+  },
+
+  openAddHousehold() {
+    this.showModal('🏠 เพิ่มครัวเรือนใหม่', this._hhFormHTML(null),
       `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
        <button class="btn btn-primary" onclick="App.saveHousehold()">บันทึก</button>`
     );
@@ -624,40 +752,11 @@ const App = {
   },
 
   saveHousehold() {
-    // เก็บ member grid จาก select
-    const memberGrid = {};
-    OPT.memberGridRows.forEach(row => {
-      memberGrid[row.key] = +(document.getElementById('mg_' + row.key)?.value || 0);
-    });
-
-    const vehicle = document.getElementById('m_vehicle')?.value;
-    const vehicles = {};
-    if (vehicle === 'มี') {
-      OPT.vehicleTypes.forEach(vt => {
-        const p = +(document.getElementById('vp_' + vt.key)?.value || 0);
-        const c = +(document.getElementById('vc_' + vt.key)?.value || 0);
-        const g = +(document.getElementById('vg_' + vt.key)?.value || 0);
-        if (p || c || g) vehicles[vt.key] = { private: p, company: c, gov: g };
-      });
-    }
-
-    const hh = DB.addHousehold({
-      surveyorName:    document.getElementById('m_sname')?.value.trim()      || '',
-      supervisorName:  document.getElementById('m_supervisor')?.value.trim() || '',
-      surveyDate:      new Date().toISOString().split('T')[0],
-      travelDate:      document.getElementById('m_travelDate')?.value        || '',
-      houseNo:         document.getElementById('m_houseNo')?.value.trim()     || '',
-      moo:             document.getElementById('m_moo')?.value.trim()         || '',
-      alley:           document.getElementById('m_alley')?.value.trim()       || '',
-      road:            document.getElementById('m_road')?.value.trim()        || '',
-      phone:           document.getElementById('m_phone')?.value.trim()       || '',
-      coordinates:     document.getElementById('m_coords')?.value.trim()      || '',
-      residentialType: document.getElementById('m_restype')?.value            || '',
-      memberGrid,
-      householdIncome: document.getElementById('m_income')?.value             || '',
-      hasVehicle:      vehicle                                                 || '',
-      vehicles
-    });
+    const data = this._readHhForm();
+    const errs = this._validateHhForm(data);
+    if (errs.length) { this.toast('กรุณากรอก: ' + errs.join(', '), 'error'); return; }
+    this._saveSurveyorNames(data.surveyorName, data.supervisorName);
+    const hh = DB.addHousehold({ ...data, surveyDate: new Date().toISOString().split('T')[0] });
     this.closeModal();
     this.toast('เพิ่มครัวเรือนแล้ว', 'success');
     this.navigate('household', hh.id);
@@ -666,159 +765,18 @@ const App = {
   openEditHousehold(id) {
     const hh = DB.getHousehold(id);
     if (!hh) return;
-    const resOpts     = OPT.residentialType.map(r => `<option value="${r}" ${r===hh.residentialType?'selected':''}>${r}</option>`).join('');
-    const incomeOpts  = OPT.income.map(i => `<option value="${i}" ${i===hh.householdIncome?'selected':''}>${i}</option>`).join('');
-
-    const gridCards = OPT.memberGridRows.map(row => {
-      const [gender, status] = row.label.split(' — ');
-      const cur = hh.memberGrid?.[row.key] || 0;
-      return `<div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius-sm);padding:10px 12px;">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-          <span style="font-size:24px;line-height:1;">${row.icon}</span>
-          <div>
-            <div style="font-size:10px;font-weight:700;color:var(--gray-400);text-transform:uppercase;letter-spacing:.04em;">${gender}</div>
-            <div style="font-size:12px;font-weight:600;color:var(--gray-700);">${status}</div>
-          </div>
-        </div>
-        <select id="mg_${row.key}" class="form-select" autocomplete="off">
-          ${[0,1,2,3,4,5].map(n => `<option value="${n}" ${n===+cur?'selected':''}>${n===0?'0 คน':n+' คน'}</option>`).join('')}
-        </select>
-      </div>`;
-    }).join('');
-
-    const vhRows = OPT.vehicleTypes.map(vt => {
-      const v = hh.vehicles?.[vt.key];
-      const show = v && ((+v.private||0)+(+v.company||0)+(+v.gov||0)) > 0;
-      return `<tr id="vrow_${vt.key}" style="${show?'':'display:none'}">
-        <td style="font-size:13px;padding:5px 8px;color:var(--gray-700);">${vt.icon} ${vt.label}</td>
-        <td style="padding:4px"><input type="number" min="0" value="${v?.private||0}" class="form-input" id="vp_${vt.key}" autocomplete="off" style="width:60px;padding:4px 6px;text-align:center;" /></td>
-        <td style="padding:4px"><input type="number" min="0" value="${v?.company||0}" class="form-input" id="vc_${vt.key}" autocomplete="off" style="width:60px;padding:4px 6px;text-align:center;" /></td>
-        <td style="padding:4px"><input type="number" min="0" value="${v?.gov||0}"     class="form-input" id="vg_${vt.key}" autocomplete="off" style="width:60px;padding:4px 6px;text-align:center;" /></td>
-      </tr>`;
-    }).join('');
-
-    this.showModal('✏️ แก้ไขข้อมูลบ้าน', `
-      <div class="section-label">ข้อมูลผู้สำรวจ</div>
-      <div class="form-grid">
-        <div class="form-row">
-          <label class="form-label">ชื่อ–สกุลผู้สำรวจ</label>
-          <input id="m_sname" class="form-input" autocomplete="off" value="${hh.surveyorName||''}" />
-        </div>
-        <div class="form-row">
-          <label class="form-label">ชื่อผู้ควบคุม / ตรวจสอบ</label>
-          <input id="m_supervisor" class="form-input" autocomplete="off" value="${hh.supervisorName||''}" />
-        </div>
-        <div class="form-row">
-          <label class="form-label">วันที่เดินทาง (วันที่สำรวจ)</label>
-          <input id="m_travelDate" class="form-input" type="date" autocomplete="off" value="${hh.travelDate||this._lastFriday()}" />
-        </div>
-      </div>
-      <div class="section-label">ที่อยู่</div>
-      <div class="form-grid">
-        <div class="form-row"><label class="form-label">บ้านเลขที่</label>
-          <input id="m_houseNo" class="form-input" autocomplete="off" value="${hh.houseNo||''}" /></div>
-        <div class="form-row"><label class="form-label">หมู่ที่</label>
-          <input id="m_moo" class="form-input" type="number" min="1" inputmode="numeric" autocomplete="off" value="${hh.moo||''}" /></div>
-      </div>
-      <div class="form-grid">
-        <div class="form-row"><label class="form-label">ตรอก / ซอย</label>
-          <input id="m_alley" class="form-input" autocomplete="off" value="${hh.alley||''}" /></div>
-        <div class="form-row"><label class="form-label">ถนน</label>
-          <input id="m_road" class="form-input" autocomplete="off" value="${hh.road||''}" /></div>
-        <div class="form-row"><label class="form-label">โทรศัพท์ (10 หลัก)</label>
-          <input id="m_phone" class="form-input" type="tel" inputmode="numeric"
-            maxlength="10" pattern="0[0-9]{9}" placeholder="0xxxxxxxxx" autocomplete="off" value="${hh.phone||''}" /></div>
-      </div>
-      <div class="form-row">
-        <label class="form-label">พิกัด GPS</label>
-        <div style="display:flex;gap:6px;">
-          <input id="m_coords" class="form-input" autocomplete="off" value="${hh.coordinates||''}" style="flex:1;min-width:0;" />
-          <button type="button" id="gpsBtn_m_coords" onclick="App._useGPS('m_coords')"
-            style="padding:9px 12px;background:#f0fdf4;color:#16a34a;border:1.5px solid #16a34a;
-                   border-radius:var(--radius-sm);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">📍 GPS</button>
-          <button type="button" onclick="MapPicker.open(document.getElementById('m_coords').value, v => { document.getElementById('m_coords').value = v; })"
-            style="padding:9px 12px;background:var(--primary-light);color:var(--primary);border:1.5px solid var(--primary);
-                   border-radius:var(--radius-sm);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">🗺</button>
-        </div>
-      </div>
-      <div class="section-label">ประเภทที่อยู่อาศัย</div>
-      <div class="form-row">
-        <select id="m_restype" class="form-select" autocomplete="off">
-          <option value="">— เลือกประเภท —</option>${resOpts}
-        </select>
-      </div>
-      <div class="section-label">จำนวนผู้อยู่อาศัยในครัวเรือน</div>
-      <div class="mg-input-grid">${gridCards}</div>
-      <div class="section-label">รายได้และยานพาหนะ</div>
-      <div class="form-row">
-        <label class="form-label">รายได้ทั้งหมดของครัวเรือน (บาท/เดือน)</label>
-        <select id="m_income" class="form-select" autocomplete="off">
-          <option value="">— เลือก —</option>${incomeOpts}
-        </select>
-      </div>
-      <div class="form-row">
-        <label class="form-label">การครอบครองยานพาหนะ</label>
-        <div class="radio-group" id="m_vehicleGrp">
-          <div class="radio-opt ${hh.hasVehicle==='ไม่มี'?'sel':''}" onclick="App._pickVehicle('ไม่มี',this)"><div class="radio-dot"></div>ไม่มียานพาหนะ</div>
-          <div class="radio-opt ${hh.hasVehicle==='มี'?'sel':''}" onclick="App._pickVehicle('มี',this)"><div class="radio-dot"></div>มียานพาหนะ</div>
-        </div>
-        <input type="hidden" id="m_vehicle" value="${hh.hasVehicle||''}" />
-      </div>
-      <div id="vehicleDetail" style="display:${hh.hasVehicle==='มี'?'block':'none'};margin-top:10px;overflow-x:auto;border:1px solid var(--gray-200);border-radius:var(--radius-sm);">
-        <div style="padding:8px 12px;background:var(--gray-50);border-bottom:1px solid var(--gray-200);font-size:12px;font-weight:600;color:var(--gray-500);">เลือกประเภทยานพาหนะที่มี → ระบุจำนวนคัน</div>
-        <div style="padding:10px 12px;display:flex;gap:10px;flex-wrap:wrap;border-bottom:1px solid var(--gray-100);">
-          ${OPT.vehicleTypes.map(vt => {
-            const v = hh.vehicles?.[vt.key];
-            const checked = v && ((+v.private||0)+(+v.company||0)+(+v.gov||0)) > 0;
-            return `<label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;white-space:nowrap;">
-              <input type="checkbox" ${checked?'checked':''} style="accent-color:var(--primary);" onchange="App._toggleVehicleRow('${vt.key}',this.checked)" />
-              ${vt.icon} ${vt.label}</label>`;
-          }).join('')}
-        </div>
-        <table style="width:100%;border-collapse:collapse;">
-          <thead><tr style="background:var(--gray-50);">
-            <th style="padding:6px 8px;font-size:12px;color:var(--gray-500);text-align:left;font-weight:600;">ประเภท</th>
-            <th style="padding:6px 8px;font-size:12px;color:var(--gray-500);text-align:center;font-weight:600;">ส่วนตัว</th>
-            <th style="padding:6px 8px;font-size:12px;color:var(--gray-500);text-align:center;font-weight:600;">บริษัท</th>
-            <th style="padding:6px 8px;font-size:12px;color:var(--gray-500);text-align:center;font-weight:600;">ราชการ/รัฐ</th>
-          </tr></thead>
-          <tbody>${vhRows}</tbody>
-        </table>
-      </div>`,
+    this.showModal('✏️ แก้ไขข้อมูลบ้าน', this._hhFormHTML(hh),
       `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
        <button class="btn btn-primary" onclick="App.saveEditHousehold('${id}')">บันทึก</button>`
     );
   },
 
   saveEditHousehold(id) {
-    const memberGrid = {};
-    OPT.memberGridRows.forEach(row => {
-      memberGrid[row.key] = +(document.getElementById('mg_' + row.key)?.value || 0);
-    });
-    const vehicle = document.getElementById('m_vehicle')?.value;
-    const vehicles = {};
-    if (vehicle === 'มี') {
-      OPT.vehicleTypes.forEach(vt => {
-        const p = +(document.getElementById('vp_' + vt.key)?.value || 0);
-        const c = +(document.getElementById('vc_' + vt.key)?.value || 0);
-        const g = +(document.getElementById('vg_' + vt.key)?.value || 0);
-        if (p || c || g) vehicles[vt.key] = { private: p, company: c, gov: g };
-      });
-    }
-    DB.updateHousehold(id, {
-      surveyorName:    document.getElementById('m_sname')?.value.trim()      || '',
-      supervisorName:  document.getElementById('m_supervisor')?.value.trim() || '',
-      travelDate:      document.getElementById('m_travelDate')?.value        || '',
-      houseNo:         document.getElementById('m_houseNo')?.value.trim()    || '',
-      moo:             document.getElementById('m_moo')?.value.trim()        || '',
-      alley:           document.getElementById('m_alley')?.value.trim()      || '',
-      road:            document.getElementById('m_road')?.value.trim()       || '',
-      phone:           document.getElementById('m_phone')?.value.trim()      || '',
-      coordinates:     document.getElementById('m_coords')?.value.trim()     || '',
-      residentialType: document.getElementById('m_restype')?.value           || '',
-      memberGrid, householdIncome: document.getElementById('m_income')?.value || '',
-      hasVehicle: vehicle || '', vehicles
-    });
+    const data = this._readHhForm();
+    const errs = this._validateHhForm(data);
+    if (errs.length) { this.toast('กรุณากรอก: ' + errs.join(', '), 'error'); return; }
+    this._saveSurveyorNames(data.surveyorName, data.supervisorName);
+    DB.updateHousehold(id, data);
     this.closeModal();
     this.toast('บันทึกข้อมูลบ้านแล้ว', 'success');
     this.render();
@@ -965,21 +923,15 @@ const App = {
       </div>`;
 
     this.showModal(isEdit ? '✏️ แก้ไขการเดินทาง' : '🚗 เพิ่มการเดินทาง', `
-      <!-- ต้นทาง -->
+      <!-- ต้นทาง (read-only — auto-filled จากบ้านหรือปลายทางครั้งก่อน) -->
       <div class="section-label">ต้นทาง</div>
       <div class="form-row">
-        <label class="form-label">สถานที่ตั้งต้นทาง</label>
-        <div style="display:flex;gap:8px;">
-          <input id="t_origin" class="form-input" autocomplete="off"
-            placeholder="เช่น บ้าน, สำนักงาน" value="${defOrigin}" style="flex:1;min-width:0;" />
-          <button type="button" id="gpsBtn_t_originCoords" onclick="App._useGPS('t_originCoords')"
-            style="padding:9px 10px;background:#f0fdf4;color:#16a34a;border:1.5px solid #16a34a;
-                   border-radius:var(--radius-sm);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">📍</button>
-          <button type="button" onclick="App._openMap('t_originCoords')"
-            style="padding:9px 10px;background:var(--primary-light);color:var(--primary);
-                   border:1.5px solid var(--primary);border-radius:var(--radius-sm);
-                   font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">🗺</button>
-        </div>
+        <label class="form-label">สถานที่ตั้งต้นทาง
+          <span style="font-size:11px;font-weight:400;color:var(--gray-400);margin-left:6px;">🔒 กำหนดอัตโนมัติ</span>
+        </label>
+        <input id="t_origin" class="form-input" readonly autocomplete="off"
+          value="${defOrigin}"
+          style="background:var(--gray-50);color:var(--gray-600);cursor:default;" />
         <input type="hidden" id="t_originCoords" value="${defOriginCoords}" />
         ${defOriginCoords ? `<div style="font-size:11px;color:var(--gray-400);margin-top:3px;">📍 ${defOriginCoords}</div>` : ''}
       </div>
@@ -991,7 +943,7 @@ const App = {
           </select>
         </div>
         <div class="form-row">
-          <label class="form-label">เวลาที่เริ่มเดินทาง${prevArrival ? ` <span style="font-size:11px;color:var(--gray-400);">(ครั้งที่แล้วถึง ${prevArrival})</span>` : ''}</label>
+          <label class="form-label req">เวลาที่เริ่มเดินทาง${prevArrival ? ` <span style="font-size:11px;color:var(--gray-400);">(ครั้งที่แล้วถึง ${prevArrival})</span>` : ''}</label>
           <input id="t_depart" class="form-input" type="time" value="${defDepart}"
             oninput="App._calcArrival()" />
         </div>
@@ -999,7 +951,7 @@ const App = {
 
       <!-- วัตถุประสงค์ (ย้ายมาก่อนปลายทาง) -->
       <div class="form-row" style="margin-top:4px;">
-        <label class="form-label">วัตถุประสงค์การเดินทาง</label>
+        <label class="form-label req">วัตถุประสงค์การเดินทาง</label>
         <select id="t_purpose" class="form-select" autocomplete="off"
           onchange="App._onPurposeChange(this.value)">
           <option value="">— เลือก —</option>${selOpt(OPT.purpose, t?.purpose || '')}
@@ -1045,7 +997,7 @@ const App = {
       </div>
 
       <!-- ช่วงการเดินทาง -->
-      <div class="section-label">ยานพาหนะ / รูปแบบการเดินทาง</div>
+      <div class="section-label">ยานพาหนะ / รูปแบบการเดินทาง <span style="font-size:11px;font-weight:400;color:var(--danger);">*ต้องมีอย่างน้อย 1 ช่วง</span></div>
       <div id="segContainer">${segs.map((s, i) => segHTML(s, i)).join('')}</div>
       <button type="button" onclick="App._addSeg()"
         style="width:100%;padding:9px;border:1.5px dashed var(--gray-300);background:transparent;
@@ -1237,7 +1189,16 @@ const App = {
       });
     });
 
-    const departureTime = document.getElementById('t_depart')?.value || '';
+    const purpose       = document.getElementById('t_purpose')?.value   || '';
+    const departureTime = document.getElementById('t_depart')?.value    || '';
+
+    // --- validate required ---
+    if (!purpose)       { this.toast('กรุณาเลือกวัตถุประสงค์การเดินทาง', 'error'); return; }
+    if (!departureTime) { this.toast('กรุณากรอกเวลาออกเดินทาง', 'error'); return; }
+    if (!segments.length || !segments[0].mode) {
+      this.toast('กรุณาระบุวิธีเดินทางอย่างน้อย 1 ช่วง', 'error'); return;
+    }
+
     // validate เวลาออกต้องมากกว่าครั้งก่อน
     if (!this.editingTripId && departureTime) {
       const m2 = DB.getMember(this.hhId, this.memberId);
@@ -1258,7 +1219,7 @@ const App = {
       destinationCoords: document.getElementById('t_destinationCoords')?.value.trim() || '',
       destinationType:   document.getElementById('t_destType')?.value             || '',
       arrivalTime:       document.getElementById('t_arrive_hidden')?.value        || '',
-      purpose:           document.getElementById('t_purpose')?.value              || '',
+      purpose,
       segments,
       parkingLocation:   document.getElementById('t_park')?.value.trim()          || '',
       parkingFee:        document.getElementById('t_parkFee')?.value              || ''

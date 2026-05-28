@@ -28,6 +28,8 @@ const DB = {
       surveyorName:    data.surveyorName    || '',
       supervisorName:  data.supervisorName  || '',
       subdistrict:     data.subdistrict     || '',
+      district:        data.district        || 'บ้านไผ่',
+      province:        data.province        || 'ขอนแก่น',
       areaCode:        data.areaCode        || '',
       houseNo:         data.houseNo         || '',
       moo:             data.moo             || '',
