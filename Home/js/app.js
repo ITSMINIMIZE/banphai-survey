@@ -1,10 +1,12 @@
 // ===== HOME INTERVIEW APP (v2) =====
 const App = {
   page: 'home', hhId: null, memberId: null, memberTab: 'info', editingTripId: null,
+  _mapActive: false,
 
   init() { DB.load(); this.navigate('home'); },
 
   navigate(page, hhId, memberId) {
+    if (this._mapActive) { MapDashboard.destroy(); this._mapActive = false; }
     this.page = page;
     if (hhId !== undefined) this.hhId = hhId;
     if (memberId !== undefined) this.memberId = memberId;
@@ -39,6 +41,11 @@ const App = {
         <a onclick="App.navigate('household','${this.hhId}')">${hh ? (hh.houseNo ? 'บ้านเลขที่ ' + hh.houseNo : hh.id) : ''}</a>
         <span>›</span> สมาชิกที่ ${m ? m.seq : ''}`;
       app.innerHTML = this.pageMember();
+    } else if (this.page === 'map') {
+      bc.className = 'breadcrumb visible';
+      bc.innerHTML = `<a onclick="App.navigate('home')">หน้าหลัก</a> <span>›</span> แผนที่สำรวจ`;
+      app.innerHTML = this.pageMap();
+      setTimeout(() => { MapDashboard.init(); this._mapActive = true; }, 100);
     }
   },
 
@@ -65,6 +72,7 @@ const App = {
           <div class="sec-sub">พบ ${hhs.length} ครัวเรือน</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-ghost btn-sm" onclick="App.navigate('map')">🗺 แผนที่สำรวจ</button>
           ${hhs.length > 0 ? `
             <button class="btn btn-ghost btn-sm" onclick="App.exportData()">⬇ Export Excel</button>
             <button class="btn btn-ghost btn-sm" id="syncBtn" onclick="App.syncToCloud()">☁️ Sync</button>
@@ -214,6 +222,26 @@ const App = {
             </div>
           </div>`;
         }).join('')}</div>`}
+    </div>`;
+  },
+
+  // ===================== PAGE: MAP DASHBOARD =====================
+  pageMap() {
+    return `<div class="map-page">
+      <div class="map-layout">
+        <div class="map-main">
+          <div id="surveyMapContainer"></div>
+        </div>
+        <div class="map-panel" id="mapStatsPanel">
+          <div class="map-panel-header">
+            <div class="sec-title">สถิติตามโซน</div>
+            <div class="sec-sub" id="mapTotalCount">กำลังโหลด...</div>
+          </div>
+          <div class="zone-list" id="zoneList">
+            <div class="zone-empty">กำลังโหลด...</div>
+          </div>
+        </div>
+      </div>
     </div>`;
   },
 
