@@ -234,7 +234,7 @@ const App = {
         </div>
         <div class="map-panel" id="mapStatsPanel">
           <div class="map-panel-header">
-            <div class="sec-title">สถิติตามโซน</div>
+            <div class="sec-title">Survey collections</div>
             <div class="sec-sub" id="mapTotalCount">กำลังโหลด...</div>
           </div>
           <div class="zone-list" id="zoneList">
