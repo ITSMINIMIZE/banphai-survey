@@ -100,20 +100,29 @@ const FB = {
 
   async pullBySurveyor(surveyorName) {
     if (!this.db) throw new Error('Firebase ไม่พร้อม');
+    // ดึงทุกจุดสำรวจ (เพื่อให้เห็นว่ามีจุดไหนบ้าง)
+    // แต่สำหรับจุดที่ไม่ใช่ของตัวเอง ล้าง interviews ออก
     const snap = await this._withTimeout(
-      this.db.collection(this.COLLECTION).where('surveyorName','==',surveyorName).get(),
+      this.db.collection(this.COLLECTION).get(),
       20000
     );
+    if (snap.empty) throw new Error('ไม่มีข้อมูลใน Firestore');
     const remoteMap = {};
     snap.docs.forEach(doc => {
       const d = doc.data();
       delete d._device; delete d._syncedAt;
+      if (d.surveyorName !== surveyorName) {
+        d.interviews = []; // เห็นจุดสำรวจแต่ไม่เห็นข้อมูลของคนอื่น
+      }
       remoteMap[d.id] = d;
     });
     const local = DB.load();
     const localMap = {};
-    local.stations.forEach(s => { localMap[s.id] = s; });
-    const merged  = Object.values({ ...localMap, ...remoteMap });
+    // ข้อมูลของตัวเองในเครื่องมีสิทธิ์เขียนทับ remote (merge ให้ local ชนะ)
+    local.stations.forEach(s => {
+      if (s.surveyorName === surveyorName) localMap[s.id] = s;
+    });
+    const merged  = Object.values({ ...remoteMap, ...localMap });
     const newData = { stations: merged };
     localStorage.setItem(DB.KEY, JSON.stringify(newData));
     DB._data = newData;

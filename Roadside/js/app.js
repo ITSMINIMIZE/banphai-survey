@@ -242,10 +242,45 @@ const App = {
 
   // ===================== PAGE: HOME =====================
   pageHome() {
-    const isAdmin = this._role === 'admin';
-    const allSts  = DB.getStations();
-    const sts     = isAdmin ? allSts : allSts.filter(s => s.surveyorName === this._surveyorName);
-    const ivCount = sts.reduce((s, st) => s + st.interviews.length, 0);
+    const isAdmin  = this._role === 'admin';
+    const allSts   = DB.getStations();
+    const mySts    = isAdmin ? allSts : allSts.filter(s => s.surveyorName === this._surveyorName);
+    const otherSts = isAdmin ? [] : allSts.filter(s => s.surveyorName !== this._surveyorName);
+    const ivCount  = mySts.reduce((s, st) => s + st.interviews.length, 0);
+
+    const stationCard = (st, isMine) => {
+      const dirTag = st.direction ? `<span class="tag tag-orange">↔ ${st.direction}</span>` : '';
+      if (isMine) {
+        return `<div class="hh-card" onclick="App.navigate('station','${st.id}')">
+          <div class="hh-card-icon">🚦</div>
+          <div class="hh-card-body">
+            <div class="hh-card-id">${st.stationName || 'ไม่ระบุชื่อจุด'}</div>
+            <div class="hh-card-addr">${[st.road, st.district, st.province].filter(Boolean).join(' · ') || 'ไม่ระบุสถานที่'}</div>
+            <div class="hh-card-tags">
+              <span class="tag tag-green">📋 ${st.interviews.length} ราย</span>
+              ${dirTag}
+              <span class="tag tag-gray">📅 ${st.surveyDate}</span>
+            </div>
+          </div>
+          <div class="hh-card-arrow">›</div>
+        </div>`;
+      } else {
+        return `<div class="hh-card" onclick="App.navigate('station','${st.id}')"
+          style="opacity:.75;">
+          <div class="hh-card-icon" style="background:var(--gray-100);border-color:var(--gray-200);">🚦</div>
+          <div class="hh-card-body">
+            <div class="hh-card-id">${st.stationName || 'ไม่ระบุชื่อจุด'}</div>
+            <div class="hh-card-addr">${[st.road, st.district, st.province].filter(Boolean).join(' · ') || 'ไม่ระบุสถานที่'}</div>
+            <div class="hh-card-tags">
+              ${dirTag}
+              <span class="tag tag-gray">📅 ${st.surveyDate}</span>
+              <span class="tag tag-gray">👤 ${st.surveyorName || 'ไม่ระบุ'}</span>
+            </div>
+          </div>
+          <div class="hh-card-arrow" style="font-size:12px;color:var(--gray-400);">ดู</div>
+        </div>`;
+      }
+    };
 
     return `<div class="page container">
       <div class="dash-hero">
@@ -254,52 +289,43 @@ const App = {
           <p>โครงการวางผังเมืองรวมอำเภอบ้านไผ่ จ.ขอนแก่น</p>
         </div>
         <div class="dash-stats">
-          <div class="dash-stat"><div class="dash-stat-val">${sts.length}</div><div class="dash-stat-lbl">จุดสำรวจ</div></div>
+          <div class="dash-stat"><div class="dash-stat-val">${mySts.length}</div><div class="dash-stat-lbl">${isAdmin ? 'จุดสำรวจ' : 'จุดของฉัน'}</div></div>
           <div class="dash-stat"><div class="dash-stat-val">${ivCount}</div><div class="dash-stat-lbl">การสำรวจ</div></div>
+          ${!isAdmin && otherSts.length > 0 ? `<div class="dash-stat"><div class="dash-stat-val">${otherSts.length}</div><div class="dash-stat-lbl">จุดอื่น</div></div>` : ''}
         </div>
       </div>
 
       <div class="sec-header">
         <div>
           <div class="sec-title">รายการจุดสำรวจ</div>
-          <div class="sec-sub">พบ ${sts.length} จุดสำรวจ${!isAdmin ? ' (ของคุณ)' : ''}</div>
+          <div class="sec-sub">พบ ${allSts.length} จุดสำรวจ${!isAdmin ? ` · ของฉัน ${mySts.length} จุด` : ''}</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          ${isAdmin && sts.length > 0 ? `<button class="btn btn-ghost btn-sm" onclick="App.exportData()">⬇ Export Excel</button>` : ''}
-          ${sts.length > 0 ? `<button class="btn btn-ghost btn-sm" id="syncBtn" onclick="App.syncToCloud()">☁️ Sync</button>` : ''}
-          ${isAdmin && sts.length > 0 ? `<button class="btn btn-danger btn-sm" onclick="App.confirmClearAll()">🗑 ล้างข้อมูล</button>` : ''}
+          ${isAdmin && allSts.length > 0 ? `<button class="btn btn-ghost btn-sm" onclick="App.exportData()">⬇ Export Excel</button>` : ''}
+          ${mySts.length > 0 ? `<button class="btn btn-ghost btn-sm" id="syncBtn" onclick="App.syncToCloud()">☁️ Sync</button>` : ''}
+          ${isAdmin && allSts.length > 0 ? `<button class="btn btn-danger btn-sm" onclick="App.confirmClearAll()">🗑 ล้างข้อมูล</button>` : ''}
           <button class="btn btn-ghost btn-sm" id="pullBtn" onclick="App.pullFromCloud()">☁️ ดึงข้อมูล</button>
-          <button class="btn btn-primary" onclick="App.openAddStation()">+ เพิ่มจุดสำรวจ</button>
+          ${isAdmin ? `<button class="btn btn-primary" onclick="App.openAddStation()">+ เพิ่มจุดสำรวจ</button>` : ''}
         </div>
       </div>
 
-      ${sts.length === 0 ? `
+      ${allSts.length === 0 ? `
         <div class="empty">
           <span class="empty-icon">🚦</span>
           <h3>ยังไม่มีจุดสำรวจ</h3>
-          <p>กดปุ่มด้านบนเพื่อเริ่มบันทึกข้อมูล หรือดึงข้อมูลจาก Firebase</p>
+          <p>${isAdmin ? 'กดปุ่มด้านบนเพื่อเริ่มบันทึกข้อมูล หรือดึงข้อมูลจาก Firebase' : 'กด "ดึงข้อมูล" เพื่อโหลดจุดสำรวจที่ admin สร้างไว้'}</p>
           <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-            <button class="btn btn-primary" onclick="App.openAddStation()">+ เพิ่มจุดสำรวจแรก</button>
+            ${isAdmin ? `<button class="btn btn-primary" onclick="App.openAddStation()">+ เพิ่มจุดสำรวจแรก</button>` : ''}
             <button class="btn btn-ghost" id="pullBtn" onclick="App.pullFromCloud()">☁️ ดึงข้อมูลจาก Firebase</button>
           </div>
-        </div>` :
-        `<div class="hh-list">${sts.map(st => {
-          const dirTag = st.direction ? `<span class="tag tag-orange">↔ ${st.direction}</span>` : '';
-          return `<div class="hh-card" onclick="App.navigate('station','${st.id}')">
-            <div class="hh-card-icon">🚦</div>
-            <div class="hh-card-body">
-              <div class="hh-card-id">${st.stationName || 'ไม่ระบุชื่อจุด'}</div>
-              <div class="hh-card-addr">${[st.road, st.district, st.province].filter(Boolean).join(' · ') || 'ไม่ระบุสถานที่'}</div>
-              <div class="hh-card-tags">
-                <span class="tag tag-green">📋 ${st.interviews.length} ราย</span>
-                ${dirTag}
-                <span class="tag tag-gray">📅 ${st.surveyDate}</span>
-                ${st.stationCode ? `<span class="tag tag-gray">รหัส: ${st.stationCode}</span>` : ''}
-              </div>
-            </div>
-            <div class="hh-card-arrow">›</div>
-          </div>`;
-        }).join('')}</div>`}
+        </div>` : `
+        <div class="hh-list">
+          ${mySts.map(st => stationCard(st, true)).join('')}
+          ${otherSts.length > 0 ? `
+            <div class="section-label" style="margin-top:18px;">จุดสำรวจอื่น (ดูได้อย่างเดียว)</div>
+            ${otherSts.map(st => stationCard(st, false)).join('')}
+          ` : ''}
+        </div>`}
     </div>`;
   },
 
@@ -307,6 +333,8 @@ const App = {
   pageStation() {
     const st = DB.getStation(this.stId);
     if (!st) return '<div class="container"><p>ไม่พบข้อมูล</p></div>';
+    const isAdmin = this._role === 'admin';
+    const isMine  = isAdmin || st.surveyorName === this._surveyorName || !st.surveyorName;
 
     return `<div class="page container">
       <div class="hh-detail-header">
@@ -323,18 +351,18 @@ const App = {
             ${st.coordinates   ? `<span class="tag tag-blue">📍 ${st.coordinates}</span>`              : ''}
           </div>
         </div>
-        <div style="display:flex;gap:6px;flex-shrink:0;">
+        ${isMine ? `<div style="display:flex;gap:6px;flex-shrink:0;">
           <button class="btn btn-ghost btn-sm" onclick="App.openEditStation('${st.id}')">✏️ แก้ไข</button>
-          <button class="btn btn-danger btn-sm" onclick="App.confirmDeleteStation('${st.id}')">ลบ</button>
-        </div>
+          ${isAdmin ? `<button class="btn btn-danger btn-sm" onclick="App.confirmDeleteStation('${st.id}')">ลบ</button>` : ''}
+        </div>` : `<span class="tag tag-gray" style="flex-shrink:0;">👁 ดูอย่างเดียว</span>`}
       </div>
 
       <div class="sec-header">
         <div>
           <div class="sec-title">รายการการสำรวจ</div>
-          <div class="sec-sub">บันทึกทุกคัน/ทุกคนที่หยุดสำรวจ · พบ ${st.interviews.length} ราย</div>
+          <div class="sec-sub">${isMine ? `บันทึกทุกคัน/ทุกคนที่หยุดสำรวจ · พบ ${st.interviews.length} ราย` : 'ข้อมูลของผู้สำรวจท่านนี้'}</div>
         </div>
-        <button class="btn btn-primary" onclick="App.openWizard()">+ เพิ่มการสำรวจ</button>
+        ${isMine ? `<button class="btn btn-primary" onclick="App.openWizard()">+ เพิ่มการสำรวจ</button>` : ''}
       </div>
 
       ${st.interviews.length > 0 ? `
