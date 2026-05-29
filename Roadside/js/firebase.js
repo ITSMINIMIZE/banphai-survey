@@ -77,27 +77,33 @@ const FB = {
         await this._withTimeout(batch.commit());
       }
     } else {
-      // surveyor: ดึง remote ก่อน แล้ว merge interview ของตัวเองเข้าไป
+      // surveyor: ดึง remote ก่อน (server-only, ข้าม cache) แล้ว merge interview ของตัวเองเข้าไป
       const snap = await this._withTimeout(
-        this.db.collection(this.COLLECTION).get(), 20000
+        this.db.collection(this.COLLECTION).get({ source: 'server' }), 20000
       );
       const remoteMap = {};
       snap.docs.forEach(doc => { remoteMap[doc.id] = doc.data(); });
 
       const batch = this.db.batch();
+      let ivCount = 0;
+      let stCount = 0;
       for (const st of sts) {
         const remote = remoteMap[st.id];
-        if (remote) {
-          // เอา interview คนอื่นจาก remote + interview ของตัวเองจาก local
-          const othersIvs = (remote.interviews || []).filter(iv => iv.surveyorName !== surveyorName);
-          const myIvs     = (st.interviews     || []).filter(iv => iv.surveyorName === surveyorName);
-          const merged = [...othersIvs, ...myIvs];
-          const ref = this.db.collection(this.COLLECTION).doc(st.id);
-          batch.update(ref, { interviews: merged, _device: device, _syncedAt: syncedAt });
-        }
-        // ถ้าไม่มี remote → ไม่สร้างใหม่ (station สร้างโดย admin เท่านั้น)
+        if (!remote) continue; // station ไม่มีบน cloud → ข้าม
+        const othersIvs = (remote.interviews || []).filter(iv => iv.surveyorName !== surveyorName);
+        const myIvs     = (st.interviews     || []).filter(iv => iv.surveyorName === surveyorName);
+        if (myIvs.length === 0) continue; // ไม่มี iv ของตัวเอง → ข้าม
+        const merged = [...othersIvs, ...myIvs];
+        const ref = this.db.collection(this.COLLECTION).doc(st.id);
+        // ใช้ set+merge เพื่อกัน fail ถ้า doc โดนลบ และ force write จริง (ไม่ใช่ cache)
+        batch.set(ref, { interviews: merged, _device: device, _syncedAt: syncedAt }, { merge: true });
+        ivCount += myIvs.length;
+        stCount++;
       }
+      if (stCount === 0) throw new Error('ไม่มีการสำรวจของคุณที่จะ sync (อาจขึ้นไปแล้ว)');
       await this._withTimeout(batch.commit());
+      localStorage.setItem('_ri_last_sync', syncedAt);
+      return ivCount; // ส่งจำนวน interview จริง
     }
 
     localStorage.setItem('_ri_last_sync', syncedAt);
@@ -154,22 +160,20 @@ const FB = {
       remoteMap[d.id] = d;
     });
     const local = DB.load();
-    // merge: รวม interview ของตัวเองจาก local เข้ากับ remote (ป้องกันข้อมูลหาย)
-    const localMap = {};
+    // surveyor ไม่สร้าง station เอง → ใช้เฉพาะ station จาก Firestore
+    // แต่ merge interview ของตัวเองที่ยังไม่ sync ขึ้นไป
     local.stations.forEach(s => {
       const remote = remoteMap[s.id];
       if (remote) {
-        // รวม interview จาก local ที่ยังไม่มีใน remote
         const remoteIds = new Set(remote.interviews.map(iv => iv.id));
         const localOnly = (s.interviews || []).filter(iv =>
           iv.surveyorName === surveyorName && !remoteIds.has(iv.id)
         );
-        remote.interviews = [...remote.interviews, ...localOnly];
-      } else {
-        localMap[s.id] = s;
+        if (localOnly.length) remote.interviews = [...remote.interviews, ...localOnly];
       }
+      // ถ้าไม่มีใน remote → ทิ้ง (surveyor ไม่มีสิทธิ์สร้าง station)
     });
-    const merged  = Object.values({ ...remoteMap, ...localMap });
+    const merged = Object.values(remoteMap);
     const newData = { stations: merged };
     localStorage.setItem(DB.KEY, JSON.stringify(newData));
     DB._data = newData;

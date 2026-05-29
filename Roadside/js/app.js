@@ -1415,10 +1415,12 @@ const App = {
       if (typeof firebase === 'undefined') throw new Error('โหลด Firebase SDK ไม่สำเร็จ — ต้องการอินเทอร์เน็ต');
       if (!FB.db) FB.init();
       if (!FB.db) throw new Error('Firebase เชื่อมต่อไม่ได้ — ลองรีเฟรชหน้า');
-      const count = await FB.syncAll(this._role === 'admin' ? null : this._surveyorName);
+      const isAdmin  = this._role === 'admin';
+      const count    = await FB.syncAll(isAdmin ? null : this._surveyorName);
       const lastSync = FB.lastSync();
       const timeStr  = lastSync ? new Date(lastSync).toLocaleTimeString('th-TH') : '';
-      this.toast(`☁️ sync สำเร็จ ${count} จุดสำรวจ${timeStr ? ' · ' + timeStr : ''}`, 'success');
+      const unit     = isAdmin ? 'จุดสำรวจ' : 'การสำรวจ';
+      this.toast(`☁️ sync สำเร็จ ${count} ${unit}${timeStr ? ' · ' + timeStr : ''}`, 'success');
     } catch (e) {
       this.toast('sync ไม่สำเร็จ: ' + e.message, 'error');
     } finally {
