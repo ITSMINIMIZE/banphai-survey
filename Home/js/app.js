@@ -1629,6 +1629,7 @@ const App = {
     db.households = db.households.filter(h => !h.id.startsWith('HH-mock-'));
     db.households.push(...newHHs);
     localStorage.setItem(DB.KEY, JSON.stringify(db));
+    DB._data = null;   // clear cache ให้ load() อ่านใหม่จาก localStorage
     DB.load();
     this.toast(`✅ สร้าง 100 ครัวเรือนจำลองแล้ว — กด ☁️ Sync เพื่ออัปโหลด`, 'success');
     this.navigate('home');
