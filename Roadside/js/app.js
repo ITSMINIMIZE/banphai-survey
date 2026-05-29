@@ -404,6 +404,12 @@ const App = {
             </div>
           </div>`;
         }).join('')}</div>`}
+
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:20px;padding-top:16px;border-top:1px solid var(--gray-100);">
+        <button class="btn btn-ghost btn-sm" id="pullBtn" onclick="App.pullFromCloud()">☁️ ดึงข้อมูล</button>
+        <button class="btn btn-ghost btn-sm" id="syncBtn" onclick="App.syncToCloud()">☁️ Sync</button>
+        ${isAdmin ? `<button class="btn btn-danger btn-sm" onclick="App.confirmClearAll()">🗑 ล้างข้อมูล</button>` : ''}
+      </div>
     </div>`;
   },
 

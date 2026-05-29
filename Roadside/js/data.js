@@ -71,6 +71,7 @@ const DB = {
     const iv = {
       id:                   'IV-' + Date.now(),
       seq:                  st.interviews.length + 1,
+      surveyorName:         data.surveyorName         || '',
       interviewTime:        data.interviewTime        || '',
       vehicleType:          data.vehicleType          || '',
       licensePlate:         data.licensePlate         || '',
