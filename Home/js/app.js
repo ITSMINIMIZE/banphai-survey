@@ -554,7 +554,7 @@ const App = {
           </div>
         </div>
         <select id="mg_${row.key}" class="form-select" autocomplete="off">
-          ${[0,1,2,3,4,5].map(n => `<option value="${n}" ${n === +cur ? 'selected' : ''}>${n === 0 ? '0 คน' : n + ' คน'}</option>`).join('')}
+          ${[0,1,2,3,4,5].map(n => `<option value="${n}" ${n === +cur ? 'selected' : ''}>${n === 0 ? '' : n + ' คน'}</option>`).join('')}
         </select>
       </div>`;
     }).join('');
@@ -598,9 +598,6 @@ const App = {
           <button type="button" id="gpsBtn_m_coords" onclick="App._useGPS('m_coords')"
             style="padding:9px 12px;background:#f0fdf4;color:#16a34a;border:1.5px solid #16a34a;
                    border-radius:var(--radius-sm);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">📍 GPS</button>
-          <button type="button" onclick="MapPicker.open(document.getElementById('m_coords').value, v => { document.getElementById('m_coords').value = v; })"
-            style="padding:9px 12px;background:var(--primary-light);color:var(--primary);border:1.5px solid var(--primary);
-                   border-radius:var(--radius-sm);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">🗺</button>
         </div>
       </div>
       <div class="form-grid">
@@ -626,21 +623,23 @@ const App = {
       <div class="form-grid">
         <div class="form-row">
           <label class="form-label req">ตำบล</label>
-          <input id="m_subdistrict" class="form-input" autocomplete="off" placeholder="เช่น บ้านไผ่" value="${hh?.subdistrict||''}" />
+          <input id="m_subdistrict" class="form-input" autocomplete="off" placeholder="กด GPS เพื่อดึงอัตโนมัติ" value="${hh?.subdistrict||''}" />
         </div>
         <div class="form-row">
           <label class="form-label req">อำเภอ</label>
-          <input id="m_district" class="form-input" autocomplete="off" value="${hh?.district||'บ้านไผ่'}" />
+          <input id="m_district" class="form-input" autocomplete="off" placeholder="กด GPS เพื่อดึงอัตโนมัติ" value="${hh?.district||''}" />
         </div>
         <div class="form-row">
           <label class="form-label">จังหวัด</label>
-          <input id="m_province" class="form-input" autocomplete="off" value="${hh?.province||'ขอนแก่น'}" />
+          <input id="m_province" class="form-input" autocomplete="off" placeholder="กด GPS เพื่อดึงอัตโนมัติ" value="${hh?.province||''}" />
         </div>
       </div>
       <div class="form-row">
-        <label class="form-label">โทรศัพท์ (10 หลัก)</label>
+        <label class="form-label">โทรศัพท์</label>
         <input id="m_phone" class="form-input" type="tel" inputmode="numeric"
-          maxlength="10" pattern="0[0-9]{9}" placeholder="0xxxxxxxxx" autocomplete="off" value="${hh?.phone||''}" />
+          maxlength="12" placeholder="08x-xxx-xxxx" autocomplete="off"
+          oninput="App._formatPhone(this)"
+          value="${App._displayPhone(hh?.phone||'')}" />
       </div>
 
       <div class="section-label">ประเภทที่อยู่อาศัย</div>
@@ -716,9 +715,9 @@ const App = {
       alley:           document.getElementById('m_alley')?.value.trim()       || '',
       road:            document.getElementById('m_road')?.value.trim()        || '',
       subdistrict:     document.getElementById('m_subdistrict')?.value.trim() || '',
-      district:        document.getElementById('m_district')?.value.trim()    || 'บ้านไผ่',
-      province:        document.getElementById('m_province')?.value.trim()    || 'ขอนแก่น',
-      phone:           document.getElementById('m_phone')?.value.trim()       || '',
+      district:        document.getElementById('m_district')?.value.trim()    || '',
+      province:        document.getElementById('m_province')?.value.trim()    || '',
+      phone:           (document.getElementById('m_phone')?.value || '').replace(/-/g,'').trim(),
       residentialType: document.getElementById('m_restype')?.value            || '',
       memberGrid,
       householdIncome: +(document.getElementById('m_income')?.value)          || 0,
@@ -1047,7 +1046,40 @@ const App = {
     );
   },
 
-  // ใช้ GPS เครื่องอ่านพิกัดปัจจุบัน (ทำงานออฟไลน์ได้)
+  // format/display phone helpers
+  _formatPhone(el) {
+    let v = el.value.replace(/\D/g, '').slice(0, 10);
+    if (v.length > 6) v = v.slice(0,3) + '-' + v.slice(3,6) + '-' + v.slice(6);
+    else if (v.length > 3) v = v.slice(0,3) + '-' + v.slice(3);
+    el.value = v;
+  },
+  _displayPhone(digits) {
+    if (!digits) return '';
+    const v = digits.replace(/\D/g,'');
+    if (v.length > 6) return v.slice(0,3) + '-' + v.slice(3,6) + '-' + v.slice(6);
+    if (v.length > 3) return v.slice(0,3) + '-' + v.slice(3);
+    return v;
+  },
+
+  // reverse geocode พิกัด → ตำบล/อำเภอ/จังหวัด (Longdo Maps API)
+  _reverseGeocode(lat, lon) {
+    const KEY = '4ffd5bcaa8a5941163c24dbe2a4401e8';
+    fetch(`https://api.longdo.com/map/services/address?lon=${lon}&lat=${lat}&noescape=1&key=${KEY}`)
+      .then(r => r.json())
+      .then(d => {
+        const sub = document.getElementById('m_subdistrict');
+        const dis = document.getElementById('m_district');
+        const pro = document.getElementById('m_province');
+        if (sub) sub.value = d.subdistrict || sub.value;
+        if (dis) dis.value = d.district    || dis.value;
+        if (pro) pro.value = d.province    || pro.value;
+        if (d.subdistrict || d.district)
+          this.toast(`พบที่อยู่: ต.${d.subdistrict||'?'} อ.${d.district||'?'}`, 'success');
+      })
+      .catch(() => {});
+  },
+
+  // ใช้ GPS เครื่องอ่านพิกัดปัจจุบัน
   _useGPS(coordsId) {
     if (!navigator.geolocation) {
       this.toast('เบราว์เซอร์นี้ไม่รองรับ GPS', 'error'); return;
@@ -1062,12 +1094,12 @@ const App = {
         const coords = `${lat}, ${lon}`;
         const el = document.getElementById(coordsId);
         if (el) el.value = coords;
-        // อัพเดต hint display
-        const hint = el?.nextElementSibling?.nextElementSibling; // ข้าม GPS btn + map btn
         const hintEl = document.querySelector(`[data-coordshint="${coordsId}"]`);
         if (hintEl) hintEl.textContent = '📍 ' + coords;
         if (btn) { btn.textContent = '📍'; btn.disabled = false; }
         this.toast(`รับพิกัด GPS: ${coords}`, 'success');
+        // ถ้าเป็นฟอร์มครัวเรือน ดึงชื่อตำบล/อำเภอ/จังหวัดอัตโนมัติ
+        if (coordsId === 'm_coords') this._reverseGeocode(lat, lon);
       },
       () => {
         if (btn) { btn.textContent = '📍 GPS'; btn.disabled = false; }
