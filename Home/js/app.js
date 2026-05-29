@@ -2,8 +2,17 @@
 const App = {
   page: 'home', hhId: null, memberId: null, memberTab: 'info', editingTripId: null,
   _mapActive: false,
+  _clientIp: '',
 
-  init() { DB.load(); this.navigate('home'); },
+  init() {
+    DB.load();
+    // ดึง Public IP ตอนเริ่ม (best-effort)
+    fetch('https://api.ipify.org?format=json')
+      .then(r => r.json())
+      .then(d => { this._clientIp = d.ip || ''; })
+      .catch(() => {});
+    this.navigate('home');
+  },
 
   navigate(page, hhId, memberId) {
     if (this._mapActive) { MapDashboard.destroy(); this._mapActive = false; }
@@ -155,6 +164,8 @@ const App = {
             ${hh.surveyorName  ? `<span class="tag tag-gray">🧑‍💼 ${hh.surveyorName}</span>`  : ''}
             ${hh.supervisorName? `<span class="tag tag-gray">👔 ${hh.supervisorName}</span>`  : ''}
             ${hh.coordinates   ? `<span class="tag tag-blue">📍 ${hh.coordinates}</span>`     : ''}
+            ${hh.deviceId      ? `<span class="tag tag-gray" title="Device ID: ${hh.deviceId}">💻 ${hh.deviceId.slice(0,8)}…</span>` : ''}
+            ${hh.clientIp      ? `<span class="tag tag-gray">🌐 ${hh.clientIp}</span>`          : ''}
           </div>
         </div>
         <div style="display:flex;gap:6px;flex-shrink:0;">
@@ -759,7 +770,12 @@ const App = {
     const errs = this._validateHhForm(data);
     if (errs.length) { this.toast('กรุณากรอก: ' + errs.join(', '), 'error'); return; }
     this._saveSurveyorNames(data.surveyorName, data.supervisorName);
-    const hh = DB.addHousehold({ ...data, surveyDate: new Date().toISOString().split('T')[0] });
+    const hh = DB.addHousehold({
+      ...data,
+      surveyDate: new Date().toISOString().split('T')[0],
+      deviceId:   (typeof FB !== 'undefined' ? FB.deviceId() : null) || localStorage.getItem('_device_id') || '',
+      clientIp:   this._clientIp || ''
+    });
     this.closeModal();
     this.toast('เพิ่มครัวเรือนแล้ว', 'success');
     this.navigate('household', hh.id);
@@ -1365,6 +1381,11 @@ const App = {
       'ถนน':                       hh.road,
       'โทรศัพท์':                  hh.phone,
       'พิกัด':                     hh.coordinates,
+      'ตำบล':                      hh.subdistrict,
+      'อำเภอ':                     hh.district,
+      'จังหวัด':                   hh.province,
+      'Device ID':                 hh.deviceId,
+      'IP เครื่อง':                hh.clientIp,
       'ประเภทที่อยู่อาศัย':        hh.residentialType,
       'สมาชิก ชาย-กำลังศึกษา':    +(hh.memberGrid?.m_study || 0),
       'สมาชิก ชาย-ทำงานแล้ว':     +(hh.memberGrid?.m_work  || 0),

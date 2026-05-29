@@ -42,6 +42,8 @@ const DB = {
       householdIncome: data.householdIncome || '',
       hasVehicle:      data.hasVehicle      || '',
       vehicles:        data.vehicles        || {},
+      deviceId:        data.deviceId        || '',
+      clientIp:        data.clientIp        || '',
       createdAt: new Date().toISOString(),
       members: []
     };
