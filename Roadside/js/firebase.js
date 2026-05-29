@@ -57,21 +57,49 @@ const FB = {
     ]);
   },
 
-  async syncAll() {
+  async syncAll(surveyorName) {
     if (!this.db) throw new Error('Firebase ไม่พร้อม');
     const sts = DB.getStations();
     if (!sts.length) throw new Error('ไม่มีข้อมูลจุดสำรวจ');
-    const device = this.deviceId();
+    const device   = this.deviceId();
     const syncedAt = new Date().toISOString();
+    const isAdmin  = !surveyorName;
     const CHUNK = 400;
-    for (let i = 0; i < sts.length; i += CHUNK) {
+
+    if (isAdmin) {
+      // admin sync ทุก station ตรงๆ
+      for (let i = 0; i < sts.length; i += CHUNK) {
+        const batch = this.db.batch();
+        for (const st of sts.slice(i, i + CHUNK)) {
+          const ref = this.db.collection(this.COLLECTION).doc(st.id);
+          batch.set(ref, { ...st, _device: device, _syncedAt: syncedAt });
+        }
+        await this._withTimeout(batch.commit());
+      }
+    } else {
+      // surveyor: ดึง remote ก่อน แล้ว merge interview ของตัวเองเข้าไป
+      const snap = await this._withTimeout(
+        this.db.collection(this.COLLECTION).get(), 20000
+      );
+      const remoteMap = {};
+      snap.docs.forEach(doc => { remoteMap[doc.id] = doc.data(); });
+
       const batch = this.db.batch();
-      for (const st of sts.slice(i, i + CHUNK)) {
-        const ref = this.db.collection(this.COLLECTION).doc(st.id);
-        batch.set(ref, { ...st, _device: device, _syncedAt: syncedAt });
+      for (const st of sts) {
+        const remote = remoteMap[st.id];
+        if (remote) {
+          // เอา interview คนอื่นจาก remote + interview ของตัวเองจาก local
+          const othersIvs = (remote.interviews || []).filter(iv => iv.surveyorName !== surveyorName);
+          const myIvs     = (st.interviews     || []).filter(iv => iv.surveyorName === surveyorName);
+          const merged = [...othersIvs, ...myIvs];
+          const ref = this.db.collection(this.COLLECTION).doc(st.id);
+          batch.update(ref, { interviews: merged, _device: device, _syncedAt: syncedAt });
+        }
+        // ถ้าไม่มี remote → ไม่สร้างใหม่ (station สร้างโดย admin เท่านั้น)
       }
       await this._withTimeout(batch.commit());
     }
+
     localStorage.setItem('_ri_last_sync', syncedAt);
     return sts.length;
   },
@@ -111,16 +139,25 @@ const FB = {
     snap.docs.forEach(doc => {
       const d = doc.data();
       delete d._device; delete d._syncedAt;
-      if (d.surveyorName !== surveyorName) {
-        d.interviews = []; // เห็นจุดสำรวจแต่ไม่เห็นข้อมูลของคนอื่น
-      }
+      // เห็นรายละเอียดจุดสำรวจทุกจุด แต่เห็น interview เฉพาะของตัวเอง
+      d.interviews = (d.interviews || []).filter(iv => iv.surveyorName === surveyorName);
       remoteMap[d.id] = d;
     });
     const local = DB.load();
+    // merge: รวม interview ของตัวเองจาก local เข้ากับ remote (ป้องกันข้อมูลหาย)
     const localMap = {};
-    // ข้อมูลของตัวเองในเครื่องมีสิทธิ์เขียนทับ remote (merge ให้ local ชนะ)
     local.stations.forEach(s => {
-      if (s.surveyorName === surveyorName) localMap[s.id] = s;
+      const remote = remoteMap[s.id];
+      if (remote) {
+        // รวม interview จาก local ที่ยังไม่มีใน remote
+        const remoteIds = new Set(remote.interviews.map(iv => iv.id));
+        const localOnly = (s.interviews || []).filter(iv =>
+          iv.surveyorName === surveyorName && !remoteIds.has(iv.id)
+        );
+        remote.interviews = [...remote.interviews, ...localOnly];
+      } else {
+        localMap[s.id] = s;
+      }
     });
     const merged  = Object.values({ ...remoteMap, ...localMap });
     const newData = { stations: merged };

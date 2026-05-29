@@ -302,7 +302,7 @@ const App = {
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           ${isAdmin && allSts.length > 0 ? `<button class="btn btn-ghost btn-sm" onclick="App.exportData()">⬇ Export Excel</button>` : ''}
-          ${mySts.length > 0 ? `<button class="btn btn-ghost btn-sm" id="syncBtn" onclick="App.syncToCloud()">☁️ Sync</button>` : ''}
+          ${allSts.length > 0 ? `<button class="btn btn-ghost btn-sm" id="syncBtn" onclick="App.syncToCloud()">☁️ Sync</button>` : ''}
           ${isAdmin && allSts.length > 0 ? `<button class="btn btn-danger btn-sm" onclick="App.confirmClearAll()">🗑 ล้างข้อมูล</button>` : ''}
           <button class="btn btn-ghost btn-sm" id="pullBtn" onclick="App.pullFromCloud()">☁️ ดึงข้อมูล</button>
           ${isAdmin ? `<button class="btn btn-primary" onclick="App.openAddStation()">+ เพิ่มจุดสำรวจ</button>` : ''}
@@ -334,7 +334,10 @@ const App = {
     const st = DB.getStation(this.stId);
     if (!st) return '<div class="container"><p>ไม่พบข้อมูล</p></div>';
     const isAdmin = this._role === 'admin';
-    const isMine  = isAdmin || st.surveyorName === this._surveyorName || !st.surveyorName;
+    // surveyor เห็นเฉพาะ interview ของตัวเอง (กรองตาม surveyorName ระดับ interview)
+    const myIvs   = isAdmin
+      ? st.interviews
+      : st.interviews.filter(iv => iv.surveyorName === this._surveyorName);
 
     return `<div class="page container">
       <div class="hh-detail-header">
@@ -351,34 +354,34 @@ const App = {
             ${st.coordinates   ? `<span class="tag tag-blue">📍 ${st.coordinates}</span>`              : ''}
           </div>
         </div>
-        ${isMine ? `<div style="display:flex;gap:6px;flex-shrink:0;">
+        ${isAdmin ? `<div style="display:flex;gap:6px;flex-shrink:0;">
           <button class="btn btn-ghost btn-sm" onclick="App.openEditStation('${st.id}')">✏️ แก้ไข</button>
-          ${isAdmin ? `<button class="btn btn-danger btn-sm" onclick="App.confirmDeleteStation('${st.id}')">ลบ</button>` : ''}
-        </div>` : `<span class="tag tag-gray" style="flex-shrink:0;">👁 ดูอย่างเดียว</span>`}
+          <button class="btn btn-danger btn-sm" onclick="App.confirmDeleteStation('${st.id}')">ลบ</button>
+        </div>` : ''}
       </div>
 
       <div class="sec-header">
         <div>
-          <div class="sec-title">รายการการสำรวจ</div>
-          <div class="sec-sub">${isMine ? `บันทึกทุกคัน/ทุกคนที่หยุดสำรวจ · พบ ${st.interviews.length} ราย` : 'ข้อมูลของผู้สำรวจท่านนี้'}</div>
+          <div class="sec-title">รายการการสำรวจ${!isAdmin ? ' (ของฉัน)' : ''}</div>
+          <div class="sec-sub">บันทึกทุกคัน/ทุกคนที่หยุดสำรวจ · พบ ${myIvs.length} ราย</div>
         </div>
-        ${isMine ? `<button class="btn btn-primary" onclick="App.openWizard()">+ เพิ่มการสำรวจ</button>` : ''}
+        <button class="btn btn-primary" onclick="App.openWizard()">+ เพิ่มการสำรวจ</button>
       </div>
 
-      ${st.interviews.length > 0 ? `
+      ${myIvs.length > 0 ? `
       <div style="background:#fefce8;border:1.5px solid #d97706;border-radius:10px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
-        <div style="font-size:13px;color:#92400e;font-weight:600;">✅ บันทึกแล้ว ${st.interviews.length} ราย</div>
+        <div style="font-size:13px;color:#92400e;font-weight:600;">✅ บันทึกแล้ว ${myIvs.length} ราย</div>
         <button class="btn btn-primary btn-sm" onclick="App.openWizard()" style="white-space:nowrap;">+ เพิ่มรายถัดไป</button>
       </div>` : ''}
 
-      ${st.interviews.length === 0 ? `
+      ${myIvs.length === 0 ? `
         <div class="empty">
           <span class="empty-icon">📋</span>
-          <h3>ยังไม่มีข้อมูลการสำรวจ</h3>
+          <h3>ยังไม่มีข้อมูลการสำรวจ${!isAdmin ? 'ของคุณ' : ''}</h3>
           <p>เพิ่มข้อมูลยานพาหนะ / ผู้เดินทางที่ถูกสัมภาษณ์</p>
           <button class="btn btn-primary" onclick="App.openWizard()">+ เพิ่มการสำรวจ</button>
         </div>` :
-        `<div class="member-list">${st.interviews.map(iv => {
+        `<div class="member-list">${myIvs.map(iv => {
           const vt = OPT.vehicleTypes.find(v => v.key === iv.vehicleType) || { icon: '🚘', label: iv.vehicleType || 'ไม่ระบุ' };
           const dotCls = (iv.origin && iv.destination && iv.purpose) ? 'dot-green' : (iv.origin || iv.destination) ? 'dot-amber' : 'dot-gray';
           const plateStr = [iv.licensePlate, iv.licensePlateProvince].filter(Boolean).join(' / ');
@@ -902,6 +905,7 @@ const App = {
 
     const data = {
       vehicleType,
+      surveyorName:         this._role === 'admin' ? this._adminUsername : this._surveyorName,
       interviewTime:        document.getElementById('iv_time')?.value         || '',
       licensePlate:         (document.getElementById('iv_plate')?.value || '').trim().toUpperCase(),
       licensePlateProvince: document.getElementById('iv_province')?.value      || '',
@@ -1213,6 +1217,7 @@ const App = {
     const wd = this.wizardData;
     DB.addInterview(this.stId, {
       vehicleType:       wd.vehicleType,
+      surveyorName:      this._role === 'admin' ? this._adminUsername : this._surveyorName,
       travelDirection:   this._wizardDirection || '',
       interviewTime:     new Date().toTimeString().slice(0,5),
       passengerCount:    wd.passengerCount,
@@ -1385,7 +1390,7 @@ const App = {
       if (typeof firebase === 'undefined') throw new Error('โหลด Firebase SDK ไม่สำเร็จ — ต้องการอินเทอร์เน็ต');
       if (!FB.db) FB.init();
       if (!FB.db) throw new Error('Firebase เชื่อมต่อไม่ได้ — ลองรีเฟรชหน้า');
-      const count = await FB.syncAll();
+      const count = await FB.syncAll(this._role === 'admin' ? null : this._surveyorName);
       const lastSync = FB.lastSync();
       const timeStr  = lastSync ? new Date(lastSync).toLocaleTimeString('th-TH') : '';
       this.toast(`☁️ sync สำเร็จ ${count} จุดสำรวจ${timeStr ? ' · ' + timeStr : ''}`, 'success');
