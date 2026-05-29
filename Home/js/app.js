@@ -3,15 +3,176 @@ const App = {
   page: 'home', hhId: null, memberId: null, memberTab: 'info', editingTripId: null,
   _mapActive: false,
   _clientIp: '',
+  _role: null,          // 'admin' | 'surveyor'
+  _surveyorName: '',    // ชื่อ-นามสกุล ผู้สำรวจ
+  _adminUsername: '',   // username ผู้ดูแลระบบ
 
   init() {
     DB.load();
-    // ดึง Public IP ตอนเริ่ม (best-effort)
     fetch('https://api.ipify.org?format=json')
       .then(r => r.json())
       .then(d => { this._clientIp = d.ip || ''; })
       .catch(() => {});
+
+    // แสดง loading แล้วรอ Firebase Auth ตรวจสอบ session
+    document.querySelector('.topbar').style.display = 'none';
+    document.getElementById('app').innerHTML =
+      '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;color:#94a3b8;font-size:14px;">กำลังโหลด...</div>';
+
+    if (typeof firebase !== 'undefined' && firebase.apps?.length) {
+      FB.onAuthStateChanged(user => {
+        if (this._role) return; // เข้าระบบแล้ว ไม่ต้องทำซ้ำ
+        if (user) {
+          // มี session admin อยู่ → เข้าเลย
+          this._adminUsername = user.email.replace(FB.EMAIL_DOMAIN, '');
+          this._role = 'admin';
+          this._enterApp();
+        } else {
+          this._showLoginGate();
+        }
+      });
+    } else {
+      this._showLoginGate();
+    }
+  },
+
+  // ===================== LOGIN GATE =====================
+  _showLoginGate() {
+    document.querySelector('.topbar').style.display = 'none';
+    document.getElementById('app').innerHTML = this._loginGateHTML();
+  },
+
+  _loginGateHTML() {
+    return `
+      <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;
+                  justify-content:center;padding:24px;background:var(--bg);">
+        <div style="text-align:center;margin-bottom:48px;">
+          <div style="font-size:48px;margin-bottom:12px;">🏠</div>
+          <div style="font-size:22px;font-weight:700;color:var(--gray-800);">Home Interview</div>
+          <div style="font-size:13px;color:var(--gray-500);margin-top:6px;">โครงการวางผังเมืองรวมอำเภอบ้านไผ่ จ.ขอนแก่น</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px;width:100%;max-width:300px;">
+          <button class="btn btn-primary" style="padding:14px;font-size:15px;"
+            onclick="App.loginAsSurveyor()">
+            📋 เข้าใช้งานเป็นผู้สำรวจ
+          </button>
+          <button class="btn btn-ghost" style="padding:14px;font-size:15px;"
+            onclick="App.loginAsAdmin()">
+            🔐 เข้าสู่ระบบ (ผู้ดูแลระบบ)
+          </button>
+        </div>
+      </div>`;
+  },
+
+  // ---- ผู้สำรวจ ----
+  loginAsSurveyor() {
+    this.showModal('📋 เข้าใช้งานเป็นผู้สำรวจ', `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="form-row">
+          <label class="form-label req">ชื่อ</label>
+          <input id="sv_fname" class="form-input" autocomplete="off" placeholder="ชื่อจริง" />
+        </div>
+        <div class="form-row">
+          <label class="form-label req">นามสกุล</label>
+          <input id="sv_lname" class="form-input" autocomplete="off" placeholder="นามสกุล" />
+        </div>
+      </div>
+      <p style="font-size:12px;color:var(--gray-400);margin-top:6px;">ไม่ต้องใส่คำนำหน้า · ต้องพิมพ์ชื่อให้ตรงกันทุกครั้งเพื่อดึงข้อมูลของคุณ</p>`,
+      `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
+       <button class="btn btn-primary" onclick="App.doSurveyorLogin()">เข้าใช้งาน</button>`
+    );
+    setTimeout(() => document.getElementById('sv_fname')?.focus(), 50);
+  },
+
+  doSurveyorLogin() {
+    const fname = document.getElementById('sv_fname')?.value.trim();
+    const lname = document.getElementById('sv_lname')?.value.trim();
+    if (!fname) { this.toast('กรุณากรอกชื่อ', 'error'); return; }
+    if (!lname) { this.toast('กรุณากรอกนามสกุล', 'error'); return; }
+    this._surveyorName = `${fname} ${lname}`;
+    this._role = 'surveyor';
+    this.closeModal();
+    this._enterApp();
+  },
+
+  // ---- ผู้ดูแลระบบ ----
+  loginAsAdmin() {
+    this.showModal('🔐 เข้าสู่ระบบ (ผู้ดูแลระบบ)', `
+      <div class="form-row">
+        <label class="form-label req">ชื่อผู้ใช้</label>
+        <input id="adm_user" class="form-input" autocomplete="off" placeholder="username"
+          onkeydown="if(event.key==='Enter')document.getElementById('adm_pass').focus()" />
+      </div>
+      <div class="form-row">
+        <label class="form-label req">รหัสผ่าน</label>
+        <input id="adm_pass" class="form-input" type="password" placeholder="password"
+          onkeydown="if(event.key==='Enter')App.doAdminLogin()" />
+      </div>`,
+      `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
+       <button class="btn btn-primary" id="adminLoginBtn" onclick="App.doAdminLogin()">เข้าสู่ระบบ</button>`
+    );
+    setTimeout(() => document.getElementById('adm_user')?.focus(), 50);
+  },
+
+  async doAdminLogin() {
+    const username = document.getElementById('adm_user')?.value.trim();
+    const password = document.getElementById('adm_pass')?.value;
+    if (!username || !password) { this.toast('กรุณากรอกให้ครบ', 'error'); return; }
+    const btn = document.getElementById('adminLoginBtn');
+    if (btn) { btn.textContent = '⌛ กำลังตรวจสอบ...'; btn.disabled = true; }
+    try {
+      if (!FB.db) FB.init();
+      await FB.loginAdmin(username, password);
+      this._adminUsername = username;
+      this._role = 'admin';
+      this.closeModal();
+      this._enterApp();
+    } catch (e) {
+      if (btn) { btn.textContent = 'เข้าสู่ระบบ'; btn.disabled = false; }
+      this.toast('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง', 'error');
+    }
+  },
+
+  // ---- เข้าแอปหลังจาก login ----
+  _enterApp() {
+    document.querySelector('.topbar').style.display = '';
+    // อัปเดตขวาของ topbar → แสดงชื่อ + ปุ่มออก
+    const right = document.getElementById('topbarRight');
+    if (right) {
+      right.outerHTML = `<div id="topbarRight" style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+        <span style="font-size:12px;color:#64748b;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+          ${this._role === 'admin' ? '🔐' : '👤'} ${this._role === 'admin' ? this._adminUsername : this._surveyorName}
+        </span>
+        <button onclick="App.logout()"
+          style="font-size:12px;font-weight:600;color:#64748b;background:none;border:1px solid #e2e8f0;
+                 border-radius:6px;padding:4px 10px;cursor:pointer;white-space:nowrap;font-family:inherit;">
+          ออก
+        </button>
+      </div>`;
+    }
     this.navigate('home');
+  },
+
+  // ---- ออกจากระบบ ----
+  logout() {
+    if (!confirm('ออกจากระบบ?')) return;
+    if (this._role === 'admin') FB.logoutAdmin().catch(() => {});
+    this._role = null;
+    this._surveyorName = '';
+    this._adminUsername = '';
+    // คืน topbar right เป็นลิงก์เมนูหลัก
+    const right = document.getElementById('topbarRight');
+    if (right) {
+      right.outerHTML = `<a href="../index.html" id="topbarRight"
+        style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;
+               color:#64748b;text-decoration:none;padding:6px 12px;border-radius:8px;
+               border:1px solid #e2e8f0;transition:all .15s;"
+        onmouseover="this.style.color='#1e293b';this.style.borderColor='#94a3b8';this.style.background='#f1f5f9'"
+        onmouseout="this.style.color='#64748b';this.style.borderColor='#e2e8f0';this.style.background=''">
+        ◈ เมนูหลัก
+      </a>`;
+    }
+    this._showLoginGate();
   },
 
   navigate(page, hhId, memberId) {
@@ -60,8 +221,12 @@ const App = {
 
   // ===================== PAGE: HOME =====================
   pageHome() {
-    const hhs   = DB.getHouseholds();
-    const stats = DB.stats();
+    const isAdmin = this._role === 'admin';
+    const allHhs  = DB.getHouseholds();
+    const hhs     = isAdmin ? allHhs : allHhs.filter(h => h.surveyorName === this._surveyorName);
+    const members = hhs.reduce((s, h) => s + h.members.length, 0);
+    const trips   = hhs.reduce((s, h) => h.members.reduce((s2, m) => s2 + m.trips.length, s), 0);
+
     return `<div class="page container">
       <div class="dash-hero">
         <div class="dash-hero-text">
@@ -69,25 +234,24 @@ const App = {
           <p>โครงการวางผังเมืองรวมอำเภอบ้านไผ่ จ.ขอนแก่น</p>
         </div>
         <div class="dash-stats">
-          <div class="dash-stat"><div class="dash-stat-val">${stats.households}</div><div class="dash-stat-lbl">ครัวเรือน</div></div>
-          <div class="dash-stat"><div class="dash-stat-val">${stats.members}</div><div class="dash-stat-lbl">สมาชิก</div></div>
-          <div class="dash-stat"><div class="dash-stat-val">${stats.trips}</div><div class="dash-stat-lbl">การเดินทาง</div></div>
+          <div class="dash-stat"><div class="dash-stat-val">${hhs.length}</div><div class="dash-stat-lbl">ครัวเรือน</div></div>
+          <div class="dash-stat"><div class="dash-stat-val">${members}</div><div class="dash-stat-lbl">สมาชิก</div></div>
+          <div class="dash-stat"><div class="dash-stat-val">${trips}</div><div class="dash-stat-lbl">การเดินทาง</div></div>
         </div>
       </div>
 
       <div class="sec-header">
         <div>
           <div class="sec-title">รายการครัวเรือน</div>
-          <div class="sec-sub">พบ ${hhs.length} ครัวเรือน</div>
+          <div class="sec-sub">พบ ${hhs.length} ครัวเรือน${!isAdmin ? ' (ของคุณ)' : ''}</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn btn-ghost btn-sm" onclick="App.navigate('map')">🗺 แผนที่สำรวจ</button>
-          ${hhs.length > 0 ? `
-            <button class="btn btn-ghost btn-sm" onclick="App.exportData()">⬇ Export Excel</button>
-            <button class="btn btn-ghost btn-sm" id="syncBtn" onclick="App.syncToCloud()">☁️ Sync</button>
-            <button class="btn btn-danger btn-sm" onclick="App.confirmClearAll()">🗑 ล้างข้อมูล</button>` : ''}
+          ${isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="App.navigate('map')">🗺 แผนที่สำรวจ</button>` : ''}
+          ${isAdmin && hhs.length > 0 ? `<button class="btn btn-ghost btn-sm" onclick="App.exportData()">⬇ Export Excel</button>` : ''}
+          ${hhs.length > 0 ? `<button class="btn btn-ghost btn-sm" id="syncBtn" onclick="App.syncToCloud()">☁️ Sync</button>` : ''}
+          ${isAdmin && hhs.length > 0 ? `<button class="btn btn-danger btn-sm" onclick="App.confirmClearAll()">🗑 ล้างข้อมูล</button>` : ''}
           <button class="btn btn-ghost btn-sm" id="pullBtn" onclick="App.pullFromCloud()">☁️ ดึงข้อมูล</button>
-<button class="btn btn-primary" onclick="App.openAddHousehold()">+ เพิ่มครัวเรือน</button>
+          <button class="btn btn-primary" onclick="App.openAddHousehold()">+ เพิ่มครัวเรือน</button>
         </div>
       </div>
 
@@ -102,17 +266,17 @@ const App = {
           </div>
         </div>` :
         `<div class="hh-list">${hhs.map(hh => {
-          const trips  = hh.members.reduce((s, m) => s + m.trips.length, 0);
-          const totalM = Object.values(hh.memberGrid || {}).reduce((s, v) => s + (+v || 0), 0);
-          const addr   = [hh.houseNo ? 'บ้านเลขที่ ' + hh.houseNo : '', hh.moo ? 'ม.' + hh.moo : '', hh.road].filter(Boolean).join(' ');
+          const t    = hh.members.reduce((s, m) => s + m.trips.length, 0);
+          const totM = Object.values(hh.memberGrid || {}).reduce((s, v) => s + (+v || 0), 0);
+          const addr = [hh.houseNo ? 'บ้านเลขที่ ' + hh.houseNo : '', hh.moo ? 'ม.' + hh.moo : '', hh.road].filter(Boolean).join(' ');
           return `<div class="hh-card" onclick="App.navigate('household','${hh.id}')">
             <div class="hh-card-icon">🏠</div>
             <div class="hh-card-body">
               <div class="hh-card-id">${addr || 'ไม่ระบุที่อยู่'}</div>
               <div class="hh-card-addr">${hh.surveyorName ? 'ผู้สำรวจ: ' + hh.surveyorName : ''}</div>
               <div class="hh-card-tags">
-                <span class="tag tag-blue">👥 ${totalM} คน</span>
-                <span class="tag tag-green">🚗 ${trips} เที่ยว</span>
+                <span class="tag tag-blue">👥 ${totM} คน</span>
+                <span class="tag tag-green">🚗 ${t} เที่ยว</span>
                 <span class="tag tag-gray">📅 ${hh.surveyDate}</span>
                 ${hh.residentialType ? `<span class="tag tag-gray">${hh.residentialType}</span>` : ''}
               </div>
@@ -540,6 +704,8 @@ const App = {
   _hhFormHTML(hh) {
     // hh = null for add, existing object for edit
     const names      = this._loadSurveyorNames();
+    // ถ้า role = surveyor ใช้ชื่อ login เป็น default ผู้สำรวจ
+    const defaultSurveyor = this._role === 'surveyor' ? this._surveyorName : names.surveyor;
     const resOpts    = OPT.residentialType.map(r =>
       `<option value="${r}" ${r === hh?.residentialType ? 'selected' : ''}>${r}</option>`).join('');
     const gridCards  = OPT.memberGridRows.map(row => {
@@ -575,7 +741,7 @@ const App = {
         <div class="form-row">
           <label class="form-label req">ชื่อ–สกุลผู้สำรวจ</label>
           <input id="m_sname" class="form-input" autocomplete="off" placeholder="ชื่อ นามสกุล"
-            value="${hh ? (hh.surveyorName||'') : names.surveyor}" />
+            value="${hh ? (hh.surveyorName||'') : defaultSurveyor}" />
         </div>
         <div class="form-row">
           <label class="form-label req">ชื่อผู้ควบคุม</label>
@@ -1342,10 +1508,13 @@ const App = {
 
   // ===================== FIREBASE SYNC / PULL =====================
   pullFromCloud() {
+    const isAdmin    = this._role === 'admin';
     const localCount = DB.getHouseholds().length;
+    const filterNote = isAdmin ? '' :
+      `<br><span style="color:var(--primary);font-size:12px;">🔍 จะดึงเฉพาะข้อมูลของ "${this._surveyorName}" เท่านั้น</span>`;
     const msg = localCount > 0
-      ? `<p style="font-size:14px;color:var(--gray-600);">จะดึงข้อมูลจาก Firebase มา<b>รวม</b>กับข้อมูลในเครื่อง ${localCount} ครัวเรือน<br>ข้อมูลที่ซ้ำ ID กันจะใช้ข้อมูลจาก Firebase แทน</p>`
-      : `<p style="font-size:14px;color:var(--gray-600);">จะดึงข้อมูลทั้งหมดจาก Firebase มาไว้ในเครื่องนี้</p>`;
+      ? `<p style="font-size:14px;color:var(--gray-600);">จะดึงข้อมูลจาก Firebase มา<b>รวม</b>กับข้อมูลในเครื่อง ${localCount} ครัวเรือน<br>ข้อมูลที่ซ้ำ ID กันจะใช้ข้อมูลจาก Firebase แทน${filterNote}</p>`
+      : `<p style="font-size:14px;color:var(--gray-600);">จะดึงข้อมูลจาก Firebase มาไว้ในเครื่องนี้${filterNote}</p>`;
     this.showModal('☁️ ดึงข้อมูลจาก Firebase', msg,
       `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
        <button class="btn btn-primary" onclick="App.closeModal();App._doPull()">ดึงข้อมูล</button>`
@@ -1360,7 +1529,9 @@ const App = {
       if (typeof FB === 'undefined') throw new Error('firebase.js โหลดไม่สำเร็จ');
       if (!FB.db) FB.init();
       if (!FB.db) throw new Error('Firebase เชื่อมต่อไม่ได้ — ลองรีเฟรชหน้า');
-      const count = await FB.pullAll();
+      const count = this._role === 'admin'
+        ? await FB.pullAll()
+        : await FB.pullBySurveyor(this._surveyorName);
       this.toast(`☁️ ดึงข้อมูลสำเร็จ รวม ${count} ครัวเรือน`, 'success');
       this.navigate('home');
     } catch (e) {
@@ -1391,6 +1562,7 @@ const App = {
 
   // ===================== EXPORT / CLEAR =====================
   exportData() {
+    if (this._role !== 'admin') { this.toast('เฉพาะผู้ดูแลระบบเท่านั้น', 'error'); return; }
     if (typeof XLSX === 'undefined') {
       this.toast('โหลด SheetJS ไม่สำเร็จ — ตรวจสอบอินเทอร์เน็ต', 'error');
       return;

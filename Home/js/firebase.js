@@ -1,7 +1,9 @@
 // ===== FIREBASE SYNC (v1) =====
 const FB = {
   db: null,
+  auth: null,
   COLLECTION: 'households',
+  EMAIL_DOMAIN: '@banphai.local',
 
   init() {
     try {
@@ -14,11 +16,52 @@ const FB = {
         appId:             '1:755175522135:web:da20ccae36e1d1e9210812'
       };
       if (!firebase.apps.length) firebase.initializeApp(cfg);
-      this.db = firebase.firestore();
+      this.db   = firebase.firestore();
+      this.auth = firebase.auth();
       console.log('[FB] initialized');
     } catch (e) {
       console.error('[FB] init error:', e);
     }
+  },
+
+  // ===== AUTH =====
+  async loginAdmin(username, password) {
+    if (!this.auth) throw new Error('Firebase Auth ไม่พร้อม');
+    const email = username.trim().toLowerCase().replace(/\s+/g, '') + this.EMAIL_DOMAIN;
+    const cred  = await this.auth.signInWithEmailAndPassword(email, password);
+    return cred.user;
+  },
+
+  async logoutAdmin() {
+    if (this.auth) await this.auth.signOut();
+  },
+
+  onAuthStateChanged(cb) {
+    if (!this.auth) { cb(null); return; }
+    return this.auth.onAuthStateChanged(cb);
+  },
+
+  // ดึงเฉพาะข้อมูลของผู้สำรวจคนนั้น
+  async pullBySurveyor(surveyorName) {
+    if (!this.db) throw new Error('Firebase ไม่พร้อม');
+    const snap = await this._withTimeout(
+      this.db.collection(this.COLLECTION).where('surveyorName', '==', surveyorName).get(),
+      20000
+    );
+    const remoteMap = {};
+    snap.docs.forEach(doc => {
+      const d = doc.data();
+      delete d._device; delete d._syncedAt;
+      remoteMap[d.id] = d;
+    });
+    const local = DB.load();
+    const localMap = {};
+    local.households.forEach(h => { localMap[h.id] = h; });
+    const merged   = Object.values({ ...localMap, ...remoteMap });
+    const newData  = { households: merged };
+    localStorage.setItem(DB.KEY, JSON.stringify(newData));
+    DB._data = newData;
+    return merged.length;
   },
 
   // Device ID — ระบุว่าข้อมูลมาจากเครื่องไหน
