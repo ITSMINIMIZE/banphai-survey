@@ -54,7 +54,7 @@ const App = {
       bc.className = 'breadcrumb visible';
       bc.innerHTML = `<a onclick="App.navigate('home')">หน้าหลัก</a> <span>›</span> แผนที่สำรวจ`;
       app.innerHTML = this.pageMap();
-      setTimeout(() => this._initMapWithData(), 100);
+      setTimeout(() => { MapDashboard.init(); this._mapActive = true; }, 100);
     }
   },
 
@@ -240,24 +240,6 @@ const App = {
   },
 
   // ===================== PAGE: MAP DASHBOARD =====================
-  async _initMapWithData() {
-    const statusEl = document.getElementById('mapLoadStatus');
-    // ดึงข้อมูลจาก Firebase อัตโนมัติ
-    if (typeof FB !== 'undefined' && FB.db) {
-      if (statusEl) statusEl.textContent = '☁️ กำลังโหลดข้อมูล...';
-      try {
-        const count = await FB.pullAll();
-        if (statusEl) statusEl.textContent = `✅ ${count} ครัวเรือน`;
-      } catch(e) {
-        if (statusEl) statusEl.textContent = '⚠️ ใช้ข้อมูลในเครื่อง';
-      }
-    } else {
-      if (statusEl) statusEl.textContent = '📱 ข้อมูลในเครื่อง';
-    }
-    MapDashboard.init();
-    this._mapActive = true;
-  },
-
   pageMap() {
     return `<div class="map-page">
       <div class="map-layout">
@@ -268,7 +250,6 @@ const App = {
           <div class="map-panel-header">
             <div class="sec-title">Survey collections</div>
             <div class="sec-sub" id="mapTotalCount">กำลังโหลด...</div>
-            <div id="mapLoadStatus" style="font-size:11px;color:var(--gray-400);margin-top:4px;">☁️ กำลังเชื่อมต่อ...</div>
           </div>
           <div class="zone-list" id="zoneList">
             <div class="zone-empty">กำลังโหลด...</div>
