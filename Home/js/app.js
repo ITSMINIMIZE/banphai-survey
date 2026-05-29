@@ -140,7 +140,16 @@ const App = {
     const right = document.getElementById('topbarRight');
     if (right) {
       right.outerHTML = `<div id="topbarRight" style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
-        <span style="font-size:12px;color:#64748b;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+        <a href="../index.html"
+          style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;
+                 color:#64748b;text-decoration:none;padding:6px 12px;border-radius:8px;
+                 border:1px solid #e2e8f0;transition:all .15s;"
+          onmouseover="this.style.color='#1e293b';this.style.borderColor='#94a3b8';this.style.background='#f1f5f9'"
+          onmouseout="this.style.color='#64748b';this.style.borderColor='#e2e8f0';this.style.background=''">
+          ◈ เมนูหลัก
+        </a>
+        <span style="font-size:12px;color:#94a3b8;">|</span>
+        <span style="font-size:12px;color:#64748b;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
           ${this._role === 'admin' ? '🔐' : '👤'} ${this._role === 'admin' ? this._adminUsername : this._surveyorName}
         </span>
         <button onclick="App.logout()"
