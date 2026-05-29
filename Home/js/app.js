@@ -1,7 +1,6 @@
 // ===== HOME INTERVIEW APP (v2) =====
 const App = {
   page: 'home', hhId: null, memberId: null, memberTab: 'info', editingTripId: null,
-  _mapActive: false,
   _clientIp: '',
   _role: null,          // 'admin' | 'surveyor'
   _surveyorName: '',    // ชื่อ-นามสกุล ผู้สำรวจ
@@ -185,7 +184,6 @@ const App = {
   },
 
   navigate(page, hhId, memberId) {
-    if (this._mapActive) { MapDashboard.destroy(); this._mapActive = false; }
     this.page = page;
     if (hhId !== undefined) this.hhId = hhId;
     if (memberId !== undefined) this.memberId = memberId;
@@ -220,11 +218,6 @@ const App = {
         <a onclick="App.navigate('household','${this.hhId}')">${hh ? (hh.houseNo ? 'บ้านเลขที่ ' + hh.houseNo : hh.id) : ''}</a>
         <span>›</span> สมาชิกที่ ${m ? m.seq : ''}`;
       app.innerHTML = this.pageMember();
-    } else if (this.page === 'map') {
-      bc.className = 'breadcrumb visible';
-      bc.innerHTML = `<a onclick="App.navigate('home')">หน้าหลัก</a> <span>›</span> แผนที่สำรวจ`;
-      app.innerHTML = this.pageMap();
-      setTimeout(() => { MapDashboard.init(); this._mapActive = true; }, 100);
     }
   },
 
@@ -412,25 +405,6 @@ const App = {
   },
 
   // ===================== PAGE: MAP DASHBOARD =====================
-  pageMap() {
-    return `<div class="map-page">
-      <div class="map-layout">
-        <div class="map-main">
-          <div id="surveyMapContainer"></div>
-        </div>
-        <div class="map-panel" id="mapStatsPanel">
-          <div class="map-panel-header">
-            <div class="sec-title">Survey collections</div>
-            <div class="sec-sub" id="mapTotalCount">กำลังโหลด...</div>
-          </div>
-          <div class="zone-list" id="zoneList">
-            <div class="zone-empty">กำลังโหลด...</div>
-          </div>
-        </div>
-      </div>
-    </div>`;
-  },
-
   // ===================== PAGE: MEMBER =====================
   pageMember() {
     const hh = DB.getHousehold(this.hhId);
