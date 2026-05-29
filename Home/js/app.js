@@ -255,7 +255,6 @@ const App = {
           <div class="sec-sub">พบ ${hhs.length} ครัวเรือน${!isAdmin ? ' (ของคุณ)' : ''}</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          ${isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="App.navigate('map')">🗺 แผนที่สำรวจ</button>` : ''}
           ${isAdmin && hhs.length > 0 ? `<button class="btn btn-ghost btn-sm" onclick="App.exportData()">⬇ Export Excel</button>` : ''}
           ${hhs.length > 0 ? `<button class="btn btn-ghost btn-sm" id="syncBtn" onclick="App.syncToCloud()">☁️ Sync</button>` : ''}
           ${isAdmin && hhs.length > 0 ? `<button class="btn btn-danger btn-sm" onclick="App.confirmClearAll()">🗑 ล้างข้อมูล</button>` : ''}
