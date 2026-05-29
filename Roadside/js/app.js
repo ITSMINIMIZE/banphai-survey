@@ -432,6 +432,7 @@ const App = {
     const iv = DB.getInterview(this.stId, this.ivId);
     if (!iv) return '<div class="container"><p>ไม่พบข้อมูล</p></div>';
     const vt = OPT.vehicleTypes.find(v => v.key === iv.vehicleType) || { icon: '🚘', label: iv.vehicleType || '—' };
+    const canEdit = this._role === 'admin' || iv.surveyorName === this._surveyorName;
 
     const row = (label, val) => `
       <div class="info-item">
@@ -449,10 +450,10 @@ const App = {
             ${[iv.licensePlate, iv.licensePlateProvince].filter(Boolean).join(' / ') || 'ไม่ระบุทะเบียน'}
           </div>
         </div>
-        <div style="display:flex;gap:6px;flex-shrink:0;">
+        ${canEdit ? `<div style="display:flex;gap:6px;flex-shrink:0;">
           <button class="btn btn-ghost btn-sm" onclick="App.openInterviewForm('${iv.id}')">✏️ แก้ไข</button>
           <button class="btn btn-danger btn-sm" onclick="App.confirmDeleteInterview('${iv.id}')">ลบ</button>
-        </div>
+        </div>` : ''}
       </div>
 
       <div class="card-box">
