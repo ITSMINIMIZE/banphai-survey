@@ -246,10 +246,16 @@ const App = {
     const allSts   = DB.getStations();
     const mySts    = isAdmin ? allSts : allSts.filter(s => s.surveyorName === this._surveyorName);
     const otherSts = isAdmin ? [] : allSts.filter(s => s.surveyorName !== this._surveyorName);
-    const ivCount  = mySts.reduce((s, st) => s + st.interviews.length, 0);
+    const ivCount  = isAdmin
+      ? allSts.reduce((s, st) => s + st.interviews.length, 0)
+      : allSts.reduce((s, st) => s + st.interviews.filter(iv => iv.surveyorName === this._surveyorName).length, 0);
 
     const stationCard = (st, isMine) => {
-      const dirTag = st.direction ? `<span class="tag tag-orange">↔ ${st.direction}</span>` : '';
+      const dirTag  = st.direction ? `<span class="tag tag-orange">↔ ${st.direction}</span>` : '';
+      // นับเฉพาะ interview ของตัวเอง (ไม่นับของคนอื่น)
+      const myCount = isAdmin
+        ? st.interviews.length
+        : st.interviews.filter(iv => iv.surveyorName === this._surveyorName).length;
       if (isMine) {
         return `<div class="hh-card" onclick="App.navigate('station','${st.id}')">
           <div class="hh-card-icon">🚦</div>
@@ -257,7 +263,7 @@ const App = {
             <div class="hh-card-id">${st.stationName || 'ไม่ระบุชื่อจุด'}</div>
             <div class="hh-card-addr">${[st.road, st.district, st.province].filter(Boolean).join(' · ') || 'ไม่ระบุสถานที่'}</div>
             <div class="hh-card-tags">
-              <span class="tag tag-green">📋 ${st.interviews.length} ราย</span>
+              <span class="tag tag-green">📋 ${myCount} ราย</span>
               ${dirTag}
               <span class="tag tag-gray">📅 ${st.surveyDate}</span>
             </div>

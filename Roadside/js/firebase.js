@@ -119,7 +119,13 @@ const FB = {
     const local = DB.load();
     const localMap = {};
     local.stations.forEach(s => { localMap[s.id] = s; });
-    const merged  = Object.values({ ...localMap, ...remoteMap });
+    const merged = Object.values({ ...localMap, ...remoteMap });
+    // migrate: interviews เก่าที่ไม่มี surveyorName ให้ใช้ surveyorName ของ station
+    merged.forEach(st => {
+      (st.interviews || []).forEach(iv => {
+        if (!iv.surveyorName) iv.surveyorName = st.surveyorName || '';
+      });
+    });
     const newData = { stations: merged };
     localStorage.setItem(DB.KEY, JSON.stringify(newData));
     DB._data = newData;
@@ -139,8 +145,12 @@ const FB = {
     snap.docs.forEach(doc => {
       const d = doc.data();
       delete d._device; delete d._syncedAt;
+      // migrate: interviews เก่าที่ไม่มี surveyorName ให้ใช้ surveyorName ของ station
+      (d.interviews || []).forEach(iv => {
+        if (!iv.surveyorName) iv.surveyorName = d.surveyorName || '';
+      });
       // เห็นรายละเอียดจุดสำรวจทุกจุด แต่เห็น interview เฉพาะของตัวเอง
-      d.interviews = (d.interviews || []).filter(iv => iv.surveyorName === surveyorName);
+      d.interviews = d.interviews.filter(iv => iv.surveyorName === surveyorName);
       remoteMap[d.id] = d;
     });
     const local = DB.load();
