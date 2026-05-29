@@ -124,6 +124,14 @@ const DB = {
     this.save();
   },
 
+  clearMyInterviews(surveyorName) {
+    this.load().stations.forEach(st => {
+      st.interviews = st.interviews.filter(iv => iv.surveyorName !== surveyorName);
+      st.interviews.forEach((iv, i) => { iv.seq = i + 1; });
+    });
+    this.save();
+  },
+
   stats() {
     const sts = this.getStations();
     const ivs = sts.flatMap(s => s.interviews);

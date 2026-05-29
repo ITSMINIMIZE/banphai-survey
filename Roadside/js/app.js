@@ -106,7 +106,7 @@ const App = {
     this._surveyorName = `${fname} ${lname}`;
     this._role = 'surveyor';
     this.closeModal();
-    this._enterApp();
+    this._enterApp(true);
   },
 
   loginAsAdmin() {
@@ -146,7 +146,7 @@ const App = {
     }
   },
 
-  _enterApp() {
+  _enterApp(autoPull = false) {
     document.querySelector('.topbar').style.display = '';
     const right = document.getElementById('topbarRight');
     if (right) {
@@ -171,6 +171,20 @@ const App = {
       </div>`;
     }
     this.navigate('home');
+    if (autoPull) this._silentPull();
+  },
+
+  async _silentPull() {
+    try {
+      if (typeof firebase === 'undefined') return;
+      if (!FB.db) FB.init();
+      if (!FB.db) return;
+      const count = this._role === 'admin'
+        ? await FB.pullAll()
+        : await FB.pullBySurveyor(this._surveyorName);
+      this.toast(`☁️ โหลดจุดสำรวจแล้ว ${count} จุด`, 'success');
+      this.render();
+    } catch { /* silent — ไม่แสดง error ถ้า offline */ }
   },
 
   logout() {
@@ -1487,20 +1501,35 @@ const App = {
   },
 
   confirmClearAll() {
-    const stats = DB.stats();
-    this.showModal('⚠️ ล้างข้อมูลทั้งหมด',
-      `<div style="background:#fee2e2;border:1px solid #fca5a5;border-radius:8px;padding:14px 16px;margin-bottom:12px;">
-        <strong style="color:#dc2626;">ข้อมูลที่จะถูกลบ:</strong>
-        <ul style="margin-top:8px;padding-left:18px;font-size:14px;color:#7f1d1d;line-height:1.8;">
-          <li>${stats.stations} จุดสำรวจ</li>
-          <li>${stats.interviews} การสำรวจ</li>
-        </ul>
-      </div>
-      <p style="font-size:14px;color:var(--gray-600);">ไม่สามารถย้อนกลับได้ — แนะนำให้ Export ก่อน</p>`,
-      `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
-       <button class="btn btn-ghost btn-sm" onclick="App.exportData()" style="color:var(--primary);">⬇ Export ก่อนลบ</button>
-       <button class="btn btn-danger" onclick="App.clearAll()">ล้างข้อมูลทั้งหมด</button>`
-    );
+    const isAdmin = this._role === 'admin';
+    if (isAdmin) {
+      const stats = DB.stats();
+      this.showModal('⚠️ ล้างข้อมูลทั้งหมด',
+        `<div style="background:#fee2e2;border:1px solid #fca5a5;border-radius:8px;padding:14px 16px;margin-bottom:12px;">
+          <strong style="color:#dc2626;">ข้อมูลที่จะถูกลบ:</strong>
+          <ul style="margin-top:8px;padding-left:18px;font-size:14px;color:#7f1d1d;line-height:1.8;">
+            <li>${stats.stations} จุดสำรวจ</li>
+            <li>${stats.interviews} การสำรวจ</li>
+          </ul>
+        </div>
+        <p style="font-size:14px;color:var(--gray-600);">ไม่สามารถย้อนกลับได้ — แนะนำให้ Export ก่อน</p>`,
+        `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
+         <button class="btn btn-ghost btn-sm" onclick="App.exportData()" style="color:var(--primary);">⬇ Export ก่อนลบ</button>
+         <button class="btn btn-danger" onclick="App.clearAll()">ล้างข้อมูลทั้งหมด</button>`
+      );
+    } else {
+      const myIvCount = DB.getStations()
+        .reduce((s, st) => s + st.interviews.filter(iv => iv.surveyorName === this._surveyorName).length, 0);
+      this.showModal('🗑 ล้างข้อมูลของฉัน',
+        `<p style="font-size:14px;color:var(--gray-600);margin-bottom:12px;">
+          จะลบ <strong>การสำรวจของฉัน ${myIvCount} ราย</strong> ออกจากเครื่องนี้<br>
+          <span style="color:var(--success);font-weight:600;">✅ ข้อมูลจุดสำรวจยังคงอยู่</span>
+        </p>
+        <p style="font-size:13px;color:var(--gray-400);">หากได้ Sync ขึ้น Firebase แล้ว ข้อมูลยังอยู่บน Cloud ดึงกลับมาได้ทุกเมื่อ</p>`,
+        `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
+         <button class="btn btn-danger" onclick="App.clearMyData()">ล้างข้อมูลของฉัน</button>`
+      );
+    }
   },
 
   clearAll() {
@@ -1509,7 +1538,14 @@ const App = {
     this.closeModal();
     this.toast('ล้างข้อมูลทั้งหมดแล้ว', 'danger');
     this.navigate('home');
-  }
+  },
+
+  clearMyData() {
+    DB.clearMyInterviews(this._surveyorName);
+    this.closeModal();
+    this.toast('ล้างข้อมูลของฉันแล้ว · จุดสำรวจยังอยู่', 'success');
+    this.render();
+  },
 };
 
 document.addEventListener('DOMContentLoaded', () => App.init());
