@@ -65,8 +65,9 @@
     .card.dash::before { background: linear-gradient(135deg, rgba(139,92,246,.12), rgba(236,72,153,.08)); }
     .card:hover { border-color: #475569; transform: translateY(-4px); box-shadow: 0 20px 48px rgba(0,0,0,.4); }
     .card:hover::before { opacity: 1; }
-    .card.road, .card.dash { cursor: default; opacity: .6; }
-    .card.road:hover, .card.dash:hover { transform: none; box-shadow: none; }
+    .card.dash { cursor: default; opacity: .6; }
+    .card.dash:hover { transform: none; box-shadow: none; }
+    .card.road .card-action { color: #fb923c; }
 
     .card-icon { font-size: 40px; }
     .card-badge {
@@ -124,13 +125,13 @@
       <div class="card-action">เข้าใช้งาน →</div>
     </a>
 
-    <div class="card road">
-      <span class="card-icon">🚗</span>
-      <span class="card-badge badge-soon">◌ เร็ว ๆ นี้</span>
+    <a class="card road" href="Roadside/">
+      <span class="card-icon">🚦</span>
+      <span class="card-badge badge-active">● พร้อมใช้งาน</span>
       <div class="card-title">Roadside Interview</div>
       <div class="card-desc">แบบสอบถามสำหรับการสัมภาษณ์ริมถนนและภาคสนาม</div>
-      <div class="card-action">กำลังพัฒนา</div>
-    </div>
+      <div class="card-action">เข้าใช้งาน →</div>
+    </a>
 
     <div class="card dash">
       <span class="card-icon">📊</span>
