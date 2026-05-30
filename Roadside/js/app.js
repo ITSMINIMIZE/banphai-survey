@@ -416,6 +416,7 @@ const App = {
               <div class="member-detail">${iv.origin && iv.destination ? iv.origin + ' → ' + iv.destination : 'ยังไม่กรอกข้อมูล'}</div>
             </div>
             <div class="member-right">
+              ${iv.interviewDate ? `<span class="tag tag-gray">📅 ${iv.interviewDate}</span>` : ''}
               ${iv.interviewTime ? `<span class="tag tag-gray">🕐 ${iv.interviewTime}</span>` : ''}
               <div class="status-dot ${dotCls}"></div>
               <span style="color:var(--gray-300)">›</span>
@@ -445,7 +446,8 @@ const App = {
         <div class="hh-detail-info">
           <div class="hh-detail-id">รายที่ ${iv.seq} — ${vt.label}</div>
           <div class="hh-detail-addr">
-            ${iv.interviewTime ? '🕐 ' + iv.interviewTime : ''}
+            ${iv.interviewDate ? '📅 ' + iv.interviewDate : ''}
+            ${iv.interviewTime ? ' · 🕐 ' + iv.interviewTime : ''}
             ${iv.travelDirection ? ' · ' + iv.travelDirection : ''}
           </div>
         </div>
@@ -981,8 +983,11 @@ const App = {
   // ===================== WIZARD =====================
   openWizard() {
     this._wizardDone = false;
+    // กดเพิ่มจากหน้าจุดสำรวจ → ถามทิศใหม่เสมอ
+    // (เฉพาะปุ่ม "รถคันถัดไป" บน done screen ที่จะใช้ทิศเดิมผ่าน _wizardNextCar)
+    this._wizardDirection = null;
     this.wizardData = { originType:'', originCoords:'', originLandmark:'', destType:'', destCoords:'', destLandmark:'', vehicleType:'', passengerCount:'', purpose:'', hasCargo:'', cargoType:'', cargoWeight:'', driverIncome:'' };
-    this.wizardStep = this._wizardDirection ? 2 : 1;
+    this.wizardStep = 1;
     this.page = 'wizard'; this.render(); window.scrollTo(0, 0);
   },
 
