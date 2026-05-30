@@ -248,7 +248,7 @@ const MapPicker = {
 
     try {
       const q = encodeURIComponent(query.trim());
-      // Search near Nangrong with a 50 km span
+      // Search near Banphai with a 50 km span
       const url = `https://search.longdo.com/mapsearch/json/search?keyword=${q}` +
                   `&lat=${this.DEFAULT_LAT}&lon=${this.DEFAULT_LON}` +
                   `&span=50000&limit=8&key=${this.API_KEY}`;

@@ -10,6 +10,7 @@ const App = {
   wizardData: null,
   _wizardDirection: null,
   _wizardDone: false,
+  _paxCustom: false,
 
   init() {
     DB.load();
@@ -915,6 +916,7 @@ const App = {
   // ===================== WIZARD =====================
   openWizard() {
     this._wizardDone = false;
+    this._paxCustom = false;
     // กดเพิ่มจากหน้าจุดสำรวจ → ถามทิศใหม่เสมอ
     // (เฉพาะปุ่ม "รถคันถัดไป" บน done screen ที่จะใช้ทิศเดิมผ่าน _wizardNextCar)
     this._wizardDirection = null;
@@ -1035,17 +1037,40 @@ const App = {
   // Step 2: จำนวนคน
   _wStep3Passengers() {
     const nums = [1,2,3,4,5,6,7,8,9,10];
+    const pc = this.wizardData.passengerCount;
+    const isCustom = this._paxCustom || (pc !== '' && +pc > 10);
     const btns = nums.map(n => `
-      <button class="wiz-num-btn ${this.wizardData.passengerCount === n ? 'sel' : ''}"
+      <button class="wiz-num-btn ${pc === n ? 'sel' : ''}"
         onclick="App._wPickPax(${n}, this)">${n}</button>`).join('');
     return this._wHeader('จำนวนคนในรถ', 'รวมคนขับ') +
       `<div class="wiz-num-grid">${btns}</div>
-       <button class="wiz-num-btn ${this.wizardData.passengerCount > 10 ? 'sel' : ''}"
-         onclick="App._wPickPax(11, this)" style="width:100%;font-size:18px;">10+ คน</button>` +
+       <button class="wiz-num-btn ${isCustom ? 'sel' : ''}"
+         onclick="App._wPaxMore()" style="width:100%;font-size:18px;">มากกว่า 10 คน</button>
+       ${isCustom ? `
+         <div style="margin-top:14px;">
+           <label class="form-label">ระบุจำนวนคน (มากกว่า 10)</label>
+           <input id="wiz_paxCustom" class="form-input" type="number" min="11" inputmode="numeric"
+             placeholder="เช่น 15" value="${(pc !== '' && +pc > 10) ? pc : ''}"
+             style="font-size:22px;padding:18px;text-align:center;" />
+           <div class="wiz-bottom"><div class="wiz-bottom-row">
+             <button class="btn btn-primary btn-block" onclick="App._wPaxCustomNext()">ถัดไป →</button>
+           </div></div>
+         </div>` : ''}` +
       this._wFooter();
   },
   _wPickPax(n, el) {
+    this._paxCustom = false;
     this._confirmPick(el, () => { this.wizardData.passengerCount = n; this._wizardNext(); });
+  },
+  _wPaxMore() {
+    this._paxCustom = true;
+    this.page = 'wizard'; this.render(); window.scrollTo(0, 0);
+  },
+  _wPaxCustomNext() {
+    const val = +(document.getElementById('wiz_paxCustom')?.value);
+    if (!val || val < 11) { this.toast('กรุณาระบุจำนวนมากกว่า 10', 'error'); return; }
+    this.wizardData.passengerCount = val;
+    this._wizardNext();
   },
 
   // Step 3: ต้นทาง
@@ -1117,7 +1142,7 @@ const App = {
 
   _wPickLocType(prefix, val) {
     const dKey = prefix === 'origin' ? 'originLandmark' : 'destLandmark';
-    const inp  = document.getElementById('wiz_' + dKey.replace('Landmark','Landmark').replace('origin','origin').replace('dest','dest'));
+    const inp  = document.getElementById('wiz_' + dKey);
     if (inp) this.wizardData[dKey] = inp.value;
     this.wizardData[prefix + 'Type'] = val;
     this.page = 'wizard'; this.render();
@@ -1261,6 +1286,7 @@ const App = {
 
   _wizardNextCar() {
     this._wizardDone = false;
+    this._paxCustom = false;
     this.wizardData = { originType:'', originCoords:'', originLandmark:'', destType:'', destCoords:'', destLandmark:'', vehicleType:'', passengerCount:'', purpose:'', hasCargo:'', cargoType:'', cargoWeight:'', driverIncome:'' };
     this.wizardStep = 2; // ข้ามทิศ เริ่มที่รถ
     this.page = 'wizard'; this.render(); window.scrollTo(0,0);
@@ -1268,6 +1294,7 @@ const App = {
   _wizardChangeDir() {
     this._wizardDirection = null;
     this._wizardDone = false;
+    this._paxCustom = false;
     this.wizardData = { originType:'', originCoords:'', originLandmark:'', destType:'', destCoords:'', destLandmark:'', vehicleType:'', passengerCount:'', purpose:'', hasCargo:'', cargoType:'', cargoWeight:'', driverIncome:'' };
     this.wizardStep = 1; // ถามทิศใหม่
     this.page = 'wizard'; this.render(); window.scrollTo(0,0);
@@ -1499,7 +1526,8 @@ const App = {
 
     // ===== Sheet 2: การสำรวจ =====
     const ivRows = data.stations.flatMap(st =>
-      st.interviews.map(iv => {
+      // renumber ลำดับใหม่ต่อจุด (1..n) ตอน export — กัน seq ซ้ำข้ามผู้สำรวจ
+      st.interviews.map((iv, idx) => {
         const v = vtInfo(iv.vehicleType);
         return {
           // ระบุจุดสำรวจ
@@ -1510,7 +1538,7 @@ const App = {
           'จังหวัด':              st.province,
           'แกนถนน':               st.direction,
           // ข้อมูลการสำรวจ
-          'ลำดับ':                iv.seq,
+          'ลำดับ':                idx + 1,
           'วันที่สำรวจ':          iv.interviewDate || '',
           'เวลาสำรวจ':            iv.interviewTime || '',
           'ผู้สำรวจ':             iv.surveyorName || '',

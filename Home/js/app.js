@@ -527,7 +527,7 @@ const App = {
 
       <div class="form-row">
         <label class="form-label">ชื่อสถานที่ทำงาน / สถานศึกษา</label>
-        <input id="f_wpName" class="form-input" autocomplete="off" value="${m.workplaceName || ''}" placeholder="เช่น โรงเรียนนางรอง, บริษัท ABC" />
+        <input id="f_wpName" class="form-input" autocomplete="off" value="${m.workplaceName || ''}" placeholder="เช่น โรงเรียนบ้านไผ่, บริษัท ABC" />
       </div>
       <div class="form-grid">
         <div class="form-row">
@@ -1577,47 +1577,47 @@ const App = {
     const wb   = XLSX.utils.book_new();
 
     // ===== Sheet 1: ครัวเรือน =====
-    const hhRows = data.households.map(hh => ({
-      'ID':                        hh.id,
-      'วันที่เดินทาง':             hh.travelDate,
-      'วันที่บันทึก':              hh.surveyDate,
-      'ผู้สำรวจ':                  hh.surveyorName,
-      'ผู้ควบคุม':                 hh.supervisorName,
-      'ตำบล/อปท.':                 hh.subdistrict,
-      'รหัสพื้นที่':               hh.areaCode,
-      'บ้านเลขที่':                hh.houseNo,
-      'หมู่':                      hh.moo,
-      'ซอย':                       hh.alley,
-      'ถนน':                       hh.road,
-      'โทรศัพท์':                  hh.phone,
-      'พิกัด':                     hh.coordinates,
-      'ตำบล':                      hh.subdistrict,
-      'อำเภอ':                     hh.district,
-      'จังหวัด':                   hh.province,
-      'Device ID':                 hh.deviceId,
-      'IP เครื่อง':                hh.clientIp,
-      'ประเภทที่อยู่อาศัย':        hh.residentialType,
-      'สมาชิก ชาย-กำลังศึกษา':    +(hh.memberGrid?.m_study || 0),
-      'สมาชิก ชาย-ทำงานแล้ว':     +(hh.memberGrid?.m_work  || 0),
-      'สมาชิก ชาย-ไม่ได้ทำงาน':   +(hh.memberGrid?.m_notw  || 0),
-      'สมาชิก หญิง-กำลังศึกษา':   +(hh.memberGrid?.f_study || 0),
-      'สมาชิก หญิง-ทำงานแล้ว':    +(hh.memberGrid?.f_work  || 0),
-      'สมาชิก หญิง-ไม่ได้ทำงาน':  +(hh.memberGrid?.f_notw  || 0),
-      'สมาชิก ชาย-ต่ำกว่า6ปี':    +(hh.memberGrid?.m_child || 0),
-      'สมาชิก หญิง-ต่ำกว่า6ปี':   +(hh.memberGrid?.f_child || 0),
-      'รายได้ครัวเรือน':           hh.householdIncome,
-      'มียานพาหนะ':                hh.hasVehicle,
-      'จักรยาน2ล้อ':               +(hh.vehicles?.bicycle2   || 0),
-      'จักรยาน3ล้อ':               +(hh.vehicles?.bicycle3   || 0),
-      'รถจักรยานยนต์':             +(hh.vehicles?.motorcycle || 0),
-      'รถสามล้อเครื่อง':           +(hh.vehicles?.tuk3       || 0),
-      'รถยนต์':                    +(hh.vehicles?.car        || 0),
-      'รถโดยสารเล็ก-กลาง':        +(hh.vehicles?.minibus    || 0),
-      'รถโดยสารใหญ่':              +(hh.vehicles?.bus        || 0),
-      'รถปิ๊กอัพ':                 +(hh.vehicles?.pickup     || 0),
-      'รถบรรทุก6ล้อขึ้นไป':       +(hh.vehicles?.truck6     || 0),
-      'ยานพาหนะอื่นๆ':             +(hh.vehicles?.other      || 0),
-    }));
+    const hhRows = data.households.map(hh => {
+      // ยานพาหนะ: เก็บแยก ส่วนตัว/บริษัท/ราชการ ทุกประเภท
+      const vcol = {};
+      OPT.vehicleTypes.forEach(vt => {
+        const v = hh.vehicles?.[vt.key] || {};
+        vcol[`${vt.label} (ส่วนตัว)`]   = +(v.private || 0);
+        vcol[`${vt.label} (บริษัท)`]    = +(v.company || 0);
+        vcol[`${vt.label} (ราชการ)`]   = +(v.gov     || 0);
+      });
+      return {
+        'ID':                        hh.id,
+        'วันที่เดินทาง':             hh.travelDate,
+        'วันที่บันทึก':              hh.surveyDate,
+        'ผู้สำรวจ':                  hh.surveyorName,
+        'ผู้ควบคุม':                 hh.supervisorName,
+        'รหัสพื้นที่':               hh.areaCode,
+        'บ้านเลขที่':                hh.houseNo,
+        'หมู่':                      hh.moo,
+        'ซอย':                       hh.alley,
+        'ถนน':                       hh.road,
+        'โทรศัพท์':                  hh.phone,
+        'พิกัด':                     hh.coordinates,
+        'ตำบล':                      hh.subdistrict,
+        'อำเภอ':                     hh.district,
+        'จังหวัด':                   hh.province,
+        'Device ID':                 hh.deviceId,
+        'IP เครื่อง':                hh.clientIp,
+        'ประเภทที่อยู่อาศัย':        hh.residentialType,
+        'สมาชิก ชาย-กำลังศึกษา':    +(hh.memberGrid?.m_study || 0),
+        'สมาชิก ชาย-ทำงานแล้ว':     +(hh.memberGrid?.m_work  || 0),
+        'สมาชิก ชาย-ไม่ได้ทำงาน':   +(hh.memberGrid?.m_notw  || 0),
+        'สมาชิก หญิง-กำลังศึกษา':   +(hh.memberGrid?.f_study || 0),
+        'สมาชิก หญิง-ทำงานแล้ว':    +(hh.memberGrid?.f_work  || 0),
+        'สมาชิก หญิง-ไม่ได้ทำงาน':  +(hh.memberGrid?.f_notw  || 0),
+        'สมาชิก ชาย-ต่ำกว่า6ปี':    +(hh.memberGrid?.m_child || 0),
+        'สมาชิก หญิง-ต่ำกว่า6ปี':   +(hh.memberGrid?.f_child || 0),
+        'รายได้ครัวเรือน':           hh.householdIncome,
+        'มียานพาหนะ':                hh.hasVehicle,
+        ...vcol
+      };
+    });
 
     // ===== Sheet 2: สมาชิก =====
     const memberRows = data.households.flatMap(hh =>
