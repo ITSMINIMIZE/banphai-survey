@@ -1574,19 +1574,21 @@ const App = {
       })
     );
 
-    // ===== Sheet 3: สรุปตามจุดสำรวจ =====
+    // ===== Sheet 3: สรุปตามจุดสำรวจ — แยกทุกประเภทยานพาหนะ =====
     const summaryRows = data.stations.map((st, i) => {
       const ivs = st.interviews;
-      const cnt = key => ivs.filter(iv => vtInfo(iv.vehicleType).group === groupLabel[key]).length;
+      // นับแยกทุกประเภท (9 ประเภทตามแบบฟอร์ม RS)
+      const vcol = {};
+      OPT.vehicleTypes.forEach(vt => {
+        vcol[vt.label] = ivs.filter(iv => iv.vehicleType === vt.key).length;
+      });
       return {
         'ลำดับ':           i + 1,
         'รหัสจุดสำรวจ':    st.stationCode || st.stationName,
         'ชื่อจุดสำรวจ':    st.stationName,
         'แกนถนน':          st.direction,
         'รวมทั้งหมด':       ivs.length,
-        'รถส่วนบุคคล':     cnt('personal'),
-        'รถโดยสาร':        cnt('bus'),
-        'รถบรรทุก':        cnt('truck'),
+        ...vcol,
         'มีสินค้า':        ivs.filter(iv => iv.hasCargo === 'มีสินค้า').length,
         'ไม่มีสินค้า':     ivs.filter(iv => iv.hasCargo === 'ไม่มีสินค้า').length
       };
