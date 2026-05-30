@@ -149,17 +149,17 @@ const FB = {
       stationMap[doc.id] = d;
     });
 
-    // 2) ดึง interviews ทั้งหมดด้วย collectionGroup query
-    const ivSnap = await this._withTimeout(
-      this.db.collectionGroup('interviews').get({ source: 'server' })
-    );
-    ivSnap.docs.forEach(doc => {
-      const d = this._stripInternal(doc.data());
-      const stId = d.stationId || doc.ref.parent.parent?.id;
-      if (stId && stationMap[stId]) stationMap[stId].interviews.push(d);
+    // 2) ดึง interview ของแต่ละ station แบบ parallel (ไม่ใช้ collectionGroup กัน index)
+    const ivSnaps = await Promise.all(stSnap.docs.map(doc =>
+      this._withTimeout(doc.ref.collection('interviews').get({ source: 'server' }))
+    ));
+    ivSnaps.forEach((snap, i) => {
+      const stId = stSnap.docs[i].id;
+      snap.docs.forEach(d => {
+        stationMap[stId].interviews.push(this._stripInternal(d.data()));
+      });
     });
 
-    // sort interview ตาม seq
     Object.values(stationMap).forEach(st => {
       st.interviews.sort((a,b) => (a.seq||0) - (b.seq||0));
     });
@@ -172,7 +172,7 @@ const FB = {
   },
 
   // ===== PULL: surveyor =====
-  // เห็นทุก station แต่ดึงเฉพาะ interview ของตัวเอง
+  // เห็นทุก station แต่ดึง interview เฉพาะของตัวเอง (where ที่ subcollection ไม่ต้อง index)
   async pullBySurveyor(surveyorName) {
     if (!this.db) throw new Error('Firebase ไม่พร้อม');
 
@@ -188,16 +188,20 @@ const FB = {
       stationMap[doc.id] = d;
     });
 
-    // collectionGroup query เฉพาะ surveyor นี้
-    const ivSnap = await this._withTimeout(
-      this.db.collectionGroup('interviews')
-        .where('surveyorName', '==', surveyorName)
-        .get({ source: 'server' })
-    );
-    ivSnap.docs.forEach(doc => {
-      const d = this._stripInternal(doc.data());
-      const stId = d.stationId || doc.ref.parent.parent?.id;
-      if (stId && stationMap[stId]) stationMap[stId].interviews.push(d);
+    // ดึง interview subcollection ของแต่ละ station แบบ parallel
+    // ใช้ where ที่ระดับ subcollection (single-collection query — ไม่ต้องสร้าง composite index)
+    const ivSnaps = await Promise.all(stSnap.docs.map(doc =>
+      this._withTimeout(
+        doc.ref.collection('interviews')
+          .where('surveyorName', '==', surveyorName)
+          .get({ source: 'server' })
+      )
+    ));
+    ivSnaps.forEach((snap, i) => {
+      const stId = stSnap.docs[i].id;
+      snap.docs.forEach(d => {
+        stationMap[stId].interviews.push(this._stripInternal(d.data()));
+      });
     });
 
     Object.values(stationMap).forEach(st => {
