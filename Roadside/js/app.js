@@ -999,41 +999,54 @@ const App = {
     const opts = OPT.directionsByAxis[st?.direction] || ['มุ่งทิศเหนือ','มุ่งทิศใต้','มุ่งทิศตะวันออก','มุ่งทิศตะวันตก'];
     const icons = { 'มุ่งทิศเหนือ':'⬆️','มุ่งทิศใต้':'⬇️','มุ่งทิศตะวันออก':'➡️','มุ่งทิศตะวันตก':'⬅️' };
     const cards = opts.map(d => `
-      <div class="wiz-card dir" onclick="App._wPickDirection('${d}')">
+      <div class="wiz-card dir" onclick="App._wPickDirection('${d}', this)">
         <div class="wiz-card-icon">${icons[d]||'↕'}</div>
         <div class="wiz-card-label">${d}</div>
       </div>`).join('');
     return this._wHeader('คุณประจำฝั่งไหน?', 'ระบบจะจำไว้ใช้กับทุกคันถัดไป') +
       `<div class="wiz-grid wiz-grid-2">${cards}</div>` + this._wFooter();
   },
-  _wPickDirection(val) { this._wizardDirection = val; this._wizardNext(); },
+  _wPickDirection(val, el) {
+    this._confirmPick(el, () => { this._wizardDirection = val; this._wizardNext(); });
+  },
+
+  // animate การเลือก: zoom 450ms ก่อนเปลี่ยน step
+  _confirmPick(el, action) {
+    if (!el) { action(); return; }
+    el.classList.add('confirming');
+    setTimeout(action, 450);
+  },
 
   // Step 2: ประเภทรถ
   _wStep2Vehicle() {
     const cards = OPT.vehicleTypes.map(vt => `
       <div class="wiz-card veh ${this.wizardData.vehicleType === vt.key ? 'sel' : ''}"
-        onclick="App._wPickVehicle('${vt.key}')">
+        onclick="App._wPickVehicle('${vt.key}', this)">
         <div class="wiz-card-icon">${vt.icon}</div>
         <div class="wiz-card-label">${vt.label}</div>
       </div>`).join('');
     return this._wHeader('ประเภทยานพาหนะ') +
       `<div class="wiz-grid wiz-grid-3">${cards}</div>` + this._wFooter();
   },
-  _wPickVehicle(key) { this.wizardData.vehicleType = key; this._wizardNext(); },
+  _wPickVehicle(key, el) {
+    this._confirmPick(el, () => { this.wizardData.vehicleType = key; this._wizardNext(); });
+  },
 
   // Step 2: จำนวนคน
   _wStep3Passengers() {
     const nums = [1,2,3,4,5,6,7,8,9,10];
     const btns = nums.map(n => `
       <button class="wiz-num-btn ${this.wizardData.passengerCount === n ? 'sel' : ''}"
-        onclick="App._wPickPax(${n})">${n}</button>`).join('');
+        onclick="App._wPickPax(${n}, this)">${n}</button>`).join('');
     return this._wHeader('จำนวนคนในรถ', 'รวมคนขับ') +
       `<div class="wiz-num-grid">${btns}</div>
        <button class="wiz-num-btn ${this.wizardData.passengerCount > 10 ? 'sel' : ''}"
-         onclick="App._wPickPax(11)" style="width:100%;font-size:18px;">10+ คน</button>` +
+         onclick="App._wPickPax(11, this)" style="width:100%;font-size:18px;">10+ คน</button>` +
       this._wFooter();
   },
-  _wPickPax(n) { this.wizardData.passengerCount = n; this._wizardNext(); },
+  _wPickPax(n, el) {
+    this._confirmPick(el, () => { this.wizardData.passengerCount = n; this._wizardNext(); });
+  },
 
   // Step 3: ต้นทาง
   _wStep4Origin() {
@@ -1132,14 +1145,16 @@ const App = {
   _wStep6Purpose() {
     const cards = OPT.purposeCards.map(p => `
       <div class="wiz-card ${this.wizardData.purpose === p.val ? 'sel' : ''}"
-        onclick="App._wPickPurpose('${p.val.replace(/'/g, "\\'")}')">
+        onclick="App._wPickPurpose('${p.val.replace(/'/g, "\\'")}', this)">
         <div class="wiz-card-icon">${p.icon}</div>
         <div class="wiz-card-label">${p.val}</div>
       </div>`).join('');
     return this._wHeader('วัตถุประสงค์การเดินทาง') +
       `<div class="wiz-grid wiz-grid-3">${cards}</div>` + this._wFooter();
   },
-  _wPickPurpose(val) { this.wizardData.purpose = val; this._wizardNext(); },
+  _wPickPurpose(val, el) {
+    this._confirmPick(el, () => { this.wizardData.purpose = val; this._wizardNext(); });
+  },
 
   // Step 6: สินค้า (รถบรรทุกเท่านั้น)
   _wStep7Cargo() {

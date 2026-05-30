@@ -777,6 +777,22 @@ body {
   background: linear-gradient(135deg, var(--primary-light), #fff7e6);
   box-shadow: 0 2px 12px rgba(217,119,6,.2);
 }
+/* คอนเฟิร์มการเลือก: zoom ใหญ่ ค้าง 450ms ให้ผู้ใช้เห็นชัด */
+@keyframes pickConfirm {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.18); box-shadow: 0 10px 28px rgba(217,119,6,.4); }
+  100% { transform: scale(1.08); box-shadow: 0 6px 18px rgba(217,119,6,.3); }
+}
+.wiz-card.confirming, .wiz-num-btn.confirming {
+  animation: pickConfirm .45s cubic-bezier(.34,1.56,.64,1) forwards;
+  z-index: 2;
+  position: relative;
+  border-color: var(--primary) !important;
+  background: linear-gradient(135deg, var(--primary-light), #fff7e6) !important;
+}
+.wiz-num-btn.confirming { color: var(--white) !important; background: linear-gradient(135deg, var(--primary), var(--primary-mid)) !important; }
+.wiz-card.confirming .wiz-card-label { color: var(--primary-dark); font-weight: 700; }
+
 .wiz-card.sel::after {
   content: '✓';
   position: absolute;
