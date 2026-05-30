@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tools — Banphai Survey</title>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet" />
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;font-family:'Sarabun',sans-serif}
+  body{background:#0f172a;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+  .wrap{max-width:600px;width:100%}
+  h1{font-size:24px;color:#f1f5f9;text-align:center;margin-bottom:8px}
+  p{color:#64748b;text-align:center;font-size:13px;margin-bottom:28px}
+  a.tool{display:block;background:#1e293b;border:1px solid #334155;border-radius:14px;padding:22px;margin-bottom:14px;text-decoration:none;transition:all .2s}
+  a.tool:hover{border-color:#475569;transform:translateY(-2px)}
+  a.tool h2{font-size:17px;color:#f1f5f9;margin-bottom:6px}
+  a.tool .desc{color:#94a3b8;font-size:13px;line-height:1.6}
+  a.tool .badge{display:inline-block;background:rgba(239,68,68,.15);color:#fca5a5;border:1px solid rgba(252,165,165,.3);padding:2px 10px;border-radius:99px;font-size:11px;font-weight:600;margin-top:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🧰 Banphai Survey — Tools</h1>
+  <p>เครื่องมือสำหรับทดสอบและจัดการระบบ</p>
+
+  <a class="tool" href="seed-roadside.html">
+    <h2>🚦 Seed Roadside Data</h2>
+    <div class="desc">สร้าง 3 จุดสำรวจ + 1,080 interviews (6 surveyors × 60 ราย) เขียนตรงไปยัง Firestore</div>
+    <span class="badge">⚠ DESTRUCTIVE — ใช้กับ DB ที่ว่าง</span>
+  </a>
+
+  <a class="tool" href="seed-home.html">
+    <h2>🏘️ Seed Home Data</h2>
+    <div class="desc">สร้าง 300 households (100 surveyors × 3) + ~750 members + ~2,250 trips</div>
+    <span class="badge">⚠ DESTRUCTIVE — ใช้กับ DB ที่ว่าง</span>
+  </a>
+</div>
+</body>
+</html>
