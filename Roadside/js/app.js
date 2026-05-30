@@ -408,12 +408,12 @@ const App = {
         </div>` :
         `<div class="member-list">${myIvs.map(iv => {
           const vt = OPT.vehicleTypes.find(v => v.key === iv.vehicleType) || { icon: '🚘', label: iv.vehicleType || 'ไม่ระบุ' };
-          const dotCls = (iv.origin && iv.destination && iv.purpose) ? 'dot-green' : (iv.origin || iv.destination) ? 'dot-amber' : 'dot-gray';
+          const dotCls = (iv.originName && iv.destinationName && iv.purpose) ? 'dot-green' : (iv.originName || iv.destinationName) ? 'dot-amber' : 'dot-gray';
           return `<div class="member-card" onclick="App.navigate('interview','${st.id}','${iv.id}')">
             <div class="member-avatar av-o" style="font-size:20px;">${vt.icon}</div>
             <div class="member-info">
               <div class="member-name">รายที่ ${iv.seq} · ${vt.label}</div>
-              <div class="member-detail">${iv.origin && iv.destination ? iv.origin + ' → ' + iv.destination : 'ยังไม่กรอกข้อมูล'}</div>
+              <div class="member-detail">${iv.originName && iv.destinationName ? iv.originName + ' → ' + iv.destinationName : 'ยังไม่กรอกข้อมูล'}</div>
             </div>
             <div class="member-right">
               ${iv.interviewDate ? `<span class="tag tag-gray">📅 ${iv.interviewDate}</span>` : ''}
@@ -473,15 +473,13 @@ const App = {
           <div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius-sm);padding:12px 14px;">
             <div style="font-size:11px;font-weight:700;color:var(--primary-dark);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">▶ ต้นทาง</div>
             <div class="info-label">ประเภทสถานที่</div><div class="info-value ${iv.originType?'':'info-empty'}" style="margin-bottom:6px;">${iv.originType||'—'}</div>
-            <div class="info-label">สถานที่ / หมู่บ้าน</div><div class="info-value ${iv.origin?'':'info-empty'}" style="margin-bottom:6px;">${iv.origin||'—'}</div>
-            ${iv.originLandmark ? `<div class="info-label">จุดสังเกต</div><div class="info-value" style="margin-bottom:6px;">${iv.originLandmark}</div>` : ''}
+            <div class="info-label">ชื่อสถานที่</div><div class="info-value ${iv.originName?'':'info-empty'}" style="margin-bottom:6px;">${iv.originName||'—'}</div>
             ${iv.originCoords ? `<div style="font-size:11px;color:var(--gray-400);">📍 ${iv.originCoords}</div>` : ''}
           </div>
           <div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius-sm);padding:12px 14px;">
             <div style="font-size:11px;font-weight:700;color:var(--primary-dark);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">▶ ปลายทาง</div>
             <div class="info-label">ประเภทสถานที่</div><div class="info-value ${iv.destinationType?'':'info-empty'}" style="margin-bottom:6px;">${iv.destinationType||'—'}</div>
-            <div class="info-label">สถานที่ / หมู่บ้าน</div><div class="info-value ${iv.destination?'':'info-empty'}" style="margin-bottom:6px;">${iv.destination||'—'}</div>
-            ${iv.destLandmark ? `<div class="info-label">จุดสังเกต</div><div class="info-value" style="margin-bottom:6px;">${iv.destLandmark}</div>` : ''}
+            <div class="info-label">ชื่อสถานที่</div><div class="info-value ${iv.destinationName?'':'info-empty'}" style="margin-bottom:6px;">${iv.destinationName||'—'}</div>
             ${iv.destinationCoords ? `<div style="font-size:11px;color:var(--gray-400);">📍 ${iv.destinationCoords}</div>` : ''}
           </div>
         </div>
@@ -666,18 +664,19 @@ const App = {
 
   confirmDeleteStation(id) {
     const st = DB.getStation(id);
-    this.showModal('⚠️ ลบจุดสำรวจ',
-      `<p style="color:var(--gray-600);">ต้องการลบจุดสำรวจ <strong>${st?.stationName || st?.id}</strong>
-       พร้อมข้อมูลการสำรวจ ${st?.interviews.length || 0} ราย ใช่หรือไม่?<br><br>ไม่สามารถย้อนกลับได้</p>`,
+    this.showModal('🗑 ลบจุดสำรวจจากเครื่องนี้',
+      `<p style="color:var(--gray-600);">จะลบจุดสำรวจ <strong>${st?.stationName || st?.id}</strong>
+       พร้อมข้อมูลการสำรวจ ${st?.interviews.length || 0} ราย <b>ออกจากเครื่องนี้</b></p>
+       <p style="font-size:13px;color:var(--success);font-weight:600;margin-top:8px;">✅ ข้อมูลบน Cloud ยังคงอยู่ — ดึงกลับได้</p>`,
       `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
-       <button class="btn btn-danger" onclick="App.deleteStation('${id}')">ลบ</button>`
+       <button class="btn btn-danger" onclick="App.deleteStation('${id}')">ลบจากเครื่องนี้</button>`
     );
   },
 
   deleteStation(id) {
     DB.deleteStation(id);
     this.closeModal();
-    this.toast('ลบจุดสำรวจแล้ว', 'danger');
+    this.toast('ลบจุดสำรวจจากเครื่องนี้แล้ว · Cloud ยังอยู่', 'success');
     this.navigate('home');
   },
 
@@ -703,14 +702,11 @@ const App = {
       <optgroup label="รถโดยสาร (6–7)">${mkVtOpts(vtGroups.bus)}</optgroup>
       <optgroup label="รถบรรทุก (8–9)">${mkVtOpts(vtGroups.truck)}</optgroup>`;
 
-    const pvOpts = OPT.provinces.map(p =>
-      `<option value="${p}" ${p === iv?.licensePlateProvince ? 'selected' : ''}>${p}</option>`).join('');
-
-    this.showModal(isEdit ? '✏️ แก้ไขการสำรวจ' : '📋 เพิ่มการสำรวจ', `
+    this.showModal('✏️ แก้ไขการสำรวจ', `
       <div class="section-label">ข้อมูลยานพาหนะ</div>
       <div class="form-grid">
         <div class="form-row">
-          <label class="form-label">ประเภทยานพาหนะ</label>
+          <label class="form-label req">ประเภทยานพาหนะ</label>
           <select id="iv_vtype" class="form-select">
             <option value="">— เลือก —</option>${vtOpts}
           </select>
@@ -719,21 +715,8 @@ const App = {
           <label class="form-label">เวลาสำรวจ</label>
           <input id="iv_time" class="form-input" type="time" value="${iv?.interviewTime||''}" />
         </div>
-      </div>
-      <div class="form-grid">
         <div class="form-row">
-          <label class="form-label">ทะเบียนรถ</label>
-          <input id="iv_plate" class="form-input" autocomplete="off" placeholder="เช่น กข 1234"
-            value="${iv?.licensePlate||''}" style="text-transform:uppercase;" />
-        </div>
-        <div class="form-row">
-          <label class="form-label">จังหวัดทะเบียน</label>
-          <select id="iv_province" class="form-select">
-            <option value="">— เลือก —</option>${pvOpts}
-          </select>
-        </div>
-        <div class="form-row">
-          <label class="form-label">ผู้โดยสาร (รวมคนขับ)</label>
+          <label class="form-label req">ผู้โดยสาร (รวมคนขับ)</label>
           <input id="iv_pax" class="form-input" type="number" min="1" inputmode="numeric"
             autocomplete="off" placeholder="เช่น 2" value="${iv?.passengerCount||''}" />
         </div>
@@ -758,20 +741,15 @@ const App = {
 
       <div class="section-label">จุดต้นทาง</div>
       <div class="form-row">
-        <label class="form-label">ประเภทสถานที่ต้นทาง</label>
+        <label class="form-label req">ประเภทสถานที่ต้นทาง</label>
         <select id="iv_originType" class="form-select">
           <option value="">— เลือก —</option>${selOpt(OPT.locationType, iv?.originType||'')}
         </select>
       </div>
       <div class="form-row">
-        <label class="form-label">ชื่อสถานที่ / หมู่บ้านต้นทาง</label>
+        <label class="form-label req">ชื่อสถานที่ต้นทาง</label>
         <input id="iv_origin" class="form-input" autocomplete="off"
-          placeholder="ชื่อสถานที่หรือหมู่บ้าน" value="${iv?.origin||''}" />
-      </div>
-      <div class="form-row">
-        <label class="form-label">จุดสังเกตต้นทาง</label>
-        <input id="iv_originLandmark" class="form-input" autocomplete="off"
-          placeholder="เช่น ใกล้ปั๊มน้ำมัน, หน้าวัด..." value="${iv?.originLandmark||''}" />
+          placeholder="ชื่อสถานที่หรือหมู่บ้าน" value="${iv?.originName||''}" />
       </div>
       <div class="form-row">
         <label class="form-label">พิกัด GPS ต้นทาง</label>
@@ -787,20 +765,15 @@ const App = {
 
       <div class="section-label">จุดปลายทาง</div>
       <div class="form-row">
-        <label class="form-label">ประเภทสถานที่ปลายทาง</label>
+        <label class="form-label req">ประเภทสถานที่ปลายทาง</label>
         <select id="iv_destType" class="form-select">
           <option value="">— เลือก —</option>${selOpt(OPT.locationType, iv?.destinationType||'')}
         </select>
       </div>
       <div class="form-row">
-        <label class="form-label">ชื่อสถานที่ / หมู่บ้านปลายทาง</label>
+        <label class="form-label req">ชื่อสถานที่ปลายทาง</label>
         <input id="iv_dest" class="form-input" autocomplete="off"
-          placeholder="ชื่อสถานที่หรือหมู่บ้าน" value="${iv?.destination||''}" />
-      </div>
-      <div class="form-row">
-        <label class="form-label">จุดสังเกตปลายทาง</label>
-        <input id="iv_destLandmark" class="form-input" autocomplete="off"
-          placeholder="เช่น ใกล้โรงเรียน, ตรงข้ามห้าง..." value="${iv?.destLandmark||''}" />
+          placeholder="ชื่อสถานที่หรือหมู่บ้าน" value="${iv?.destinationName||''}" />
       </div>
       <div class="form-row">
         <label class="form-label">พิกัด GPS ปลายทาง</label>
@@ -814,19 +787,11 @@ const App = {
         </div>
       </div>
 
-      <div class="form-grid">
-        <div class="form-row">
-          <label class="form-label">วัตถุประสงค์การเดินทาง</label>
-          <select id="iv_purpose" class="form-select">
-            <option value="">— เลือก —</option>${selOpt(OPT.purpose, iv?.purpose||'')}
-          </select>
-        </div>
-        <div class="form-row">
-          <label class="form-label">ความถี่การเดินทางเส้นทางนี้</label>
-          <select id="iv_freq" class="form-select">
-            <option value="">— เลือก —</option>${selOpt(OPT.tripFrequency, iv?.tripFrequency||'')}
-          </select>
-        </div>
+      <div class="form-row">
+        <label class="form-label req">วัตถุประสงค์การเดินทาง</label>
+        <select id="iv_purpose" class="form-select">
+          <option value="">— เลือก —</option>${selOpt(OPT.purpose, iv?.purpose||'')}
+        </select>
       </div>
 
       <div class="section-label">สินค้าที่บรรทุก <span style="font-size:11px;font-weight:400;color:var(--gray-400);">(สำหรับรถบรรทุก)</span></div>
@@ -857,47 +822,15 @@ const App = {
         </div>
       </div>
 
-      <div class="section-label">ข้อมูลผู้ขับขี่ / ตัวแทน</div>
+      <div class="section-label">รายได้ผู้ขับ (บาท/เดือน)</div>
       <div class="form-row">
-        <label class="form-label">เพศ</label>
-        <div class="radio-group">
-          ${['ชาย','หญิง'].map(g => `
-            <div class="radio-opt ${iv?.driverGender === g ? 'sel' : ''}" onclick="App._pickGender('${g}',this)">
-              <div class="radio-dot"></div>${g}
-            </div>`).join('')}
-        </div>
-        <input type="hidden" id="iv_gender" value="${iv?.driverGender||''}" />
-      </div>
-      <div class="form-grid">
-        <div class="form-row">
-          <label class="form-label">อายุ (ปี)</label>
-          <input id="iv_age" class="form-input" type="number" min="0" max="120" inputmode="numeric"
-            autocomplete="off" placeholder="เช่น 35" value="${iv?.driverAge||''}" />
-        </div>
-        <div class="form-row">
-          <label class="form-label">อาชีพ</label>
-          <select id="iv_occ" class="form-select">
-            <option value="">— เลือก —</option>${selOpt(OPT.occupation, iv?.driverOccupation||'')}
-          </select>
-        </div>
-        <div class="form-row">
-          <label class="form-label">รายได้ (บาท/เดือน)</label>
-          <select id="iv_income" class="form-select">
-            <option value="">— เลือก —</option>${selOpt(OPT.income, iv?.driverIncome||'')}
-          </select>
-        </div>
+        <input id="iv_income" class="form-input" type="number" min="0" inputmode="numeric"
+          placeholder="เช่น 15000 (เว้นว่างได้)" value="${iv?.driverIncome||''}" />
       </div>`,
       `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
-       <button class="btn btn-primary" onclick="App.saveInterview(${isEdit ? `'${iv.id}'` : 'null'})">${isEdit ? 'บันทึกการแก้ไข' : 'เพิ่มการสำรวจ'}</button>`
+       <button class="btn btn-primary" onclick="App.saveInterview('${iv.id}')">บันทึกการแก้ไข</button>`
     );
     setTimeout(() => document.getElementById('iv_vtype')?.focus(), 50);
-  },
-
-  _pickGender(val, el) {
-    el.closest('.radio-group').querySelectorAll('.radio-opt').forEach(o => o.classList.remove('sel'));
-    el.classList.add('sel');
-    const h = document.getElementById('iv_gender');
-    if (h) h.value = val;
   },
 
   _pickTravelDir(val, el) {
@@ -917,66 +850,55 @@ const App = {
   },
 
   saveInterview(ivId) {
-    const vehicleType = document.getElementById('iv_vtype')?.value;
-    const origin      = document.getElementById('iv_origin')?.value.trim();
-    const destination = document.getElementById('iv_dest')?.value.trim();
-    const purpose     = document.getElementById('iv_purpose')?.value;
-
-
+    if (!ivId) { this.toast('การเพิ่มใหม่ทำผ่าน wizard เท่านั้น', 'error'); return; }
     const data = {
-      vehicleType,
-      surveyorName:         this._role === 'admin' ? this._adminUsername : this._surveyorName,
-      interviewTime:        document.getElementById('iv_time')?.value         || '',
-      licensePlate:         (document.getElementById('iv_plate')?.value || '').trim().toUpperCase(),
-      licensePlateProvince: document.getElementById('iv_province')?.value      || '',
+      vehicleType:          document.getElementById('iv_vtype')?.value         || '',
+      interviewTime:        document.getElementById('iv_time')?.value          || '',
       passengerCount:       +(document.getElementById('iv_pax')?.value)        || '',
-      origin,
-      originVillage:        document.getElementById('iv_origin')?.value.trim()         || '',
-      originLandmark:       document.getElementById('iv_originLandmark')?.value.trim() || '',
-      originCoords:         document.getElementById('iv_originCoords')?.value.trim()   || '',
-      originType:           document.getElementById('iv_originType')?.value             || '',
-      destination,
-      destVillage:          document.getElementById('iv_dest')?.value.trim()           || '',
-      destLandmark:         document.getElementById('iv_destLandmark')?.value.trim()   || '',
-      destinationCoords:    document.getElementById('iv_destCoords')?.value.trim()     || '',
-      destinationType:      document.getElementById('iv_destType')?.value              || '',
-      travelDirection:      document.getElementById('iv_travelDir')?.value      || '',
-      purpose,
-      tripFrequency:        document.getElementById('iv_freq')?.value           || '',
+      travelDirection:      document.getElementById('iv_travelDir')?.value     || '',
+      originType:           document.getElementById('iv_originType')?.value    || '',
+      originName:           document.getElementById('iv_origin')?.value.trim() || '',
+      originCoords:         document.getElementById('iv_originCoords')?.value.trim() || '',
+      destinationType:      document.getElementById('iv_destType')?.value      || '',
+      destinationName:      document.getElementById('iv_dest')?.value.trim()   || '',
+      destinationCoords:    document.getElementById('iv_destCoords')?.value.trim() || '',
+      purpose:              document.getElementById('iv_purpose')?.value       || '',
       hasCargo:             document.getElementById('iv_hasCargo')?.value      || '',
       cargoType:            document.getElementById('iv_cargoType')?.value     || '',
       cargoWeight:          document.getElementById('iv_cargoWeight')?.value   || '',
-      driverGender:         document.getElementById('iv_gender')?.value        || '',
-      driverAge:            +(document.getElementById('iv_age')?.value)        || '',
-      driverOccupation:     document.getElementById('iv_occ')?.value           || '',
       driverIncome:         document.getElementById('iv_income')?.value        || ''
     };
+    // validation
+    const errs = [];
+    if (!data.vehicleType)     errs.push('ประเภทยานพาหนะ');
+    if (!data.passengerCount)  errs.push('ผู้โดยสาร');
+    if (!data.originType)      errs.push('ประเภทต้นทาง');
+    if (!data.originName)      errs.push('ชื่อต้นทาง');
+    if (!data.destinationType) errs.push('ประเภทปลายทาง');
+    if (!data.destinationName) errs.push('ชื่อปลายทาง');
+    if (!data.purpose)         errs.push('วัตถุประสงค์');
+    if (errs.length) { this.toast('กรอกข้อมูลให้ครบ: ' + errs.join(', '), 'error'); return; }
 
-    if (ivId) {
-      DB.updateInterview(this.stId, ivId, data);
-      this.toast('แก้ไขการสำรวจแล้ว', 'success');
-    } else {
-      const iv = DB.addInterview(this.stId, data);
-      this.ivId = iv.id;
-      this.toast('เพิ่มการสำรวจแล้ว', 'success');
-    }
+    DB.updateInterview(this.stId, ivId, data);
+    this.toast('แก้ไขการสำรวจแล้ว', 'success');
     this.closeModal();
     this.navigate('station', this.stId);
   },
 
   confirmDeleteInterview(ivId) {
     const iv = DB.getInterview(this.stId, ivId);
-    this.showModal('⚠️ ลบการสำรวจ',
-      `<p style="color:var(--gray-600);">ต้องการลบการสำรวจรายที่ ${iv?.seq} ใช่หรือไม่?</p>`,
+    this.showModal('🗑 ลบการสำรวจจากเครื่องนี้',
+      `<p style="color:var(--gray-600);">จะลบการสำรวจรายที่ ${iv?.seq} <b>ออกจากเครื่องนี้</b></p>
+       <p style="font-size:13px;color:var(--success);font-weight:600;margin-top:8px;">✅ ถ้า sync ไปแล้ว ข้อมูลบน Cloud ยังอยู่ — ดึงกลับได้</p>`,
       `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
-       <button class="btn btn-danger" onclick="App.deleteInterview('${ivId}')">ลบ</button>`
+       <button class="btn btn-danger" onclick="App.deleteInterview('${ivId}')">ลบจากเครื่องนี้</button>`
     );
   },
 
   deleteInterview(ivId) {
     DB.deleteInterview(this.stId, ivId);
     this.closeModal();
-    this.toast('ลบการสำรวจแล้ว', 'danger');
+    this.toast('ลบจากเครื่องนี้แล้ว · Cloud ยังอยู่', 'success');
     this.navigate('station', this.stId);
   },
 
@@ -1251,19 +1173,17 @@ const App = {
     if (incEl) this.wizardData.driverIncome = incEl.value;
     const wd = this.wizardData;
     DB.addInterview(this.stId, {
-      vehicleType:       wd.vehicleType,
       surveyorName:      this._role === 'admin' ? this._adminUsername : this._surveyorName,
-      travelDirection:   this._wizardDirection || '',
       interviewTime:     new Date().toTimeString().slice(0,5),
+      vehicleType:       wd.vehicleType,
       passengerCount:    wd.passengerCount,
+      travelDirection:   this._wizardDirection || '',
       originType:        wd.originType,
-      origin:            wd.originLandmark || wd.originCoords || '',
-      originCoords:      wd.originCoords,
-      originLandmark:    wd.originLandmark,
-      destType:          wd.destType,
-      destination:       wd.destLandmark || wd.destCoords || '',
-      destinationCoords: wd.destCoords,
-      destLandmark:      wd.destLandmark,
+      originName:        wd.originLandmark || '',
+      originCoords:      wd.originCoords || '',
+      destinationType:   wd.destType,
+      destinationName:   wd.destLandmark || '',
+      destinationCoords: wd.destCoords || '',
       purpose:           wd.purpose,
       hasCargo:          wd.hasCargo,
       cargoType:         wd.cargoType,
@@ -1498,13 +1418,13 @@ const App = {
           'จำนวนผู้โดยสาร':       iv.passengerCount || '',
           // ต้นทาง
           'ประเภทสถานที่ต้นทาง':  iv.originType || '',
-          'ชื่อสถานที่ต้นทาง':    iv.originLandmark || iv.origin || '',
+          'ชื่อสถานที่ต้นทาง':    iv.originName || '',
           'พิกัดต้นทาง':          iv.originCoords || '',
           'Lat ต้นทาง':           coordsLat(iv.originCoords),
           'Lon ต้นทาง':           coordsLon(iv.originCoords),
           // ปลายทาง
-          'ประเภทสถานที่ปลายทาง': iv.destinationType || iv.destType || '',
-          'ชื่อสถานที่ปลายทาง':   iv.destLandmark || iv.destination || '',
+          'ประเภทสถานที่ปลายทาง': iv.destinationType || '',
+          'ชื่อสถานที่ปลายทาง':   iv.destinationName || '',
           'พิกัดปลายทาง':         iv.destinationCoords || '',
           'Lat ปลายทาง':          coordsLat(iv.destinationCoords),
           'Lon ปลายทาง':          coordsLon(iv.destinationCoords),

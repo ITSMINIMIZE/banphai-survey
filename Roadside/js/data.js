@@ -69,40 +69,32 @@ const DB = {
     const st = this.getStation(stId);
     if (!st) return null;
     const iv = {
-      id:                   'IV-' + Date.now(),
+      id:                   data.id || ('IV-' + Date.now()),
+      stationId:            stId,
       seq:                  st.interviews.length + 1,
-      surveyorName:         data.surveyorName         || '',
-      interviewDate:        data.interviewDate        || new Date().toISOString().split('T')[0],
-      interviewTime:        data.interviewTime        || '',
-      vehicleType:          data.vehicleType          || '',
-      licensePlate:         data.licensePlate         || '',
-      licensePlateProvince: data.licensePlateProvince || '',
-      passengerCount:       data.passengerCount       || '',
-      // origin
-      origin:               data.origin               || '',
-      originVillage:        data.originVillage        || '',
-      originLandmark:       data.originLandmark       || '',
-      originCoords:         data.originCoords         || '',
-      originType:           data.originType           || '',
+      surveyorName:         data.surveyorName       || '',
+      interviewDate:        data.interviewDate      || new Date().toISOString().split('T')[0],
+      interviewTime:        data.interviewTime      || '',
+      vehicleType:          data.vehicleType        || '',
+      passengerCount:       data.passengerCount     || '',
+      travelDirection:      data.travelDirection    || '',
+      // origin (clean schema)
+      originType:           data.originType         || '',
+      originName:           data.originName         || '',
+      originCoords:         data.originCoords       || '',
       // destination
-      destination:          data.destination          || '',
-      destVillage:          data.destVillage          || '',
-      destLandmark:         data.destLandmark         || '',
-      destinationCoords:    data.destinationCoords    || '',
-      destinationType:      data.destinationType      || '',
-      travelDirection:      data.travelDirection      || '',
-      purpose:              data.purpose              || '',
-      tripFrequency:        data.tripFrequency        || '',
-      // cargo (รถบรรทุก)
-      hasCargo:             data.hasCargo             || '',
-      cargoType:            data.cargoType            || '',
-      cargoWeight:          data.cargoWeight          || '',
-      // driver
-      driverGender:         data.driverGender         || '',
-      driverAge:            data.driverAge            || '',
-      driverOccupation:     data.driverOccupation     || '',
-      driverIncome:         data.driverIncome         || '',
-      createdAt:            new Date().toISOString()
+      destinationType:      data.destinationType    || '',
+      destinationName:      data.destinationName    || '',
+      destinationCoords:    data.destinationCoords  || '',
+      // purpose
+      purpose:              data.purpose            || '',
+      // cargo
+      hasCargo:             data.hasCargo           || '',
+      cargoType:            data.cargoType          || '',
+      cargoWeight:          data.cargoWeight        || '',
+      // income
+      driverIncome:         data.driverIncome       || '',
+      createdAt:            data.createdAt || new Date().toISOString()
     };
     st.interviews.push(iv);
     this.save();
