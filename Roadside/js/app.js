@@ -1445,71 +1445,126 @@ const App = {
     const data = JSON.parse(DB.exportJSON());
     const wb   = XLSX.utils.book_new();
 
-    // Sheet 1: จุดสำรวจ
-    const stRows = data.stations.map(st => ({
-      'ID':              st.id,
-      'วันที่สำรวจ':    st.surveyDate,
-      'ผู้สำรวจ':       st.surveyorName,
-      'ผู้ควบคุม':      st.supervisorName,
-      'ชื่อจุดสำรวจ':   st.stationName,
-      'รหัสจุดสำรวจ':   st.stationCode,
-      'ถนน/ทางหลวง':    st.road,
-      'ทิศทาง':         st.direction,
-      'พิกัด':          st.coordinates,
-      'ตำบล':           st.subdistrict,
-      'อำเภอ':          st.district,
-      'จังหวัด':        st.province,
-      'จำนวนการสำรวจ':  st.interviews.length,
-      'Device ID':       st.deviceId,
-      'IP เครื่อง':     st.clientIp
+    const groupLabel = { personal:'รถส่วนบุคคล', bus:'รถโดยสาร', truck:'รถบรรทุก' };
+    const vtInfo = key => {
+      const v = OPT.vehicleTypes.find(x => x.key === key);
+      return { label: v?.label || key || '', group: groupLabel[v?.group] || '' };
+    };
+    const coordsLat = c => (c||'').split(',')[0]?.trim() || '';
+    const coordsLon = c => (c||'').split(',')[1]?.trim() || '';
+
+    // ===== Sheet 1: จุดสำรวจ =====
+    const stRows = data.stations.map((st, i) => ({
+      'ลำดับ':              i + 1,
+      'รหัสจุดสำรวจ':       st.stationCode || st.stationName,
+      'ชื่อจุดสำรวจ':       st.stationName,
+      'ถนน/ทางหลวง':        st.road,
+      'แกนถนน':             st.direction,
+      'ตำบล':               st.subdistrict,
+      'อำเภอ':              st.district,
+      'จังหวัด':            st.province,
+      'พิกัด (lat,lon)':    st.coordinates,
+      'Latitude':           coordsLat(st.coordinates),
+      'Longitude':          coordsLon(st.coordinates),
+      'ผู้สำรวจ (สร้าง)':  st.surveyorName,
+      'วันที่สร้าง':         st.surveyDate,
+      'จำนวนการสำรวจ':      st.interviews.length,
+      'ID':                 st.id,
+      'Device ID':          st.deviceId || '',
+      'IP':                 st.clientIp || ''
     }));
 
-    // Sheet 2: การสำรวจ
+    // ===== Sheet 2: การสำรวจ =====
     const ivRows = data.stations.flatMap(st =>
-      st.interviews.map(iv => ({
-        'ID_จุดสำรวจ':           st.id,
-        'ชื่อจุดสำรวจ':          st.stationName,
-        'รหัสจุดสำรวจ':          st.stationCode,
-        'ทิศทาง':                st.direction,
-        'ID_การสำรวจ':           iv.id,
-        'ลำดับ':                 iv.seq,
-        'เวลาสำรวจ':             iv.interviewTime,
-        'ประเภทยานพาหนะ':        (OPT.vehicleTypes.find(v=>v.key===iv.vehicleType)?.label) || iv.vehicleType,
-        'กลุ่มยานพาหนะ':         ({'personal':'รถส่วนบุคคล','bus':'รถโดยสาร','truck':'รถบรรทุก'})[OPT.vehicleTypes.find(v=>v.key===iv.vehicleType)?.group] || '',
-        'ทิศทาง':                iv.travelDirection,
-        'ทะเบียนรถ':             iv.licensePlate,
-        'จังหวัดทะเบียน':        iv.licensePlateProvince,
-        'จำนวนผู้โดยสาร':        iv.passengerCount,
-        'ประเภทสถานที่ต้นทาง':   iv.originType,
-        'สถานที่/หมู่บ้านต้นทาง':iv.origin,
-        'จุดสังเกตต้นทาง':       iv.originLandmark,
-        'พิกัดต้นทาง':           iv.originCoords,
-        'ประเภทสถานที่ปลายทาง':  iv.destinationType,
-        'สถานที่/หมู่บ้านปลายทาง':iv.destination,
-        'จุดสังเกตปลายทาง':      iv.destLandmark,
-        'พิกัดปลายทาง':          iv.destinationCoords,
-        'วัตถุประสงค์':           iv.purpose,
-        'ความถี่การเดินทาง':     iv.tripFrequency,
-        'มีสินค้า':               iv.hasCargo,
-        'ชนิดสินค้า':            iv.cargoType,
-        'น้ำหนักสินค้า(กก.)':    iv.cargoWeight,
-        'เพศ(คนขับ)':            iv.driverGender,
-        'อายุ(คนขับ)':           iv.driverAge,
-        'อาชีพ(คนขับ)':          iv.driverOccupation,
-        'รายได้(คนขับ)':         iv.driverIncome
-      }))
+      st.interviews.map(iv => {
+        const v = vtInfo(iv.vehicleType);
+        return {
+          // ระบุจุดสำรวจ
+          'รหัสจุดสำรวจ':         st.stationCode || st.stationName,
+          'ชื่อจุดสำรวจ':         st.stationName,
+          'ตำบล':                 st.subdistrict,
+          'อำเภอ':                st.district,
+          'จังหวัด':              st.province,
+          'แกนถนน':               st.direction,
+          // ข้อมูลการสำรวจ
+          'ลำดับ':                iv.seq,
+          'วันที่สำรวจ':          iv.interviewDate || '',
+          'เวลาสำรวจ':            iv.interviewTime || '',
+          'ผู้สำรวจ':             iv.surveyorName || '',
+          'ทิศการเดินทาง':        iv.travelDirection || '',
+          // ยานพาหนะ
+          'ประเภทยานพาหนะ':       v.label,
+          'กลุ่มยานพาหนะ':        v.group,
+          'จำนวนผู้โดยสาร':       iv.passengerCount || '',
+          // ต้นทาง
+          'ประเภทสถานที่ต้นทาง':  iv.originType || '',
+          'ชื่อสถานที่ต้นทาง':    iv.originLandmark || iv.origin || '',
+          'พิกัดต้นทาง':          iv.originCoords || '',
+          'Lat ต้นทาง':           coordsLat(iv.originCoords),
+          'Lon ต้นทาง':           coordsLon(iv.originCoords),
+          // ปลายทาง
+          'ประเภทสถานที่ปลายทาง': iv.destinationType || iv.destType || '',
+          'ชื่อสถานที่ปลายทาง':   iv.destLandmark || iv.destination || '',
+          'พิกัดปลายทาง':         iv.destinationCoords || '',
+          'Lat ปลายทาง':          coordsLat(iv.destinationCoords),
+          'Lon ปลายทาง':          coordsLon(iv.destinationCoords),
+          // วัตถุประสงค์
+          'วัตถุประสงค์':         iv.purpose || '',
+          // สินค้า
+          'มีสินค้า':             iv.hasCargo || '',
+          'ชนิดสินค้า':           iv.cargoType || '',
+          'น้ำหนักสินค้า (กก.)':  iv.cargoWeight || '',
+          // รายได้
+          'รายได้ผู้ขับ (บาท/เดือน)': iv.driverIncome || '',
+          // อ้างอิง
+          'ID จุดสำรวจ':          st.id,
+          'ID การสำรวจ':          iv.id
+        };
+      })
     );
+
+    // ===== Sheet 3: สรุปตามจุดสำรวจ =====
+    const summaryRows = data.stations.map((st, i) => {
+      const ivs = st.interviews;
+      const cnt = key => ivs.filter(iv => vtInfo(iv.vehicleType).group === groupLabel[key]).length;
+      return {
+        'ลำดับ':           i + 1,
+        'รหัสจุดสำรวจ':    st.stationCode || st.stationName,
+        'ชื่อจุดสำรวจ':    st.stationName,
+        'แกนถนน':          st.direction,
+        'รวมทั้งหมด':       ivs.length,
+        'รถส่วนบุคคล':     cnt('personal'),
+        'รถโดยสาร':        cnt('bus'),
+        'รถบรรทุก':        cnt('truck'),
+        'มีสินค้า':        ivs.filter(iv => iv.hasCargo === 'มีสินค้า').length,
+        'ไม่มีสินค้า':     ivs.filter(iv => iv.hasCargo === 'ไม่มีสินค้า').length
+      };
+    });
 
     const mkSheet = rows => rows.length
       ? XLSX.utils.json_to_sheet(rows)
       : XLSX.utils.aoa_to_sheet([['ไม่มีข้อมูล']]);
 
-    XLSX.utils.book_append_sheet(wb, mkSheet(stRows), 'จุดสำรวจ');
-    XLSX.utils.book_append_sheet(wb, mkSheet(ivRows), 'การสำรวจ');
+    // กำหนดความกว้างคอลัมน์ ~ พอดีตามชื่อหัว (อ่านง่าย)
+    const autoWidth = (rows) => {
+      if (!rows.length) return [];
+      return Object.keys(rows[0]).map(k => {
+        const max = Math.max(k.length, ...rows.map(r => String(r[k] ?? '').length));
+        return { wch: Math.min(Math.max(max + 2, 10), 40) };
+      });
+    };
 
-    const filename = `roadside-interview-banphai-${new Date().toISOString().split('T')[0]}.xlsx`;
+    const s1 = mkSheet(stRows);      s1['!cols'] = autoWidth(stRows);
+    const s2 = mkSheet(ivRows);      s2['!cols'] = autoWidth(ivRows);
+    const s3 = mkSheet(summaryRows); s3['!cols'] = autoWidth(summaryRows);
+
+    XLSX.utils.book_append_sheet(wb, s1, 'จุดสำรวจ');
+    XLSX.utils.book_append_sheet(wb, s2, 'การสำรวจ');
+    XLSX.utils.book_append_sheet(wb, s3, 'สรุปตามจุด');
+
+    const filename = `roadside-banphai-${new Date().toISOString().split('T')[0]}.xlsx`;
     XLSX.writeFile(wb, filename);
-    this.toast('Export Excel สำเร็จ', 'success');
+    this.toast('Export Excel สำเร็จ · 3 sheets', 'success');
   },
 
   confirmClearAll() {
