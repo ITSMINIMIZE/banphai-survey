@@ -135,30 +135,60 @@ const App = {
   // ---- เข้าแอปหลังจาก login ----
   _enterApp() {
     document.querySelector('.topbar').style.display = '';
-    // อัปเดตขวาของ topbar → แสดงชื่อ + ปุ่มออก
     const right = document.getElementById('topbarRight');
     if (right) {
-      right.outerHTML = `<div id="topbarRight" style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
-        <a href="../index.html"
-          style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;
-                 color:#64748b;text-decoration:none;padding:6px 12px;border-radius:8px;
-                 border:1px solid #e2e8f0;transition:all .15s;"
-          onmouseover="this.style.color='#1e293b';this.style.borderColor='#94a3b8';this.style.background='#f1f5f9'"
-          onmouseout="this.style.color='#64748b';this.style.borderColor='#e2e8f0';this.style.background=''">
-          ◈ เมนูหลัก
-        </a>
-        <span style="font-size:12px;color:#94a3b8;">|</span>
-        <span style="font-size:12px;color:#64748b;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+      right.outerHTML = `<div id="topbarRight" class="tb-right">
+        <a class="tb-link" href="../index.html">◈ เมนูหลัก</a>
+        <span class="tb-sep">|</span>
+        <span class="tb-user">
           ${this._role === 'admin' ? '🔐' : '👤'} ${this._role === 'admin' ? this._adminUsername : this._surveyorName}
         </span>
-        <button onclick="App.logout()"
-          style="font-size:12px;font-weight:600;color:#64748b;background:none;border:1px solid #e2e8f0;
-                 border-radius:6px;padding:4px 10px;cursor:pointer;white-space:nowrap;font-family:inherit;">
-          ออก
-        </button>
+        <button class="tb-logout" onclick="App.logout()">ออก</button>
       </div>`;
     }
     this.navigate('home');
+    this._silentPull();
+  },
+
+  async _silentPull() {
+    const THROTTLE_MS = 5 * 60 * 1000;
+    const last = +localStorage.getItem('_hi_last_auto_pull') || 0;
+    if (Date.now() - last < THROTTLE_MS) return;
+    try {
+      if (typeof firebase === 'undefined') return;
+      if (!FB.db) FB.init();
+      if (!FB.db) return;
+      const count = this._role === 'admin'
+        ? await FB.pullAll()
+        : await FB.pullBySurveyor(this._surveyorName);
+      localStorage.setItem('_hi_last_auto_pull', String(Date.now()));
+      this.toast(`☁️ โหลดข้อมูลแล้ว ${count} ครัวเรือน`, 'success');
+      this.render();
+    } catch { /* silent */ }
+  },
+
+  _relativeTime(iso) {
+    if (!iso) return '';
+    const diff = Date.now() - new Date(iso).getTime();
+    if (diff < 0) return '';
+    const sec = Math.floor(diff / 1000);
+    if (sec < 30)  return 'เมื่อกี้นี้';
+    if (sec < 60)  return `${sec} วินาทีที่แล้ว`;
+    const min = Math.floor(sec / 60);
+    if (min < 60)  return `${min} นาทีที่แล้ว`;
+    const hr = Math.floor(min / 60);
+    if (hr < 24)   return `${hr} ชม.ที่แล้ว`;
+    const day = Math.floor(hr / 24);
+    if (day < 7)   return `${day} วันที่แล้ว`;
+    return new Date(iso).toLocaleDateString('th-TH');
+  },
+
+  _syncBadge() {
+    const last = typeof FB !== 'undefined' ? FB.lastSync() : null;
+    if (!last) return `<span class="sync-badge sync-badge-none">⚠ ยังไม่เคย sync</span>`;
+    return `<span class="sync-badge" title="${new Date(last).toLocaleString('th-TH')}">
+              ☁️ sync ล่าสุด: ${this._relativeTime(last)}
+            </span>`;
   },
 
   // ---- ออกจากระบบ ----
@@ -170,16 +200,7 @@ const App = {
     this._adminUsername = '';
     // คืน topbar right เป็นลิงก์เมนูหลัก
     const right = document.getElementById('topbarRight');
-    if (right) {
-      right.outerHTML = `<a href="../index.html" id="topbarRight"
-        style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;
-               color:#64748b;text-decoration:none;padding:6px 12px;border-radius:8px;
-               border:1px solid #e2e8f0;transition:all .15s;"
-        onmouseover="this.style.color='#1e293b';this.style.borderColor='#94a3b8';this.style.background='#f1f5f9'"
-        onmouseout="this.style.color='#64748b';this.style.borderColor='#e2e8f0';this.style.background=''">
-        ◈ เมนูหลัก
-      </a>`;
-    }
+    if (right) right.outerHTML = `<a class="tb-link" id="topbarRight" href="../index.html">◈ เมนูหลัก</a>`;
     this._showLoginGate();
   },
 
@@ -245,13 +266,13 @@ const App = {
       <div class="sec-header">
         <div>
           <div class="sec-title">รายการครัวเรือน</div>
-          <div class="sec-sub">พบ ${hhs.length} ครัวเรือน${!isAdmin ? ' (ของคุณ)' : ''}</div>
+          <div class="sec-sub">พบ ${hhs.length} ครัวเรือน${!isAdmin ? ' (ของคุณ)' : ''} · ${this._syncBadge()}</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           ${isAdmin && hhs.length > 0 ? `<button class="btn btn-ghost btn-sm" onclick="App.exportData()">⬇ Export Excel</button>` : ''}
           ${hhs.length > 0 ? `<button class="btn btn-ghost btn-sm" id="syncBtn" onclick="App.syncToCloud()">☁️ Sync</button>` : ''}
-          ${isAdmin && hhs.length > 0 ? `<button class="btn btn-danger btn-sm" onclick="App.confirmClearAll()">🗑 ล้างข้อมูล</button>` : ''}
           <button class="btn btn-ghost btn-sm" id="pullBtn" onclick="App.pullFromCloud()">☁️ ดึงข้อมูล</button>
+          ${hhs.length > 0 ? `<button class="btn btn-danger btn-sm" onclick="App.confirmClearAll()">🗑 ล้าง cache</button>` : ''}
           <button class="btn btn-primary" onclick="App.openAddHousehold()">+ เพิ่มครัวเรือน</button>
         </div>
       </div>
@@ -950,18 +971,19 @@ const App = {
 
   confirmDeleteHousehold(id) {
     const hh = DB.getHousehold(id);
-    this.showModal('⚠️ ลบครัวเรือน',
-      `<p style="color:var(--gray-600)">ต้องการลบครัวเรือน <strong>[${hh?.areaCode || hh?.id}]</strong>
-       พร้อมสมาชิก ${hh?.members.length || 0} คน ใช่หรือไม่?<br><br>ไม่สามารถย้อนกลับได้</p>`,
+    this.showModal('🗑 ลบครัวเรือนจากเครื่องนี้',
+      `<p style="color:var(--gray-600)">จะลบครัวเรือน <strong>[${hh?.areaCode || hh?.id}]</strong>
+       พร้อมสมาชิก ${hh?.members.length || 0} คน <b>ออกจากเครื่องนี้</b></p>
+       <p style="font-size:13px;color:var(--success);font-weight:600;margin-top:8px;">✅ ข้อมูลบน Cloud ยังอยู่ — ดึงกลับได้</p>`,
       `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
-       <button class="btn btn-danger" onclick="App.deleteHousehold('${id}')">ลบ</button>`
+       <button class="btn btn-danger" onclick="App.deleteHousehold('${id}')">ลบจากเครื่องนี้</button>`
     );
   },
 
   deleteHousehold(id) {
     DB.deleteHousehold(id);
     this.closeModal();
-    this.toast('ลบครัวเรือนแล้ว', 'danger');
+    this.toast('ลบจากเครื่องนี้แล้ว · Cloud ยังอยู่', 'success');
     this.navigate('home');
   },
 
@@ -994,17 +1016,18 @@ const App = {
 
   confirmDeleteMember(mid) {
     const m = DB.getMember(this.hhId, mid);
-    this.showModal('⚠️ ลบสมาชิก',
-      `<p style="color:var(--gray-600)">ต้องการลบสมาชิกที่ ${m?.seq} พร้อมการเดินทาง ${m?.trips.length || 0} เที่ยว ใช่หรือไม่?</p>`,
+    this.showModal('🗑 ลบสมาชิกจากเครื่องนี้',
+      `<p style="color:var(--gray-600)">จะลบสมาชิกที่ ${m?.seq} พร้อมการเดินทาง ${m?.trips.length || 0} เที่ยว <b>ออกจากเครื่องนี้</b></p>
+       <p style="font-size:13px;color:var(--success);font-weight:600;margin-top:8px;">✅ ข้อมูลบน Cloud ยังอยู่ — ดึงกลับได้</p>`,
       `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
-       <button class="btn btn-danger" onclick="App.deleteMember('${mid}')">ลบ</button>`
+       <button class="btn btn-danger" onclick="App.deleteMember('${mid}')">ลบจากเครื่องนี้</button>`
     );
   },
 
   deleteMember(mid) {
     DB.deleteMember(this.hhId, mid);
     this.closeModal();
-    this.toast('ลบสมาชิกแล้ว', 'danger');
+    this.toast('ลบจากเครื่องนี้แล้ว · Cloud ยังอยู่', 'success');
     this.navigate('household', this.hhId);
   },
 
@@ -1449,7 +1472,7 @@ const App = {
 
   deleteTrip(tripId) {
     DB.deleteTrip(this.hhId, this.memberId, tripId);
-    this.toast('ลบการเดินทางแล้ว', 'danger');
+    this.toast('ลบจากเครื่องนี้แล้ว · Cloud ยังอยู่', 'success');
     this.render();
   },
 
@@ -1531,10 +1554,11 @@ const App = {
       if (typeof FB === 'undefined') throw new Error('firebase.js โหลดไม่สำเร็จ');
       if (!FB.db) FB.init();
       if (!FB.db) throw new Error('Firebase เชื่อมต่อไม่ได้ — ลองรีเฟรชหน้า');
-      const count = await FB.syncAll();
+      const isAdmin = this._role === 'admin';
+      const summary = await FB.syncAll(isAdmin ? null : this._surveyorName);
       const lastSync = FB.lastSync();
       const timeStr = lastSync ? new Date(lastSync).toLocaleTimeString('th-TH') : '';
-      this.toast(`☁️ sync สำเร็จ ${count} ครัวเรือน${timeStr ? ' · ' + timeStr : ''}`, 'success');
+      this.toast(`☁️ sync สำเร็จ · ${summary}${timeStr ? ' · ' + timeStr : ''}`, 'success');
     } catch (e) {
       this.toast('sync ไม่สำเร็จ: ' + e.message, 'error');
     } finally {
@@ -1670,20 +1694,22 @@ const App = {
   },
 
   confirmClearAll() {
-    const stats = DB.stats();
-    this.showModal('⚠️ ล้างข้อมูลทั้งหมด',
-      `<div style="background:#fee2e2;border:1px solid #fca5a5;border-radius:8px;padding:14px 16px;margin-bottom:12px;">
-        <strong style="color:#dc2626;">ข้อมูลที่จะถูกลบ:</strong>
-        <ul style="margin-top:8px;padding-left:18px;font-size:14px;color:#7f1d1d;line-height:1.8;">
+    const isAdmin = this._role === 'admin';
+    const stats = DB.stats(isAdmin ? null : this._surveyorName);
+    const title = isAdmin ? '🗑 ล้างข้อมูลทั้งหมดจากเครื่องนี้' : '🗑 ล้างข้อมูลของฉันจากเครื่องนี้';
+    this.showModal(title,
+      `<div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:14px 16px;margin-bottom:12px;">
+        <strong style="color:#92400e;">ข้อมูลในเครื่องที่จะหาย:</strong>
+        <ul style="margin-top:8px;padding-left:18px;font-size:14px;color:#78350f;line-height:1.8;">
           <li>${stats.households} ครัวเรือน</li>
           <li>${stats.members} สมาชิก</li>
           <li>${stats.trips} การเดินทาง</li>
         </ul>
       </div>
-      <p style="font-size:14px;color:var(--gray-600);">ไม่สามารถย้อนกลับได้ — แนะนำให้ Export ก่อน</p>`,
+      <p style="font-size:13px;color:var(--success);font-weight:600;">✅ ข้อมูลบน Cloud ยังอยู่ครบ — กด "ดึงข้อมูล" เพื่อโหลดกลับมาได้ทุกเมื่อ</p>`,
       `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
-       <button class="btn btn-ghost btn-sm" onclick="App.exportData()" style="color:var(--primary);">⬇ Export ก่อนลบ</button>
-       <button class="btn btn-danger" onclick="App.clearAll()">ล้างข้อมูลทั้งหมด</button>`
+       ${isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="App.exportData()" style="color:var(--primary);">⬇ Export ก่อน</button>` : ''}
+       <button class="btn btn-danger" onclick="App.${isAdmin ? 'clearAll' : 'clearMyData'}()">ล้าง cache</button>`
     );
   },
 
@@ -1691,8 +1717,15 @@ const App = {
     localStorage.removeItem(DB.KEY);
     DB._data = null;
     this.closeModal();
-    this.toast('ล้างข้อมูลทั้งหมดแล้ว', 'danger');
+    this.toast('ล้าง cache แล้ว · Cloud ยังอยู่', 'success');
     this.navigate('home');
+  },
+
+  clearMyData() {
+    DB.clearMyData(this._surveyorName);
+    this.closeModal();
+    this.toast('ล้างข้อมูลของฉันแล้ว · Cloud ยังอยู่', 'success');
+    this.render();
   },
 
 };

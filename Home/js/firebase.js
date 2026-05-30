@@ -1,8 +1,16 @@
-// ===== FIREBASE SYNC (v1) =====
+// ===== FIREBASE SYNC — Home Interview (v2) =====
+// Schema (cloud):
+//   households/{hhId}                                ← household document
+//   households/{hhId}/members/{mId}                  ← one doc per member
+//   households/{hhId}/members/{mId}/trips/{tId}      ← one doc per trip
+//
+// Delete: rules forbid — ปุ่มลบในเว็บลบเฉพาะ local cache เท่านั้น
+// Surveyor: เห็นเฉพาะข้อมูลของตัวเอง (where surveyorName == name ที่ root)
+// Admin: เห็นทุก household
 const FB = {
-  db: null,
+  db:   null,
   auth: null,
-  COLLECTION: 'households',
+  COLLECTION:   'households',
   EMAIL_DOMAIN: '@banphai.local',
 
   init() {
@@ -18,7 +26,8 @@ const FB = {
       if (!firebase.apps.length) firebase.initializeApp(cfg);
       this.db   = firebase.firestore();
       this.auth = firebase.auth();
-      console.log('[FB] initialized');
+      // เปิด offline persistence — Firebase queue offline writes ให้
+      this.db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
     } catch (e) {
       console.error('[FB] init error:', e);
     }
@@ -31,120 +40,181 @@ const FB = {
     const cred  = await this.auth.signInWithEmailAndPassword(email, password);
     return cred.user;
   },
-
-  async logoutAdmin() {
-    if (this.auth) await this.auth.signOut();
-  },
-
+  async logoutAdmin() { if (this.auth) await this.auth.signOut(); },
   onAuthStateChanged(cb) {
     if (!this.auth) { cb(null); return; }
     return this.auth.onAuthStateChanged(cb);
   },
 
-  // ดึงเฉพาะข้อมูลของผู้สำรวจคนนั้น
-  async pullBySurveyor(surveyorName) {
-    if (!this.db) throw new Error('Firebase ไม่พร้อม');
-    const snap = await this._withTimeout(
-      this.db.collection(this.COLLECTION).where('surveyorName', '==', surveyorName).get(),
-      20000
-    );
-    const remoteMap = {};
-    snap.docs.forEach(doc => {
-      const d = doc.data();
-      delete d._device; delete d._syncedAt;
-      remoteMap[d.id] = d;
-    });
-    const local = DB.load();
-    const localMap = {};
-    local.households.forEach(h => { localMap[h.id] = h; });
-    const merged   = Object.values({ ...localMap, ...remoteMap });
-    const newData  = { households: merged };
-    localStorage.setItem(DB.KEY, JSON.stringify(newData));
-    DB._data = newData;
-    return merged.length;
-  },
-
-  // Device ID — ระบุว่าข้อมูลมาจากเครื่องไหน
   deviceId() {
     let id = localStorage.getItem('_device_id');
-    if (!id) {
-      id = 'DEV-' + Date.now();
-      localStorage.setItem('_device_id', id);
-    }
+    if (!id) { id = 'DEV-' + Date.now(); localStorage.setItem('_device_id', id); }
     return id;
   },
+  lastSync() { return localStorage.getItem('_hi_last_sync') || null; },
 
-  lastSync() {
-    return localStorage.getItem('_last_sync') || null;
-  },
-
-  // Timeout helper — reject ถ้าเกิน ms มิลลิวินาที
-  _withTimeout(promise, ms = 15000) {
+  _withTimeout(promise, ms = 20000) {
     return Promise.race([
       promise,
       new Promise((_, reject) =>
-        setTimeout(() => reject(new Error(`หมดเวลา (${ms/1000}s) — ตรวจสอบ Firestore Rules และอินเทอร์เน็ต`)), ms)
+        setTimeout(() => reject(new Error(`หมดเวลา (${ms/1000}s)`)), ms)
       )
     ]);
   },
 
-  // Sync ครัวเรือนทั้งหมดขึ้น Firestore
-  async syncAll() {
+  _strip(d) { delete d._device; delete d._syncedAt; return d; },
+
+  // ===== SYNC =====
+  // admin: sync ทุก household ใน local (รวม nested) ขึ้น cloud
+  // surveyor: sync เฉพาะ household ของตัวเอง
+  async syncAll(surveyorName) {
     if (!this.db) throw new Error('Firebase ไม่พร้อม');
-    const hhs = DB.getHouseholds();
-    if (!hhs.length) throw new Error('ไม่มีข้อมูลครัวเรือน');
+    let hhs = DB.getHouseholds();
+    if (surveyorName) hhs = hhs.filter(h => h.surveyorName === surveyorName);
+    if (!hhs.length) throw new Error('ไม่มีข้อมูลที่จะ sync');
 
-    const device = this.deviceId();
+    const device   = this.deviceId();
     const syncedAt = new Date().toISOString();
+    const CHUNK    = 400;
 
-    // Firestore batch สูงสุด 500 ops — แบ่งเป็น chunk
-    const CHUNK = 400;
-    for (let i = 0; i < hhs.length; i += CHUNK) {
-      const batch = this.db.batch();
-      for (const hh of hhs.slice(i, i + CHUNK)) {
-        const ref = this.db.collection(this.COLLECTION).doc(hh.id);
-        batch.set(ref, { ...hh, _device: device, _syncedAt: syncedAt });
+    const batches = [];
+    let batch = this.db.batch();
+    let ops   = 0;
+    const flush = () => { if (ops > 0) batches.push(batch); batch = this.db.batch(); ops = 0; };
+    const addOp = (ref, payload) => {
+      batch.set(ref, payload, { merge: true });
+      ops++;
+      if (ops >= CHUNK) flush();
+    };
+
+    let hhCount = 0, mCount = 0, tCount = 0;
+
+    for (const hh of hhs) {
+      const hhRef = this.db.collection(this.COLLECTION).doc(hh.id);
+      // เขียน household เฉพาะ field ของมัน (ไม่รวม members ใน array)
+      const { members, ...hhData } = hh;
+      addOp(hhRef, { ...hhData, _device: device, _syncedAt: syncedAt });
+      hhCount++;
+
+      for (const m of (members || [])) {
+        const mRef = hhRef.collection('members').doc(m.id);
+        const { trips, ...mData } = m;
+        addOp(mRef, { ...mData, _device: device, _syncedAt: syncedAt });
+        mCount++;
+
+        for (const t of (trips || [])) {
+          const tRef = mRef.collection('trips').doc(t.id);
+          addOp(tRef, { ...t, _device: device, _syncedAt: syncedAt });
+          tCount++;
+        }
       }
-      await this._withTimeout(batch.commit());
     }
+    flush();
 
-    localStorage.setItem('_last_sync', syncedAt);
-    return hhs.length;
+    for (const b of batches) {
+      await this._withTimeout(b.commit());
+    }
+    localStorage.setItem('_hi_last_sync', syncedAt);
+    return `${hhCount} ครัวเรือน · ${mCount} สมาชิก · ${tCount} เที่ยว`;
   },
 
-  // ดึงข้อมูลจาก Firestore → merge กับ localStorage (ไม่ลบข้อมูลในเครื่อง)
-  async pullAll() {
-    if (!this.db) throw new Error('Firebase ไม่พร้อม');
-
-    const snap = await this._withTimeout(
-      this.db.collection(this.COLLECTION).get(),
-      20000
-    );
-
-    if (snap.empty) throw new Error('ไม่มีข้อมูลใน Firestore');
-
-    // map ข้อมูลจาก Firebase (ลบ field ที่ Firebase เพิ่มเอง)
-    const remoteMap = {};
-    snap.docs.forEach(doc => {
-      const d = doc.data();
-      delete d._device;
-      delete d._syncedAt;
-      remoteMap[d.id] = d;
+  // ===== PULL =====
+  // โหลด household + nested members + nested trips
+  async _loadNested(hhDocs) {
+    const hhMap = {};
+    hhDocs.forEach(doc => {
+      const d = this._strip(doc.data());
+      d.members = [];
+      hhMap[doc.id] = d;
     });
 
-    // merge: remote ชนะถ้า ID ซ้ำกัน
-    const local = DB.load();
-    const localMap = {};
-    local.households.forEach(h => { localMap[h.id] = h; });
+    // pull members ของแต่ละ household แบบ parallel
+    const memberSnaps = await Promise.all(hhDocs.map(doc =>
+      this._withTimeout(doc.ref.collection('members').get({ source: 'server' }))
+    ));
 
-    const merged = Object.values({ ...localMap, ...remoteMap });
-    const newData = { households: merged };
+    // จัดเก็บ member doc refs + reset trips
+    const allMemberDocs = [];
+    memberSnaps.forEach((snap, i) => {
+      const hhId = hhDocs[i].id;
+      snap.docs.forEach(mDoc => {
+        const m = this._strip(mDoc.data());
+        m.trips = [];
+        hhMap[hhId].members.push(m);
+        allMemberDocs.push({ hhId, mId: mDoc.id, ref: mDoc.ref, mRef: m });
+      });
+    });
+
+    // pull trips ของแต่ละ member แบบ parallel
+    const tripSnaps = await Promise.all(allMemberDocs.map(({ ref }) =>
+      this._withTimeout(ref.collection('trips').get({ source: 'server' }))
+    ));
+    tripSnaps.forEach((snap, i) => {
+      snap.docs.forEach(tDoc => {
+        allMemberDocs[i].mRef.trips.push(this._strip(tDoc.data()));
+      });
+    });
+
+    // sort
+    Object.values(hhMap).forEach(hh => {
+      hh.members.sort((a,b) => (a.seq||0) - (b.seq||0));
+      hh.members.forEach(m => m.trips.sort((a,b) => (a.seq||0) - (b.seq||0)));
+    });
+    return Object.values(hhMap);
+  },
+
+  async pullAll() {
+    if (!this.db) throw new Error('Firebase ไม่พร้อม');
+    const snap = await this._withTimeout(
+      this.db.collection(this.COLLECTION).get({ source: 'server' })
+    );
+    if (snap.empty) throw new Error('ไม่มีข้อมูลใน Firestore');
+    const households = await this._loadNested(snap.docs);
+    const newData = { households };
     localStorage.setItem(DB.KEY, JSON.stringify(newData));
     DB._data = newData;
+    return households.length;
+  },
 
-    return merged.length;
+  // surveyor: pull เฉพาะ household ของตัวเอง (where ที่ root)
+  async pullBySurveyor(surveyorName) {
+    if (!this.db) throw new Error('Firebase ไม่พร้อม');
+    const snap = await this._withTimeout(
+      this.db.collection(this.COLLECTION)
+        .where('surveyorName', '==', surveyorName)
+        .get({ source: 'server' })
+    );
+    const remote = await this._loadNested(snap.docs);
+    const remoteMap = {};
+    remote.forEach(h => { remoteMap[h.id] = h; });
+
+    // merge: เก็บ local household/member/trip ที่ยังไม่ sync เพิ่มเข้า
+    const local = DB.load();
+    local.households.forEach(lh => {
+      if (lh.surveyorName !== surveyorName) return; // ของคนอื่น — ไม่ต้องเอามาด้วย
+      const r = remoteMap[lh.id];
+      if (!r) { remoteMap[lh.id] = lh; return; }
+      // merge members
+      const rmIds = new Set(r.members.map(m => m.id));
+      (lh.members || []).forEach(lm => {
+        if (!rmIds.has(lm.id)) { r.members.push(lm); return; }
+        // merge trips ของ member ที่มีทั้งสองข้าง
+        const rm = r.members.find(x => x.id === lm.id);
+        const rtIds = new Set(rm.trips.map(t => t.id));
+        (lm.trips || []).forEach(lt => {
+          if (!rtIds.has(lt.id)) rm.trips.push(lt);
+        });
+      });
+      r.members.sort((a,b) => (a.seq||0) - (b.seq||0));
+      r.members.forEach(m => m.trips.sort((a,b) => (a.seq||0) - (b.seq||0)));
+    });
+
+    const households = Object.values(remoteMap);
+    const newData = { households };
+    localStorage.setItem(DB.KEY, JSON.stringify(newData));
+    DB._data = newData;
+    return households.length;
   }
 };
 
-// Auto-init เมื่อ SDK พร้อม
 if (typeof firebase !== 'undefined') FB.init();

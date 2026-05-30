@@ -38,6 +38,40 @@ body {
   line-height: 1.6;
 }
 
+/* กันหน้าเว็บล้นแนวนอน */
+html, body { overflow-x: hidden; max-width: 100vw; }
+
+/* ===== TOPBAR-RIGHT components ===== */
+.tb-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.tb-link {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 13px; font-weight: 600;
+  color: var(--gray-500); text-decoration: none;
+  padding: 6px 12px; border-radius: 8px;
+  border: 1px solid var(--gray-200); transition: all .15s;
+}
+.tb-link:hover { color: var(--gray-800); border-color: var(--gray-400); background: var(--gray-100); }
+.tb-sep { font-size: 12px; color: var(--gray-400); }
+.tb-user {
+  font-size: 12px; color: var(--gray-500);
+  max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tb-logout {
+  font-size: 12px; font-weight: 600; color: var(--gray-500);
+  background: none; border: 1px solid var(--gray-200); border-radius: 6px;
+  padding: 4px 10px; cursor: pointer; white-space: nowrap;
+  font-family: inherit; transition: all .15s;
+}
+.tb-logout:hover { background: var(--gray-100); color: var(--gray-800); }
+
+.sync-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 12px; font-weight: 600;
+  color: var(--success); background: var(--success-light);
+  padding: 2px 8px; border-radius: 999px;
+}
+.sync-badge-none { color: #92400e; background: var(--warning-light); }
+
 /* ===== TOPBAR ===== */
 .topbar {
   background: var(--white);
@@ -653,5 +687,17 @@ body {
   .toast { max-width: 100%; }
   .hh-detail-header { gap: 10px; }
   .hh-detail-id { font-size: 16px; }
+
+  /* topbar fit 390px */
+  .topbar-inner { padding: 0 12px; gap: 6px; height: 52px; flex-wrap: nowrap; }
+  .topbar-brand { font-size: 14px; min-width: 0; flex: 1 1 auto; overflow: hidden; white-space: nowrap; }
+  .topbar-brand span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; min-width: 0; }
+  .back-btn { padding: 6px 6px; font-size: 13px; flex-shrink: 0; }
+  .tb-right { gap: 4px; min-width: 0; }
+  .tb-link { padding: 6px 9px; font-size: 0; line-height: 1; }
+  .tb-link::before { content: '◈'; font-size: 14px; color: var(--gray-500); }
+  .tb-sep { display: none; }
+  .tb-user { max-width: 88px; font-size: 11px; }
+  .tb-logout { padding: 4px 8px; font-size: 11px; }
 }
 

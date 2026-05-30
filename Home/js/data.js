@@ -159,8 +159,15 @@ const DB = {
     this.save();
   },
 
-  stats() {
-    const hhs = this.getHouseholds();
+  clearMyData(surveyorName) {
+    const d = this.load();
+    d.households = d.households.filter(h => h.surveyorName !== surveyorName);
+    this.save();
+  },
+
+  stats(surveyorName) {
+    let hhs = this.getHouseholds();
+    if (surveyorName) hhs = hhs.filter(h => h.surveyorName === surveyorName);
     const members = hhs.flatMap(h => h.members);
     const trips = members.flatMap(m => m.trips);
     return { households: hhs.length, members: members.length, trips: trips.length };
