@@ -653,9 +653,9 @@ const App = {
               <div class="trip-seq">${t.seq}</div>
               <div class="trip-body">
                 <div class="trip-route">
-                  <span>${t.origin || '?'}</span>
+                  <span class="trip-origin">${t.origin || '?'}</span>
                   <span class="trip-arrow">→</span>
-                  <span>${t.destination || '?'}</span>
+                  <span class="trip-dest">${t.destination || '?'}</span>
                 </div>
                 <div class="trip-meta">
                   ${t.purpose      ? `<span>🎯 ${t.purpose}</span>` : ''}
@@ -1118,7 +1118,7 @@ const App = {
 
     this.showModal(isEdit ? '✏️ แก้ไขการเดินทาง' : '🚗 เพิ่มการเดินทาง', `
       <!-- ต้นทาง (read-only — auto-filled จากบ้านหรือปลายทางครั้งก่อน) -->
-      <div class="section-label">ต้นทาง</div>
+      <div class="section-label"><span class="od-pill od-pill-from">🟢 ต้นทาง — จุดเริ่มต้น</span></div>
       <div class="form-row">
         <label class="form-label">สถานที่ตั้งต้นทาง
           <span style="font-size:11px;font-weight:400;color:var(--gray-400);margin-left:6px;">🔒 กำหนดอัตโนมัติ</span>
@@ -1153,7 +1153,7 @@ const App = {
       </div>
 
       <!-- ปลายทาง -->
-      <div class="section-label">ปลายทาง</div>
+      <div class="section-label"><span class="od-pill od-pill-to">🔴 ปลายทาง — จุดหมาย</span></div>
       <div class="form-row">
         <label class="form-label">สถานที่ตั้งปลายทาง</label>
         <div style="display:flex;gap:8px;">

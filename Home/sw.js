@@ -1,5 +1,5 @@
 // Service Worker — Home Interview
-const CACHE_VERSION = 'hi-v1';
+const CACHE_VERSION = 'hi-v2';
 const CORE_ASSETS = [
   './',
   './index.html',
