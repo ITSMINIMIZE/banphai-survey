@@ -41,6 +41,55 @@ body {
   line-height: 1.6;
 }
 
+/* ===== TOPBAR-RIGHT components ===== */
+.tb-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.tb-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-500);
+  text-decoration: none;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--gray-200);
+  transition: all .15s;
+}
+.tb-link:hover {
+  color: var(--gray-800);
+  border-color: var(--gray-400);
+  background: var(--gray-100);
+}
+.tb-sep { font-size: 12px; color: var(--gray-400); }
+.tb-user {
+  font-size: 12px;
+  color: var(--gray-500);
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tb-logout {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--gray-500);
+  background: none;
+  border: 1px solid var(--gray-200);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: inherit;
+  transition: all .15s;
+}
+.tb-logout:hover { background: var(--gray-100); color: var(--gray-800); }
+
 /* ===== TOPBAR ===== */
 .topbar {
   background: var(--white);
@@ -928,38 +977,21 @@ html, body { overflow-x: hidden; max-width: 100vw; }
   }
   .back-btn { padding: 6px 6px; font-size: 13px; flex-shrink: 0; }
 
-  /* topbarRight: ซ่อนข้อความบางส่วน, ย่อกล่อง */
-  #topbarRight {
-    gap: 4px !important;
-    flex-shrink: 0;
-    min-width: 0;
+  /* topbar-right: ย่อกล่อง + เหลือ icon */
+  .tb-right { gap: 4px; min-width: 0; }
+  .tb-link {
+    padding: 6px 9px;
+    font-size: 0;
+    line-height: 1;
   }
-  /* เมนูหลัก → เหลือเฉพาะ icon */
-  #topbarRight a {
-    padding: 6px 9px !important;
-    font-size: 0 !important;
-    line-height: 1 !important;
-  }
-  #topbarRight a::before {
+  .tb-link::before {
     content: '◈';
     font-size: 14px;
-    color: #64748b;
+    color: var(--gray-500);
   }
-  /* separator | ซ่อน */
-  #topbarRight > span:first-of-type { display: none !important; }
-  /* ชื่อผู้ใช้: ย่อสุดและตัดท้าย */
-  #topbarRight > span:not(:first-of-type) {
-    max-width: 88px !important;
-    font-size: 11px !important;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  /* ปุ่มออก */
-  #topbarRight button {
-    padding: 4px 8px !important;
-    font-size: 11px !important;
-  }
+  .tb-sep  { display: none; }
+  .tb-user { max-width: 88px; font-size: 11px; }
+  .tb-logout { padding: 4px 8px; font-size: 11px; }
 
   .container { padding: 18px 14px 52px; }
   .dash-hero { flex-direction: column; gap: 16px; padding: 22px 20px; }

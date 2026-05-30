@@ -150,24 +150,13 @@ const App = {
     document.querySelector('.topbar').style.display = '';
     const right = document.getElementById('topbarRight');
     if (right) {
-      right.outerHTML = `<div id="topbarRight" style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
-        <a href="../index.html"
-          style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;
-                 color:#64748b;text-decoration:none;padding:6px 12px;border-radius:8px;
-                 border:1px solid #e2e8f0;transition:all .15s;"
-          onmouseover="this.style.color='#1e293b';this.style.borderColor='#94a3b8';this.style.background='#f1f5f9'"
-          onmouseout="this.style.color='#64748b';this.style.borderColor='#e2e8f0';this.style.background=''">
-          ◈ เมนูหลัก
-        </a>
-        <span style="font-size:12px;color:#94a3b8;">|</span>
-        <span style="font-size:12px;color:#64748b;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+      right.outerHTML = `<div id="topbarRight" class="tb-right">
+        <a class="tb-link" href="../index.html">◈ เมนูหลัก</a>
+        <span class="tb-sep">|</span>
+        <span class="tb-user">
           ${this._role === 'admin' ? '🔐' : '👤'} ${this._role === 'admin' ? this._adminUsername : this._surveyorName}
         </span>
-        <button onclick="App.logout()"
-          style="font-size:12px;font-weight:600;color:#64748b;background:none;border:1px solid #e2e8f0;
-                 border-radius:6px;padding:4px 10px;cursor:pointer;white-space:nowrap;font-family:inherit;">
-          ออก
-        </button>
+        <button class="tb-logout" onclick="App.logout()">ออก</button>
       </div>`;
     }
     this.navigate('home');
@@ -175,6 +164,10 @@ const App = {
   },
 
   async _silentPull() {
+    // throttle: ไม่ดึงซ้ำถ้าเพิ่งดึงไปภายใน 5 นาที (กัน Firestore quota)
+    const THROTTLE_MS = 5 * 60 * 1000;
+    const last = +localStorage.getItem('_ri_last_auto_pull') || 0;
+    if (Date.now() - last < THROTTLE_MS) return;
     try {
       if (typeof firebase === 'undefined') return;
       if (!FB.db) FB.init();
@@ -182,6 +175,7 @@ const App = {
       const count = this._role === 'admin'
         ? await FB.pullAll()
         : await FB.pullBySurveyor(this._surveyorName);
+      localStorage.setItem('_ri_last_auto_pull', String(Date.now()));
       this.toast(`☁️ โหลดจุดสำรวจแล้ว ${count} จุด`, 'success');
       this.render();
     } catch { /* silent — ไม่แสดง error ถ้า offline */ }
@@ -194,16 +188,7 @@ const App = {
     this._surveyorName = '';
     this._adminUsername = '';
     const right = document.getElementById('topbarRight');
-    if (right) {
-      right.outerHTML = `<a href="../index.html" id="topbarRight"
-        style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;
-               color:#64748b;text-decoration:none;padding:6px 12px;border-radius:8px;
-               border:1px solid #e2e8f0;transition:all .15s;"
-        onmouseover="this.style.color='#1e293b';this.style.borderColor='#94a3b8';this.style.background='#f1f5f9'"
-        onmouseout="this.style.color='#64748b';this.style.borderColor='#e2e8f0';this.style.background=''">
-        ◈ เมนูหลัก
-      </a>`;
-    }
+    if (right) right.outerHTML = `<a class="tb-link" id="topbarRight" href="../index.html">◈ เมนูหลัก</a>`;
     this._showLoginGate();
   },
 
@@ -913,7 +898,20 @@ const App = {
     this.page = 'wizard'; this.render(); window.scrollTo(0, 0);
   },
 
-  _wizardCancel() { this.navigate('station', this.stId); },
+  _wizardCancel() {
+    // ถ้ายังไม่ได้บันทึก + มีข้อมูลที่กรอกแล้ว → confirm ก่อน
+    if (!this._wizardDone && this._wizardHasInput()) {
+      if (!confirm('ข้อมูลที่กรอกจะหายไป ต้องการออกจาก wizard ใช่หรือไม่?')) return;
+    }
+    this.navigate('station', this.stId);
+  },
+
+  _wizardHasInput() {
+    const wd = this.wizardData || {};
+    return !!(wd.vehicleType || wd.passengerCount || wd.originType ||
+      wd.originLandmark || wd.originCoords || wd.destType ||
+      wd.destLandmark || wd.destCoords || wd.purpose || wd.hasCargo);
+  },
 
   _wIsTruck() {
     return OPT.vehicleTypes.find(v => v.key === this.wizardData?.vehicleType)?.group === 'truck';
