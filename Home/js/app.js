@@ -141,7 +141,7 @@ const App = {
         <a class="tb-link" href="../index.html">◈ เมนูหลัก</a>
         <span class="tb-sep">|</span>
         <span class="tb-user">
-          ${this._role === 'admin' ? '🔐' : '👤'} ${this._role === 'admin' ? this._adminUsername : this._surveyorName}
+          ${this._role === 'admin' ? '🔐' : '👤'} ${this.esc(this._role === 'admin' ? this._adminUsername : this._surveyorName)}
         </span>
         <button class="tb-logout" onclick="App.logout()">ออก</button>
       </div>`;
@@ -165,6 +165,12 @@ const App = {
       this.toast(`☁️ โหลดข้อมูลแล้ว ${count} ครัวเรือน`, 'success');
       this.render();
     } catch { /* silent */ }
+  },
+
+  // escape free text ก่อนใส่ใน innerHTML — กันชื่อ/สถานที่ที่มี < > " ' & ทำ layout เพี้ยน
+  esc(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c =>
+      ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
   },
 
   _relativeTime(iso) {
@@ -229,14 +235,14 @@ const App = {
     } else if (this.page === 'household') {
       const hh = DB.getHousehold(this.hhId);
       bc.className = 'breadcrumb visible';
-      bc.innerHTML = `<a onclick="App.navigate('home')">หน้าหลัก</a> <span>›</span> ${hh ? (hh.houseNo ? 'บ้านเลขที่ ' + hh.houseNo : hh.id) : ''}`;
+      bc.innerHTML = `<a onclick="App.navigate('home')">หน้าหลัก</a> <span>›</span> ${hh ? (hh.houseNo ? 'บ้านเลขที่ ' + this.esc(hh.houseNo) : hh.id) : ''}`;
       app.innerHTML = this.pageHousehold();
     } else if (this.page === 'member') {
       const hh = DB.getHousehold(this.hhId);
       const m  = DB.getMember(this.hhId, this.memberId);
       bc.className = 'breadcrumb visible';
       bc.innerHTML = `<a onclick="App.navigate('home')">หน้าหลัก</a> <span>›</span>
-        <a onclick="App.navigate('household','${this.hhId}')">${hh ? (hh.houseNo ? 'บ้านเลขที่ ' + hh.houseNo : hh.id) : ''}</a>
+        <a onclick="App.navigate('household','${this.hhId}')">${hh ? (hh.houseNo ? 'บ้านเลขที่ ' + this.esc(hh.houseNo) : hh.id) : ''}</a>
         <span>›</span> สมาชิกที่ ${m ? m.seq : ''}`;
       app.innerHTML = this.pageMember();
     }
@@ -294,8 +300,8 @@ const App = {
           return `<div class="hh-card" onclick="App.navigate('household','${hh.id}')">
             <div class="hh-card-icon">🏠</div>
             <div class="hh-card-body">
-              <div class="hh-card-id">${addr || 'ไม่ระบุที่อยู่'}</div>
-              <div class="hh-card-addr">${hh.surveyorName ? 'ผู้สำรวจ: ' + hh.surveyorName : ''}</div>
+              <div class="hh-card-id">${this.esc(addr) || 'ไม่ระบุที่อยู่'}</div>
+              <div class="hh-card-addr">${hh.surveyorName ? 'ผู้สำรวจ: ' + this.esc(hh.surveyorName) : ''}</div>
               <div class="hh-card-tags">
                 <span class="tag tag-blue">👥 ${totM} คน</span>
                 <span class="tag tag-green">🚗 ${t} เที่ยว</span>
@@ -342,13 +348,13 @@ const App = {
       <div class="hh-detail-header">
         <div class="hh-detail-icon">🏠</div>
         <div class="hh-detail-info">
-          <div class="hh-detail-id">${addr || 'ไม่ระบุที่อยู่'}</div>
+          <div class="hh-detail-id">${this.esc(addr) || 'ไม่ระบุที่อยู่'}</div>
           <div class="hh-detail-addr">${hh.residentialType || ''}</div>
           <div class="hh-detail-tags">
             ${hh.travelDate    ? `<span class="tag tag-blue">🗓 เดินทาง ${hh.travelDate}</span>` : ''}
             <span class="tag tag-gray">📋 บันทึก ${hh.surveyDate}</span>
-            ${hh.surveyorName  ? `<span class="tag tag-gray">🧑‍💼 ${hh.surveyorName}</span>`  : ''}
-            ${hh.supervisorName? `<span class="tag tag-gray">👔 ${hh.supervisorName}</span>`  : ''}
+            ${hh.surveyorName  ? `<span class="tag tag-gray">🧑‍💼 ${this.esc(hh.surveyorName)}</span>`  : ''}
+            ${hh.supervisorName? `<span class="tag tag-gray">👔 ${this.esc(hh.supervisorName)}</span>`  : ''}
             ${hh.coordinates   ? `<span class="tag tag-blue">📍 ${hh.coordinates}</span>`     : ''}
             ${hh.deviceId      ? `<span class="tag tag-gray" title="Device ID: ${hh.deviceId}">💻 ${hh.deviceId.slice(0,8)}…</span>` : ''}
             ${hh.clientIp      ? `<span class="tag tag-gray">🌐 ${hh.clientIp}</span>`          : ''}
@@ -582,8 +588,9 @@ const App = {
     const hh   = DB.getHousehold(this.hhId);
     const grid = hh?.memberGrid || {};
     const otherMembers = (hh?.members || []).filter(m => m.id !== this.memberId);
-    const maleKeys   = ['m_study','m_work','m_notw','m_child'];
-    const femaleKeys = ['f_study','f_work','f_notw','f_child'];
+    // เด็กอายุต่ำกว่า 6 ปี (m_child/f_child) ไม่นับเป็นผู้ถูกสัมภาษณ์ → ไม่รวมในเพดาน
+    const maleKeys   = ['m_study','m_work','m_notw'];
+    const femaleKeys = ['f_study','f_work','f_notw'];
     const maleCap    = maleKeys.reduce((s, k)   => s + (+(grid[k]||0)), 0);
     const femaleCap  = femaleKeys.reduce((s, k) => s + (+(grid[k]||0)), 0);
     const maleUsed   = otherMembers.filter(m => m.gender === 'ชาย').length;
@@ -653,9 +660,9 @@ const App = {
               <div class="trip-seq">${t.seq}</div>
               <div class="trip-body">
                 <div class="trip-route">
-                  <span class="trip-origin">${t.origin || '?'}</span>
+                  <span class="trip-origin">${this.esc(t.origin) || '?'}</span>
                   <span class="trip-arrow">→</span>
-                  <span class="trip-dest">${t.destination || '?'}</span>
+                  <span class="trip-dest">${this.esc(t.destination) || '?'}</span>
                 </div>
                 <div class="trip-meta">
                   ${t.purpose      ? `<span>🎯 ${t.purpose}</span>` : ''}

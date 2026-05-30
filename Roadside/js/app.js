@@ -155,7 +155,7 @@ const App = {
         <a class="tb-link" href="../index.html">◈ เมนูหลัก</a>
         <span class="tb-sep">|</span>
         <span class="tb-user">
-          ${this._role === 'admin' ? '🔐' : '👤'} ${this._role === 'admin' ? this._adminUsername : this._surveyorName}
+          ${this._role === 'admin' ? '🔐' : '👤'} ${this.esc(this._role === 'admin' ? this._adminUsername : this._surveyorName)}
         </span>
         <button class="tb-logout" onclick="App.logout()">ออก</button>
       </div>`;
@@ -227,20 +227,26 @@ const App = {
     } else if (this.page === 'station') {
       const st = DB.getStation(this.stId);
       bc.className = 'breadcrumb visible';
-      bc.innerHTML = `<a onclick="App.navigate('home')">หน้าหลัก</a> <span>›</span> ${st ? (st.stationName || st.id) : ''}`;
+      bc.innerHTML = `<a onclick="App.navigate('home')">หน้าหลัก</a> <span>›</span> ${st ? (this.esc(st.stationName) || st.id) : ''}`;
       app.innerHTML = this.pageStation();
     } else if (this.page === 'interview') {
       const st = DB.getStation(this.stId);
       const iv = DB.getInterview(this.stId, this.ivId);
       bc.className = 'breadcrumb visible';
       bc.innerHTML = `<a onclick="App.navigate('home')">หน้าหลัก</a> <span>›</span>
-        <a onclick="App.navigate('station','${this.stId}')">${st ? (st.stationName || st.id) : ''}</a>
+        <a onclick="App.navigate('station','${this.stId}')">${st ? (this.esc(st.stationName) || st.id) : ''}</a>
         <span>›</span> การสำรวจที่ ${iv ? iv.seq : ''}`;
       app.innerHTML = this.pageInterview();
     }
   },
 
   // ===================== UTIL =====================
+  // escape free text ก่อนใส่ใน innerHTML — กันชื่อ/สถานที่ที่มี < > " ' & ทำ layout เพี้ยน
+  esc(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c =>
+      ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  },
+
   _relativeTime(iso) {
     if (!iso) return '';
     const diff = Date.now() - new Date(iso).getTime();
@@ -285,8 +291,8 @@ const App = {
         return `<div class="hh-card" onclick="App.navigate('station','${st.id}')">
           <div class="hh-card-icon">🚦</div>
           <div class="hh-card-body">
-            <div class="hh-card-id">${st.stationName || 'ไม่ระบุชื่อจุด'}</div>
-            <div class="hh-card-addr">${[st.road, st.district, st.province].filter(Boolean).join(' · ') || 'ไม่ระบุสถานที่'}</div>
+            <div class="hh-card-id">${this.esc(st.stationName) || 'ไม่ระบุชื่อจุด'}</div>
+            <div class="hh-card-addr">${this.esc([st.road, st.district, st.province].filter(Boolean).join(' · ')) || 'ไม่ระบุสถานที่'}</div>
             <div class="hh-card-tags">
               <span class="tag tag-green">📋 ${myCount} ราย</span>
               ${dirTag}
@@ -300,12 +306,12 @@ const App = {
           style="opacity:.75;">
           <div class="hh-card-icon" style="background:var(--gray-100);border-color:var(--gray-200);">🚦</div>
           <div class="hh-card-body">
-            <div class="hh-card-id">${st.stationName || 'ไม่ระบุชื่อจุด'}</div>
-            <div class="hh-card-addr">${[st.road, st.district, st.province].filter(Boolean).join(' · ') || 'ไม่ระบุสถานที่'}</div>
+            <div class="hh-card-id">${this.esc(st.stationName) || 'ไม่ระบุชื่อจุด'}</div>
+            <div class="hh-card-addr">${this.esc([st.road, st.district, st.province].filter(Boolean).join(' · ')) || 'ไม่ระบุสถานที่'}</div>
             <div class="hh-card-tags">
               ${dirTag}
               <span class="tag tag-gray">📅 ${st.surveyDate}</span>
-              <span class="tag tag-gray">👤 ${st.surveyorName || 'ไม่ระบุ'}</span>
+              <span class="tag tag-gray">👤 ${this.esc(st.surveyorName) || 'ไม่ระบุ'}</span>
             </div>
           </div>
           <div class="hh-card-arrow" style="font-size:12px;color:var(--gray-400);">ดู</div>
@@ -374,14 +380,14 @@ const App = {
       <div class="hh-detail-header">
         <div class="hh-detail-icon">🚦</div>
         <div class="hh-detail-info">
-          <div class="hh-detail-id">${st.stationName || 'ไม่ระบุชื่อจุด'}</div>
-          <div class="hh-detail-addr">${[st.road, st.district, st.province].filter(Boolean).join(' · ') || ''}</div>
+          <div class="hh-detail-id">${this.esc(st.stationName) || 'ไม่ระบุชื่อจุด'}</div>
+          <div class="hh-detail-addr">${this.esc([st.road, st.district, st.province].filter(Boolean).join(' · '))}</div>
           <div class="hh-detail-tags">
             ${st.direction     ? `<span class="tag tag-orange">↔ ${st.direction}</span>`              : ''}
             ${st.stationCode   ? `<span class="tag tag-gray">รหัส: ${st.stationCode}</span>`           : ''}
             <span class="tag tag-gray">📅 ${st.surveyDate}</span>
-            ${st.surveyorName  ? `<span class="tag tag-gray">🧑‍💼 ${st.surveyorName}</span>`          : ''}
-            ${st.supervisorName? `<span class="tag tag-gray">👔 ${st.supervisorName}</span>`           : ''}
+            ${st.surveyorName  ? `<span class="tag tag-gray">🧑‍💼 ${this.esc(st.surveyorName)}</span>`          : ''}
+            ${st.supervisorName? `<span class="tag tag-gray">👔 ${this.esc(st.supervisorName)}</span>`           : ''}
             ${st.coordinates   ? `<span class="tag tag-blue">📍 ${st.coordinates}</span>`              : ''}
           </div>
         </div>
@@ -424,7 +430,7 @@ const App = {
             <div class="member-avatar av-o" style="font-size:20px;">${vt.icon}</div>
             <div class="member-info">
               <div class="member-name">รายที่ ${iv.seq} · ${vt.label}</div>
-              <div class="member-detail">${iv.originName && iv.destinationName ? iv.originName + ' → ' + iv.destinationName : 'ยังไม่กรอกข้อมูล'}</div>
+              <div class="member-detail">${iv.originName && iv.destinationName ? this.esc(iv.originName) + ' → ' + this.esc(iv.destinationName) : 'ยังไม่กรอกข้อมูล'}</div>
             </div>
             <div class="member-right">
               ${iv.interviewDate ? `<span class="tag tag-gray">📅 ${iv.interviewDate}</span>` : ''}
@@ -448,7 +454,7 @@ const App = {
     const row = (label, val) => `
       <div class="info-item">
         <div class="info-label">${label}</div>
-        <div class="info-value ${val ? '' : 'info-empty'}">${val || '—'}</div>
+        <div class="info-value ${val ? '' : 'info-empty'}">${this.esc(val) || '—'}</div>
       </div>`;
 
     return `<div class="page container">
@@ -484,13 +490,13 @@ const App = {
           <div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius-sm);padding:12px 14px;">
             <div style="font-size:11px;font-weight:700;color:var(--primary-dark);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">▶ ต้นทาง</div>
             <div class="info-label">ประเภทสถานที่</div><div class="info-value ${iv.originType?'':'info-empty'}" style="margin-bottom:6px;">${iv.originType||'—'}</div>
-            <div class="info-label">ชื่อสถานที่</div><div class="info-value ${iv.originName?'':'info-empty'}" style="margin-bottom:6px;">${iv.originName||'—'}</div>
+            <div class="info-label">ชื่อสถานที่</div><div class="info-value ${iv.originName?'':'info-empty'}" style="margin-bottom:6px;">${this.esc(iv.originName)||'—'}</div>
             ${iv.originCoords ? `<div style="font-size:11px;color:var(--gray-400);">📍 ${iv.originCoords}</div>` : ''}
           </div>
           <div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius-sm);padding:12px 14px;">
             <div style="font-size:11px;font-weight:700;color:var(--primary-dark);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">▶ ปลายทาง</div>
             <div class="info-label">ประเภทสถานที่</div><div class="info-value ${iv.destinationType?'':'info-empty'}" style="margin-bottom:6px;">${iv.destinationType||'—'}</div>
-            <div class="info-label">ชื่อสถานที่</div><div class="info-value ${iv.destinationName?'':'info-empty'}" style="margin-bottom:6px;">${iv.destinationName||'—'}</div>
+            <div class="info-label">ชื่อสถานที่</div><div class="info-value ${iv.destinationName?'':'info-empty'}" style="margin-bottom:6px;">${this.esc(iv.destinationName)||'—'}</div>
             ${iv.destinationCoords ? `<div style="font-size:11px;color:var(--gray-400);">📍 ${iv.destinationCoords}</div>` : ''}
           </div>
         </div>
