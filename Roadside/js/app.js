@@ -1044,16 +1044,19 @@ const App = {
         <div class="wiz-card-icon">${lt.icon}</div>
         <div class="wiz-card-label">${lt.short}</div>
       </div>`).join('');
-    return this._wHeader('ต้นทาง') + `
+    return this._wHeader(
+      `<span class="od-pill od-pill-from">🟢 จากที่ไหน?</span><br>ต้นทาง — จุดเริ่มต้น`,
+      'สถานที่ที่ผู้เดินทาง<b style="color:#059669">เริ่มออกเดินทาง</b>'
+    ) + `
       <div class="wiz-grid wiz-grid-3" style="margin-bottom:14px;">${cards}</div>
-      <button class="wiz-map-btn ${wd.originCoords ? 'picked' : ''}" onclick="App._wOpenOriginMap()">
-        ${wd.originCoords ? '📍 ' + wd.originCoords : '🗺 เลือกจากแผนที่'}
+      <button class="wiz-map-btn wiz-map-from ${wd.originCoords ? 'picked' : ''}" onclick="App._wOpenOriginMap()">
+        ${wd.originCoords ? '📍 ' + wd.originCoords : '🗺 เลือกจุดต้นทางจากแผนที่'}
       </button>
       <input id="wiz_originLandmark" class="form-input" style="margin-top:10px;"
-        placeholder="จุดสังเกต / ชื่อสถานที่" value="${wd.originLandmark||''}"
+        placeholder="ชื่อสถานที่ / หมู่บ้านต้นทาง" value="${wd.originLandmark||''}"
         oninput="App.wizardData.originLandmark=this.value" />
       <div class="wiz-bottom"><div class="wiz-bottom-row">
-        <button class="btn btn-primary btn-block" onclick="App._wOriginNext()">ถัดไป →</button>
+        <button class="btn btn-primary btn-block" onclick="App._wOriginNext()">ถัดไป → ปลายทาง</button>
       </div></div>` + this._wFooter();
   },
   _wOriginNext() {
@@ -1068,19 +1071,23 @@ const App = {
   // Step 4: ปลายทาง
   _wStep5Dest() {
     const wd = this.wizardData;
+    const fromShort = wd.originLandmark || wd.originType || 'ต้นทาง';
     const cards = OPT.locationTypeCards.map(lt => `
       <div class="wiz-card ${wd.destType === lt.val ? 'sel' : ''}"
         onclick="App._wPickLocType('dest','${lt.val}')">
         <div class="wiz-card-icon">${lt.icon}</div>
         <div class="wiz-card-label">${lt.short}</div>
       </div>`).join('');
-    return this._wHeader('ปลายทาง') + `
+    return this._wHeader(
+      `<span class="od-pill od-pill-to">🔴 ไปที่ไหน?</span><br>ปลายทาง — จุดหมาย`,
+      `จาก <b>${fromShort}</b> → กำลังจะ<b style="color:#dc2626">ไปที่ไหน?</b>`
+    ) + `
       <div class="wiz-grid wiz-grid-3" style="margin-bottom:14px;">${cards}</div>
-      <button class="wiz-map-btn ${wd.destCoords ? 'picked' : ''}" onclick="App._wOpenDestMap()">
-        ${wd.destCoords ? '📍 ' + wd.destCoords : '🗺 เลือกจากแผนที่'}
+      <button class="wiz-map-btn wiz-map-to ${wd.destCoords ? 'picked' : ''}" onclick="App._wOpenDestMap()">
+        ${wd.destCoords ? '📍 ' + wd.destCoords : '🗺 เลือกจุดปลายทางจากแผนที่'}
       </button>
       <input id="wiz_destLandmark" class="form-input" style="margin-top:10px;"
-        placeholder="จุดสังเกต / ชื่อสถานที่" value="${wd.destLandmark||''}"
+        placeholder="ชื่อสถานที่ / หมู่บ้านปลายทาง" value="${wd.destLandmark||''}"
         oninput="App.wizardData.destLandmark=this.value" />
       <div class="wiz-bottom"><div class="wiz-bottom-row">
         <button class="btn btn-primary btn-block" onclick="App._wDestNext()">ถัดไป →</button>

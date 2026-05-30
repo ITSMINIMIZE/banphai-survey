@@ -751,7 +751,7 @@ body {
 
 .wiz-card {
   background: var(--white);
-  border: 2px solid var(--gray-200);
+  border: 1px solid var(--gray-100);
   border-radius: var(--radius);
   padding: 14px 8px;
   display: flex;
@@ -773,7 +773,7 @@ body {
   transform: translateY(-1px);
 }
 .wiz-card.sel {
-  border-color: var(--primary);
+  border: 2px solid var(--primary);
   background: linear-gradient(135deg, var(--primary-light), #fff7e6);
   box-shadow: 0 2px 12px rgba(217,119,6,.2);
 }
@@ -841,6 +841,21 @@ body {
   box-shadow: 0 2px 10px rgba(217,119,6,.35);
 }
 
+/* OD pill — บอก origin/destination ชัดเจน */
+.od-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 999px;
+  margin-bottom: 8px;
+  letter-spacing: .02em;
+}
+.od-pill-from { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
+.od-pill-to   { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+
 /* Map button */
 .wiz-map-btn {
   width: 100%;
@@ -863,6 +878,10 @@ body {
   color: #065f46;
   background: var(--success-light);
 }
+.wiz-map-from { border-color: #6ee7b7; color: #047857; }
+.wiz-map-from:hover { border-color: #059669; background: #d1fae5; color: #064e3b; }
+.wiz-map-to   { border-color: #fca5a5; color: #b91c1c; }
+.wiz-map-to:hover   { border-color: #dc2626; background: #fee2e2; color: #7f1d1d; }
 
 /* Cargo search */
 .wiz-search {
