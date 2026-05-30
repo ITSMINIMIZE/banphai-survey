@@ -901,7 +901,66 @@ body {
   .modal { max-width: 600px; }
 }
 
+/* กันหน้าเว็บล้นแนวนอน */
+html, body { overflow-x: hidden; max-width: 100vw; }
+
 @media (max-width: 600px) {
+  /* ===== TOPBAR — กันล้น/บีบ ===== */
+  .topbar-inner {
+    padding: 0 12px;
+    gap: 6px;
+    height: 52px;
+    flex-wrap: nowrap;
+  }
+  .topbar-brand {
+    font-size: 14px;
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .topbar-brand span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-block;
+    min-width: 0;
+  }
+  .back-btn { padding: 6px 6px; font-size: 13px; flex-shrink: 0; }
+
+  /* topbarRight: ซ่อนข้อความบางส่วน, ย่อกล่อง */
+  #topbarRight {
+    gap: 4px !important;
+    flex-shrink: 0;
+    min-width: 0;
+  }
+  /* เมนูหลัก → เหลือเฉพาะ icon */
+  #topbarRight a {
+    padding: 6px 9px !important;
+    font-size: 0 !important;
+    line-height: 1 !important;
+  }
+  #topbarRight a::before {
+    content: '◈';
+    font-size: 14px;
+    color: #64748b;
+  }
+  /* separator | ซ่อน */
+  #topbarRight > span:first-of-type { display: none !important; }
+  /* ชื่อผู้ใช้: ย่อสุดและตัดท้าย */
+  #topbarRight > span:not(:first-of-type) {
+    max-width: 88px !important;
+    font-size: 11px !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* ปุ่มออก */
+  #topbarRight button {
+    padding: 4px 8px !important;
+    font-size: 11px !important;
+  }
+
   .container { padding: 18px 14px 52px; }
   .dash-hero { flex-direction: column; gap: 16px; padding: 22px 20px; }
   .dash-hero-text h1 { font-size: 18px; }
