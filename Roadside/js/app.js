@@ -239,6 +239,31 @@ const App = {
     }
   },
 
+  // ===================== UTIL =====================
+  _relativeTime(iso) {
+    if (!iso) return '';
+    const diff = Date.now() - new Date(iso).getTime();
+    if (diff < 0) return '';
+    const sec = Math.floor(diff / 1000);
+    if (sec < 30)        return 'เมื่อกี้นี้';
+    if (sec < 60)        return `${sec} วินาทีที่แล้ว`;
+    const min = Math.floor(sec / 60);
+    if (min < 60)        return `${min} นาทีที่แล้ว`;
+    const hr = Math.floor(min / 60);
+    if (hr < 24)         return `${hr} ชม.ที่แล้ว`;
+    const day = Math.floor(hr / 24);
+    if (day < 7)         return `${day} วันที่แล้ว`;
+    return new Date(iso).toLocaleDateString('th-TH');
+  },
+
+  _syncBadge() {
+    const last = typeof FB !== 'undefined' ? FB.lastSync() : null;
+    if (!last) return `<span class="sync-badge sync-badge-none">⚠ ยังไม่เคย sync</span>`;
+    return `<span class="sync-badge" title="${new Date(last).toLocaleString('th-TH')}">
+              ☁️ sync ล่าสุด: ${this._relativeTime(last)}
+            </span>`;
+  },
+
   // ===================== PAGE: HOME =====================
   pageHome() {
     const isAdmin  = this._role === 'admin';
@@ -303,7 +328,7 @@ const App = {
       <div class="sec-header">
         <div>
           <div class="sec-title">รายการจุดสำรวจ</div>
-          <div class="sec-sub">พบ ${allSts.length} จุดสำรวจ${!isAdmin ? ` · ของฉัน ${mySts.length} จุด` : ''}</div>
+          <div class="sec-sub">พบ ${allSts.length} จุดสำรวจ${!isAdmin ? ` · ของฉัน ${mySts.length} จุด` : ''} · ${this._syncBadge()}</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           ${isAdmin && allSts.length > 0 ? `<button class="btn btn-ghost btn-sm" onclick="App.exportData()">⬇ Export Excel</button>` : ''}
@@ -368,7 +393,7 @@ const App = {
       <div class="sec-header">
         <div>
           <div class="sec-title">รายการการสำรวจ${!isAdmin ? ' (ของฉัน)' : ''}</div>
-          <div class="sec-sub">บันทึกทุกคัน/ทุกคนที่หยุดสำรวจ · พบ ${myIvs.length} ราย</div>
+          <div class="sec-sub">บันทึกทุกคัน/ทุกคนที่หยุดสำรวจ · พบ ${myIvs.length} ราย · ${this._syncBadge()}</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn btn-ghost btn-sm" id="pullBtn" onclick="App.pullFromCloud()">☁️ ดึงข้อมูล</button>
@@ -1360,8 +1385,66 @@ const App = {
   exportData() {
     if (this._role !== 'admin') { this.toast('เฉพาะผู้ดูแลระบบเท่านั้น', 'error'); return; }
     if (typeof XLSX === 'undefined') { this.toast('โหลด SheetJS ไม่สำเร็จ', 'error'); return; }
+    // เปิด modal ตัวกรองก่อน
+    this._openExportFilter();
+  },
+
+  _openExportFilter() {
+    const all = DB.getStations();
+    const surveyors = [...new Set(
+      all.flatMap(st => st.interviews.map(iv => iv.surveyorName).filter(Boolean))
+    )].sort();
+    const totalIv = all.reduce((s, st) => s + st.interviews.length, 0);
+
+    this.showModal('⬇ Export Excel — ตัวกรอง', `
+      <div class="form-row">
+        <label class="form-label">ผู้สำรวจ</label>
+        <select id="ex_surveyor" class="form-select">
+          <option value="">— ทั้งหมด —</option>
+          ${surveyors.map(s => `<option value="${s}">${s}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-grid">
+        <div class="form-row">
+          <label class="form-label">วันที่เริ่ม</label>
+          <input id="ex_from" class="form-input" type="date" />
+        </div>
+        <div class="form-row">
+          <label class="form-label">วันที่สิ้นสุด</label>
+          <input id="ex_to" class="form-input" type="date" />
+        </div>
+      </div>
+      <p style="font-size:13px;color:var(--gray-500);margin-top:8px;">
+        เว้นว่าง = ไม่กรอง · ทั้งหมดในเครื่อง: ${all.length} จุด · ${totalIv} ราย
+      </p>`,
+      `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
+       <button class="btn btn-primary" onclick="App._doExport()">⬇ Export</button>`
+    );
+  },
+
+  _doExport() {
+    const fSurveyor = document.getElementById('ex_surveyor')?.value || '';
+    const fFrom     = document.getElementById('ex_from')?.value     || '';
+    const fTo       = document.getElementById('ex_to')?.value       || '';
+    this.closeModal();
+
     const data = JSON.parse(DB.exportJSON());
-    const wb   = XLSX.utils.book_new();
+    // กรอง interview ตาม filter
+    let totalKept = 0;
+    data.stations = data.stations.map(st => {
+      const filtered = st.interviews.filter(iv => {
+        if (fSurveyor && iv.surveyorName !== fSurveyor) return false;
+        if (fFrom && (iv.interviewDate || '') < fFrom)  return false;
+        if (fTo   && (iv.interviewDate || '') > fTo)    return false;
+        return true;
+      });
+      totalKept += filtered.length;
+      return { ...st, interviews: filtered };
+    });
+
+    if (totalKept === 0) { this.toast('ไม่มีข้อมูลตรงกับตัวกรอง', 'warning'); return; }
+
+    const wb = XLSX.utils.book_new();
 
     const groupLabel = { personal:'รถส่วนบุคคล', bus:'รถโดยสาร', truck:'รถบรรทุก' };
     const vtInfo = key => {
@@ -1480,9 +1563,12 @@ const App = {
     XLSX.utils.book_append_sheet(wb, s2, 'การสำรวจ');
     XLSX.utils.book_append_sheet(wb, s3, 'สรุปตามจุด');
 
-    const filename = `roadside-banphai-${new Date().toISOString().split('T')[0]}.xlsx`;
-    XLSX.writeFile(wb, filename);
-    this.toast('Export Excel สำเร็จ · 3 sheets', 'success');
+    const today = new Date().toISOString().split('T')[0];
+    const parts = ['roadside-banphai', today];
+    if (fSurveyor) parts.push(fSurveyor.replace(/\s+/g, '_'));
+    if (fFrom || fTo) parts.push(`${fFrom||'..'}_${fTo||'..'}`);
+    XLSX.writeFile(wb, parts.join('-') + '.xlsx');
+    this.toast(`Export สำเร็จ · ${totalKept} ราย`, 'success');
   },
 
   confirmClearAll() {

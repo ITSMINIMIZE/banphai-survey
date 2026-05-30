@@ -1,0 +1,26 @@
+{
+  "name": "Roadside Interview — บ้านไผ่",
+  "short_name": "Roadside",
+  "description": "แบบสำรวจการเดินทางริมทาง (OD Survey) โครงการวางผังเมืองรวมอำเภอบ้านไผ่",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#fef3c7",
+  "theme_color": "#d97706",
+  "lang": "th",
+  "icons": [
+    {
+      "src": "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='32' fill='%23d97706'/><text x='50%25' y='55%25' font-size='130' text-anchor='middle' dominant-baseline='middle'>%F0%9F%9A%A6</text></svg>",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='80' fill='%23d97706'/><text x='50%25' y='55%25' font-size='340' text-anchor='middle' dominant-baseline='middle'>%F0%9F%9A%A6</text></svg>",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
