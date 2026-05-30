@@ -97,8 +97,9 @@ const SURVEYORS = [
   'อนุชา ศรีสุข','ดวงใจ ทองดี'
 ];
 
-const VEHICLE_TYPES = ['bike','motor','car','minibus','bus_big','truck_small','truck_big'];
-const VT_GROUP = { bike:'personal', motor:'personal', car:'personal', minibus:'bus', bus_big:'bus', truck_small:'truck', truck_big:'truck' };
+// key ต้องตรงกับ OPT.vehicleTypes ในแอป (Roadside/js/data.js) — มิฉะนั้น export นับไม่เจอ
+const VEHICLE_TYPES = ['bicycle2','bicycle3','motorcycle','tuk3','car','bus_sm','bus_lg','truck4','truck6'];
+const VT_GROUP = { bicycle2:'personal', bicycle3:'personal', motorcycle:'personal', tuk3:'personal', car:'personal', bus_sm:'bus', bus_lg:'bus', truck4:'truck', truck6:'truck' };
 
 const LOC_TYPES = ['บ้าน/ที่พัก','โรงเรียน','ราชการ/รพ.','บริษัท/ห้าง','ร้านค้า','โรงงาน/โกดัง','เกษตร/ไร่นา','ท่องเที่ยว','ศาสนสถาน','บ้านผู้อื่น','อื่น ๆ'];
 const PURPOSES = ['ไปทำงาน','กลับบ้าน','ไปโรงเรียน','ซื้อของ/ธุระส่วนตัว','พบแพทย์','ติดต่อราชการ','ท่องเที่ยว/พักผ่อน','ส่งของ/ขนส่ง','เยี่ยมญาติ','ศาสนกิจ','อื่น ๆ'];
