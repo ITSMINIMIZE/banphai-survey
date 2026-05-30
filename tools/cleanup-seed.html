@@ -36,7 +36,7 @@
 /* 🔒 Tools gate — client-side deterrence เท่านั้น (กัน abuse public URL · ไม่ใช่ security จริง)
    ความปลอดภัยจริงอยู่ที่ Firestore rules · เปลี่ยนรหัสที่ TOOLS_PW */
 (function(){
-  var TOOLS_PW = 'banphai2026';
+  var TOOLS_PW = 'adminbanphai';
   if (sessionStorage.getItem('tools_ok') === '1') return;
   function gate(){
     var ov = document.createElement('div');
