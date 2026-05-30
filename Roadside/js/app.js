@@ -409,12 +409,11 @@ const App = {
         `<div class="member-list">${myIvs.map(iv => {
           const vt = OPT.vehicleTypes.find(v => v.key === iv.vehicleType) || { icon: '🚘', label: iv.vehicleType || 'ไม่ระบุ' };
           const dotCls = (iv.origin && iv.destination && iv.purpose) ? 'dot-green' : (iv.origin || iv.destination) ? 'dot-amber' : 'dot-gray';
-          const plateStr = [iv.licensePlate, iv.licensePlateProvince].filter(Boolean).join(' / ');
           return `<div class="member-card" onclick="App.navigate('interview','${st.id}','${iv.id}')">
             <div class="member-avatar av-o" style="font-size:20px;">${vt.icon}</div>
             <div class="member-info">
               <div class="member-name">รายที่ ${iv.seq} · ${vt.label}</div>
-              <div class="member-detail">${iv.origin && iv.destination ? iv.origin + ' → ' + iv.destination : (plateStr || 'ยังไม่กรอกข้อมูล')}</div>
+              <div class="member-detail">${iv.origin && iv.destination ? iv.origin + ' → ' + iv.destination : 'ยังไม่กรอกข้อมูล'}</div>
             </div>
             <div class="member-right">
               ${iv.interviewTime ? `<span class="tag tag-gray">🕐 ${iv.interviewTime}</span>` : ''}
@@ -446,8 +445,8 @@ const App = {
         <div class="hh-detail-info">
           <div class="hh-detail-id">รายที่ ${iv.seq} — ${vt.label}</div>
           <div class="hh-detail-addr">
-            ${iv.interviewTime ? '🕐 ' + iv.interviewTime + ' · ' : ''}
-            ${[iv.licensePlate, iv.licensePlateProvince].filter(Boolean).join(' / ') || 'ไม่ระบุทะเบียน'}
+            ${iv.interviewTime ? '🕐 ' + iv.interviewTime : ''}
+            ${iv.travelDirection ? ' · ' + iv.travelDirection : ''}
           </div>
         </div>
         ${canEdit ? `<div style="display:flex;gap:6px;flex-shrink:0;">
@@ -461,8 +460,6 @@ const App = {
         <div class="info-grid">
           ${row('ประเภทยานพาหนะ', vt.icon + ' ' + vt.label)}
           ${iv.travelDirection ? row('ทิศทาง', iv.travelDirection) : ''}
-          ${row('ทะเบียนรถ', iv.licensePlate)}
-          ${row('จังหวัดทะเบียน', iv.licensePlateProvince)}
           ${row('จำนวนผู้โดยสาร (รวมคนขับ)', iv.passengerCount ? iv.passengerCount + ' คน' : '')}
           ${row('เวลาสำรวจ', iv.interviewTime)}
         </div>
@@ -488,7 +485,6 @@ const App = {
         </div>
         <div class="info-grid">
           ${row('วัตถุประสงค์', iv.purpose)}
-          ${row('ความถี่การเดินทาง', iv.tripFrequency)}
         </div>
       </div>
 
@@ -502,15 +498,13 @@ const App = {
         </div>
       </div>` : ''}
 
+      ${iv.driverIncome ? `
       <div class="card-box">
-        <div class="card-box-title">👤 ข้อมูลผู้ขับขี่ / ตัวแทน</div>
+        <div class="card-box-title">💰 รายได้</div>
         <div class="info-grid">
-          ${row('เพศ', iv.driverGender)}
-          ${row('อายุ', iv.driverAge ? iv.driverAge + ' ปี' : '')}
-          ${row('อาชีพ', iv.driverOccupation)}
-          ${row('รายได้ (บาท/เดือน)', iv.driverIncome)}
+          ${row('รายได้ผู้ขับ (บาท/เดือน)', iv.driverIncome)}
         </div>
-      </div>
+      </div>` : ''}
 
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px;">
         <button class="btn btn-ghost" onclick="App.navigate('station','${this.stId}')">← กลับจุดสำรวจ</button>
@@ -538,34 +532,27 @@ const App = {
     return `
       <div class="section-label">ข้อมูลจุดสำรวจ</div>
       <div class="form-row">
-        <label class="form-label">รหัส / ชื่อจุดสำรวจ</label>
+        <label class="form-label req">รหัส / ชื่อจุดสำรวจ</label>
         <input id="s_stName" class="form-input" autocomplete="off" placeholder="เช่น MB01, MB02..."
           value="${st?.stationName||''}" />
       </div>
       <div class="form-grid">
         <div class="form-row">
-          <label class="form-label">ถนน / ทางหลวง</label>
+          <label class="form-label req">ถนน / ทางหลวง</label>
           <input id="s_road" class="form-input" autocomplete="off" placeholder="เช่น ทล.226"
             value="${st?.road||''}" />
         </div>
         <div class="form-row">
-          <label class="form-label">แกนถนน</label>
+          <label class="form-label req">แกนถนน</label>
           <select id="s_direction" class="form-select">
             <option value="">— เลือก —</option>${dirOpts}
           </select>
         </div>
       </div>
-      <div class="form-grid">
-        <div class="form-row">
-          <label class="form-label">วันที่สำรวจ</label>
-          <input id="s_surveyDate" class="form-input" type="date"
-            value="${st ? (st.surveyDate||this._today()) : this._today()}" />
-        </div>
-      </div>
 
       <div class="section-label">ตำแหน่งจุดสำรวจ</div>
       <div class="form-row">
-        <label class="form-label">พิกัด GPS</label>
+        <label class="form-label req">พิกัด GPS</label>
         <div style="display:flex;gap:6px;">
           <input id="s_coords" class="form-input" autocomplete="off"
             placeholder="เช่น 16.0590, 102.7313" style="flex:1;min-width:0;"
@@ -580,15 +567,15 @@ const App = {
       </div>
       <div class="form-grid">
         <div class="form-row">
-          <label class="form-label">ตำบล</label>
+          <label class="form-label req">ตำบล</label>
           <input id="s_subdistrict" class="form-input" autocomplete="off" value="${st?.subdistrict||''}" placeholder="กด GPS เพื่อดึงอัตโนมัติ" />
         </div>
         <div class="form-row">
-          <label class="form-label">อำเภอ</label>
+          <label class="form-label req">อำเภอ</label>
           <input id="s_district" class="form-input" autocomplete="off" value="${st?.district||''}" placeholder="กด GPS เพื่อดึงอัตโนมัติ" />
         </div>
         <div class="form-row">
-          <label class="form-label">จังหวัด</label>
+          <label class="form-label req">จังหวัด</label>
           <input id="s_province" class="form-input" autocomplete="off" value="${st?.province||''}" placeholder="ขอนแก่น" />
         </div>
       </div>`;
@@ -607,9 +594,9 @@ const App = {
 
   _today() { return new Date().toISOString().split('T')[0]; },
 
-  _readStationForm() {
+  _readStationForm(existing) {
     return {
-      surveyDate:     document.getElementById('s_surveyDate')?.value         || '',
+      surveyDate:     (existing && existing.surveyDate) || this._today(),
       stationName:    document.getElementById('s_stName')?.value.trim()      || '',
       stationCode:    document.getElementById('s_stName')?.value.trim()      || '',
       road:           document.getElementById('s_road')?.value.trim()        || '',
@@ -623,11 +610,13 @@ const App = {
 
   _validateStationForm(data) {
     const errs = [];
-    if (!data.surveyorName)   errs.push('ชื่อผู้สำรวจ');
-    if (!data.supervisorName) errs.push('ชื่อผู้ควบคุม');
-    if (!data.surveyDate)     errs.push('วันที่สำรวจ');
-    if (!data.stationName)    errs.push('ชื่อจุดสำรวจ');
-    if (!data.direction)      errs.push('ทิศทาง');
+    if (!data.stationName) errs.push('รหัส/ชื่อจุดสำรวจ');
+    if (!data.road)        errs.push('ถนน/ทางหลวง');
+    if (!data.direction)   errs.push('แกนถนน');
+    if (!data.coordinates) errs.push('พิกัด GPS');
+    if (!data.subdistrict) errs.push('ตำบล');
+    if (!data.district)    errs.push('อำเภอ');
+    if (!data.province)    errs.push('จังหวัด');
     return errs;
   },
 
@@ -641,7 +630,8 @@ const App = {
 
   saveStation() {
     const data = this._readStationForm();
-    this._saveSurveyorNames(data.surveyorName, data.supervisorName);
+    const errs = this._validateStationForm(data);
+    if (errs.length) { this.toast('กรอกข้อมูลให้ครบ: ' + errs.join(', '), 'error'); return; }
     const st = DB.addStation({
       ...data,
       deviceId: (typeof FB !== 'undefined' ? FB.deviceId() : null) || localStorage.getItem('_device_id') || '',
@@ -662,8 +652,10 @@ const App = {
   },
 
   saveEditStation(id) {
-    const data = this._readStationForm();
-    this._saveSurveyorNames(data.surveyorName, data.supervisorName);
+    const old = DB.getStation(id);
+    const data = this._readStationForm(old);
+    const errs = this._validateStationForm(data);
+    if (errs.length) { this.toast('กรอกข้อมูลให้ครบ: ' + errs.join(', '), 'error'); return; }
     DB.updateStation(id, data);
     this.closeModal();
     this.toast('บันทึกข้อมูลจุดสำรวจแล้ว', 'success');
@@ -1117,6 +1109,9 @@ const App = {
   _wOriginNext() {
     const inp = document.getElementById('wiz_originLandmark');
     if (inp) this.wizardData.originLandmark = inp.value;
+    const wd = this.wizardData;
+    if (!wd.originType) { this.toast('กรุณาเลือกประเภทสถานที่ต้นทาง', 'error'); return; }
+    if (!wd.originLandmark && !wd.originCoords) { this.toast('กรุณาระบุชื่อสถานที่หรือเลือกจากแผนที่', 'error'); return; }
     this._wizardNext();
   },
 
@@ -1144,6 +1139,9 @@ const App = {
   _wDestNext() {
     const inp = document.getElementById('wiz_destLandmark');
     if (inp) this.wizardData.destLandmark = inp.value;
+    const wd = this.wizardData;
+    if (!wd.destType) { this.toast('กรุณาเลือกประเภทสถานที่ปลายทาง', 'error'); return; }
+    if (!wd.destLandmark && !wd.destCoords) { this.toast('กรุณาระบุชื่อสถานที่หรือเลือกจากแผนที่', 'error'); return; }
     this._wizardNext();
   },
 
@@ -1221,7 +1219,13 @@ const App = {
   },
   _wPickHasCargo(val) { this.wizardData.hasCargo = val; this.wizardData.cargoType = ''; this.wizardData.cargoWeight = ''; this.page='wizard'; this.render(); window.scrollTo(0,0); },
   _wPickCargoType(val) { this.wizardData.cargoType = val; this.page='wizard'; this.render(); },
-  _wCargoNext() { const w = document.getElementById('wiz_cargoWeight'); if (w) this.wizardData.cargoWeight = w.value; this._wizardNext(); },
+  _wCargoNext() {
+    const w = document.getElementById('wiz_cargoWeight'); if (w) this.wizardData.cargoWeight = w.value;
+    const wd = this.wizardData;
+    if (!wd.cargoType)   { this.toast('กรุณาเลือกชนิดสินค้า', 'error'); return; }
+    if (!wd.cargoWeight) { this.toast('กรุณากรอกน้ำหนักสินค้า', 'error'); return; }
+    this._wizardNext();
+  },
   _wFilterCargo(q) { document.querySelectorAll('.wiz-cargo-item').forEach(el => { el.style.display = el.dataset.label.toLowerCase().includes(q.toLowerCase()) ? '' : 'none'; }); },
 
   // Step 7: รายได้
