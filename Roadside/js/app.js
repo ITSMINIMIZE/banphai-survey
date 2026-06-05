@@ -1331,18 +1331,22 @@ const App = {
   },
 
   _reverseGeocode(lat, lon) {
-    const KEY = '4ffd5bcaa8a5941163c24dbe2a4401e8';
-    fetch(`https://api.longdo.com/map/services/address?lon=${lon}&lat=${lat}&noescape=1&key=${KEY}`)
+    // Nominatim (OSM) — ฟรี ไม่ต้อง key
+    fetch(`https://nominatim.openstreetmap.org/reverse?format=json&accept-language=th&lat=${lat}&lon=${lon}&zoom=14&addressdetails=1`)
       .then(r => r.json())
       .then(d => {
+        const a = d.address || {};
+        const subdistrict = a.suburb || a.village || a.neighbourhood || a.hamlet || '';
+        const district    = a.city_district || a.county || a.district || '';
+        const province    = a.province || a.state || '';
         const sub = document.getElementById('s_subdistrict');
         const dis = document.getElementById('s_district');
         const pro = document.getElementById('s_province');
-        if (sub) sub.value = d.subdistrict || sub.value;
-        if (dis) dis.value = d.district    || dis.value;
-        if (pro) pro.value = d.province    || pro.value;
-        if (d.subdistrict || d.district)
-          this.toast(`พบที่อยู่: ต.${d.subdistrict||'?'} อ.${d.district||'?'}`, 'success');
+        if (sub && subdistrict) sub.value = subdistrict;
+        if (dis && district)    dis.value = district;
+        if (pro && province)    pro.value = province;
+        if (subdistrict || district)
+          this.toast(`พบที่อยู่: ต.${subdistrict||'?'} อ.${district||'?'}`, 'success');
       })
       .catch(() => {});
   },
