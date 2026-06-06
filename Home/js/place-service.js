@@ -167,6 +167,42 @@ const PlaceService = {
     } catch (e) { console.warn('[PlaceService] Nominatim failed:', e.message); return []; }
   },
 
+  // ===================== DEEP SEARCH (กดปุ่มค้นหา → รวมทุกแหล่ง) =====================
+  // ไม่หยุดที่ provider แรกที่เจอ — รวม Local + Longdo + Google เข้าด้วยกัน (กรณี Longdo เจอแต่ไม่ใช่ที่ต้องการ)
+  async searchAll(query) {
+    const q = (query || '').trim();
+    if (!q) return [];
+    this.loadConfig();
+    await this.loadCache();
+
+    const local = this._searchLocal(q);
+    const [longdo, google] = await Promise.all([
+      this._searchLongdo(q).catch(e => { console.warn('[PlaceService] Longdo failed:', e.message); return []; }),
+      this._searchGoogle(q).catch(e => { console.warn('[PlaceService] Google failed:', e.message); return []; })
+    ]);
+
+    let merged = this._dedupeResults([...local, ...longdo, ...google]);  // เรียง local → longdo → google
+    if (!merged.length) {
+      const nomi = await this._searchNominatim(q).catch(() => []);
+      merged = this._dedupeResults(nomi);
+    }
+    return merged;
+  },
+
+  // รวมผลจากหลายแหล่ง · ตัดซ้ำ (ชื่อตรง + ใกล้ < 80m) · คงอันแรกตามลำดับความสำคัญ
+  _dedupeResults(list) {
+    const out = [];
+    for (const r of list) {
+      if (r.latitude == null || r.longitude == null) continue;
+      const dup = out.find(o =>
+        this._norm(o.place_name) === this._norm(r.place_name) &&
+        this._distM(o.latitude, o.longitude, r.latitude, r.longitude) < 80
+      );
+      if (!dup) out.push(r);
+    }
+    return out.slice(0, 12);
+  },
+
   // ---- [1] Local: substring/keyword match, เรียง use_count ----
   _searchLocal(query) {
     const q = this._norm(query);

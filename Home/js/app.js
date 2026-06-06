@@ -771,6 +771,9 @@ const App = {
         <div style="display:flex;gap:6px;">
           <input id="m_coords" class="form-input" autocomplete="off" placeholder="เช่น 16.0590, 102.7313"
             style="flex:1;min-width:0;" value="${hh?.coordinates||''}" />
+          <button type="button" onclick="App._openHhMap()"
+            style="padding:9px 12px;background:#eff6ff;color:#2563eb;border:1.5px solid #2563eb;
+                   border-radius:var(--radius-sm);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">🗺</button>
           <button type="button" id="gpsBtn_m_coords" onclick="App._useGPS('m_coords')"
             style="padding:9px 12px;background:#f0fdf4;color:#16a34a;border:1.5px solid #16a34a;
                    border-radius:var(--radius-sm);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">📍 GPS</button>
@@ -1299,6 +1302,16 @@ const App = {
   },
 
   // เปิด map picker สำหรับ trip (รับ coordsInputId)
+  // เปิดแผนที่สำหรับพิกัดครัวเรือน (ฟอร์มสมาชิก/ครัวเรือน — ทั้งบันทึกและแก้ไข)
+  _openHhMap() {
+    const coordsEl = document.getElementById('m_coords');
+    MapPicker.open(coordsEl?.value || '', coords => {
+      if (coordsEl) coordsEl.value = coords;
+      const p = coords.split(',');
+      this._reverseGeocode(parseFloat(p[0]), parseFloat(p[1]));  // เติม อำเภอ/จังหวัด
+    });
+  },
+
   _openMap(coordsId) {
     const coordsEl = document.getElementById(coordsId);
     MapPicker.open(coordsEl?.value || '', coords => {

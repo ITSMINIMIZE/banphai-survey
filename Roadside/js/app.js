@@ -609,6 +609,17 @@ const App = {
     });
   },
 
+  // เปิดแผนที่สำหรับช่องพิกัดต้นทาง/ปลายทาง (ฟอร์ม interview — ทั้งบันทึกและแก้ไข)
+  _openIvMap(coordsId, nameId) {
+    const coordsEl = document.getElementById(coordsId);
+    const nameEl = document.getElementById(nameId);
+    MapPicker.open(coordsEl?.value || '', (coords, name) => {
+      if (coordsEl) coordsEl.value = coords;
+      // เติมชื่อสถานที่ให้ถ้าช่องยังว่าง (ไม่ทับชื่อที่กรอกไว้)
+      if (nameEl && name && !nameEl.value.trim()) nameEl.value = name;
+    });
+  },
+
   _today() { return new Date().toISOString().split('T')[0]; },
 
   _readStationForm(existing) {
@@ -774,6 +785,9 @@ const App = {
           <input id="iv_originCoords" class="form-input" autocomplete="off"
             placeholder="เช่น 16.0590, 102.7313" style="flex:1;min-width:0;"
             value="${iv?.originCoords||''}" />
+          <button type="button" onclick="App._openIvMap('iv_originCoords','iv_origin')"
+            style="padding:9px 12px;background:#fef3c7;color:#92400e;border:1.5px solid #d97706;
+                   border-radius:var(--radius-sm);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">🗺</button>
           <button type="button" id="gpsBtn_iv_originCoords" onclick="App._useGPS('iv_originCoords')"
             style="padding:9px 10px;background:#fef3c7;color:#92400e;border:1.5px solid #d97706;
                    border-radius:var(--radius-sm);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">📍</button>
@@ -798,6 +812,9 @@ const App = {
           <input id="iv_destCoords" class="form-input" autocomplete="off"
             placeholder="เช่น 16.0590, 102.7313" style="flex:1;min-width:0;"
             value="${iv?.destinationCoords||''}" />
+          <button type="button" onclick="App._openIvMap('iv_destCoords','iv_dest')"
+            style="padding:9px 12px;background:#fef3c7;color:#92400e;border:1.5px solid #d97706;
+                   border-radius:var(--radius-sm);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">🗺</button>
           <button type="button" id="gpsBtn_iv_destCoords" onclick="App._useGPS('iv_destCoords')"
             style="padding:9px 10px;background:#fef3c7;color:#92400e;border:1.5px solid #d97706;
                    border-radius:var(--radius-sm);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">📍</button>

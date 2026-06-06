@@ -1,5 +1,5 @@
 // Service Worker — Home Interview
-const CACHE_VERSION = 'hi-v7-gps';
+const CACHE_VERSION = 'hi-v8-search-map';
 const CORE_ASSETS = [
   './',
   './index.html',

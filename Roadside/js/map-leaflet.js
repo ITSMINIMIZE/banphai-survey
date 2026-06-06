@@ -82,10 +82,10 @@ const MapPicker = {
             <input id="mapSearchInput" placeholder="ค้นหาสถานที่... เช่น โรงพยาบาลบ้านไผ่"
               style="flex:1;padding:9px 13px;border:1.5px solid #e2e8f0;border-radius:8px;font-family:inherit;font-size:14px;color:#1e293b;outline:none;"
               oninput="MapPicker._onSearchInput(this.value)"
-              onkeydown="if(event.key==='Enter')MapPicker._search(this.value)"
+              onkeydown="if(event.key==='Enter')MapPicker._search(this.value, true)"
               onfocus="this.style.borderColor='${accent}'"
               onblur="this.style.borderColor='#e2e8f0'" />
-            <button onclick="MapPicker._search(document.getElementById('mapSearchInput').value)"
+            <button onclick="MapPicker._search(document.getElementById('mapSearchInput').value, true)"
               style="padding:9px 14px;background:${accent};color:#fff;border:none;border-radius:8px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap;">
               ค้นหา
             </button>
@@ -204,15 +204,16 @@ const MapPicker = {
     this.searchTimer = setTimeout(() => this._search(v), 450);
   },
 
-  async _search(query) {
+  // deep=true (กดปุ่มค้นหา/Enter) → รวมทุกแหล่ง บังคับเรียก Google ด้วย · deep=false (พิมพ์สด) → เร็ว หยุดที่แหล่งแรกที่เจอ
+  async _search(query, deep) {
     const q = (query || '').trim();
     const resultsEl = document.getElementById('mapSearchResults');
     if (!q || !resultsEl) return;
-    resultsEl.innerHTML = '<div style="padding:10px;color:#94a3b8;font-size:13px;">⌛ กำลังค้นหา...</div>';
+    resultsEl.innerHTML = `<div style="padding:10px;color:#94a3b8;font-size:13px;">⌛ ${deep ? 'ค้นหาทุกแหล่ง (รวม Google)...' : 'กำลังค้นหา...'}</div>`;
     try {
-      const results = (typeof PlaceService !== 'undefined')
-        ? await PlaceService.search(q)
-        : await this._searchNominatimFallback(q);
+      const results = (typeof PlaceService === 'undefined')
+        ? await this._searchNominatimFallback(q)
+        : (deep ? await PlaceService.searchAll(q) : await PlaceService.search(q));
 
       if (!results.length) {
         // ไม่เจอที่ไหนเลย → เสนอเพิ่มเป็นสถานที่ใหม่จากชื่อที่ค้น
