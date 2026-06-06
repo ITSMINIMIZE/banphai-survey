@@ -1,25 +1,39 @@
-// ===== MAP PICKER (Leaflet + OSM + Nominatim) — Home theme น้ำเงิน =====
+// ===== MAP PICKER (Leaflet + OSM + PlaceService) — Home theme น้ำเงิน =====
 // Interface เดียวกับ map.js (Longdo) — drop-in replacement
+// ค้นผ่าน PlaceService: Local → Longdo → Google → Nominatim · auto-learn ตอนกดยืนยัน
 const MapPicker = {
   map: null,
   marker: null,
   selectedLat: null,
   selectedLon: null,
   selectedName: null,
+  selectedSource: null,   // local | longdo | google | nominatim | manual
+  userAdjusted: false,    // ลากหมุดแก้ → true
+  _manualPending: false,  // โหมดเพิ่มเอง: คลิกแผนที่ครั้งถัดไปให้คงชื่อที่พิมพ์
+  _lastResults: null,
+  _pendingQuery: null,
   searchTimer: null,
   onConfirm: null,
 
-  DEFAULT_LAT: 16.0590,
-  DEFAULT_LON: 102.7313,
-  DEFAULT_ZOOM: 13,
-  // ธีมส้ม
+  // default = มุมกว้างทั้งประเทศไทย (ใช้เมื่อไม่มีพิกัดเดิม + GPS ไม่ได้)
+  DEFAULT_LAT: 13.5,
+  DEFAULT_LON: 100.9,
+  DEFAULT_ZOOM: 5,
+  MARKER_ZOOM: 16,    // ซูมเมื่อมีพิกัด (เดิม / GPS / เลือกผลค้นหา)
+  // ธีมน้ำเงิน
   ACCENT: '#2563eb',
+  HOVER:  '#dbeafe',
 
   open(currentCoords, onConfirm) {
     this.onConfirm = onConfirm;
     this.selectedLat = null;
     this.selectedLon = null;
     this.selectedName = null;
+    this.selectedSource = null;
+    this.userAdjusted = false;
+    this._manualPending = false;
+    this._lastResults = null;
+    this._pendingQuery = null;
     if (currentCoords) {
       const p = currentCoords.split(',').map(s => parseFloat(s.trim()));
       if (p.length === 2 && !isNaN(p[0]) && !isNaN(p[1])) {
@@ -29,6 +43,11 @@ const MapPicker = {
     this._renderModal();
     // Leaflet ต้องรอ DOM mount ก่อน
     setTimeout(() => this._initMap(), 60);
+    // อุ่น cache places + config (key) ไว้ล่วงหน้า (ลด latency ตอนค้นครั้งแรก)
+    if (typeof PlaceService !== 'undefined') {
+      PlaceService.loadConfig();
+      PlaceService.loadCache().catch(() => {});
+    }
   },
 
   _renderModal() {
@@ -95,29 +114,57 @@ const MapPicker = {
       container && (container.innerHTML = '<div style="padding:24px;color:#dc2626;text-align:center;">โหลดแผนที่ไม่สำเร็จ — ตรวจสอบอินเทอร์เน็ต</div>');
       return;
     }
-    const lat = this.selectedLat || this.DEFAULT_LAT;
-    const lon = this.selectedLon || this.DEFAULT_LON;
+    const hasCoords = this.selectedLat !== null;
+    const lat  = hasCoords ? this.selectedLat : this.DEFAULT_LAT;
+    const lon  = hasCoords ? this.selectedLon : this.DEFAULT_LON;
+    const zoom = hasCoords ? this.MARKER_ZOOM : this.DEFAULT_ZOOM;
 
     this.map = L.map(container, { zoomControl: true, attributionControl: true })
-      .setView([lat, lon], this.DEFAULT_ZOOM);
+      .setView([lat, lon], zoom);
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '© OpenStreetMap contributors'
     }).addTo(this.map);
 
-    if (this.selectedLat !== null) {
+    if (hasCoords) {
       this._placeMarker(this.selectedLat, this.selectedLon);
+    } else {
+      this._tryGeolocate();   // ไม่มีพิกัดเดิม → ลอง GPS เงียบๆ เป็นพื้นหลัง
     }
 
     this.map.on('click', (e) => {
       this._placeMarker(e.latlng.lat, e.latlng.lng);
-      // reverse geocode เพื่อเอาชื่อสถานที่
-      this._reverseGeocode(e.latlng.lat, e.latlng.lng);
+      if (this._manualPending && this.selectedName) {
+        // โหมดเพิ่มเอง: ปักหมุดให้ชื่อที่พิมพ์ค้นไว้ → คงชื่อ ไม่ reverse geocode ทับ
+        this._manualPending = false;
+        this._updateCoordsDisplay();
+      } else {
+        // คลิกแผนที่เปล่า → manual + หาชื่อจากพิกัด
+        this.selectedSource = 'manual';
+        this.selectedName = null;
+        this._reverseGeocode(e.latlng.lat, e.latlng.lng);
+      }
     });
 
     // force layout recompute หลัง modal mount
     setTimeout(() => this.map && this.map.invalidateSize(), 200);
+  },
+
+  // ลอง GPS เงียบๆ เป็นพื้นหลัง — สำเร็จ → เลื่อนแผนที่ไปตำแหน่งผู้ใช้ (ไม่ปักหมุด รอเลือกเอง)
+  // ไม่มีหน้าจอ custom · ครั้งแรกเบราว์เซอร์อาจเด้งขออนุญาตเอง (เลี่ยงไม่ได้) · ถ้าปฏิเสธ/ไม่มีสัญญาณ คงมุมประเทศไทย
+  _tryGeolocate() {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        // เลื่อนเฉพาะเมื่อผู้ใช้ยังไม่ได้เลือกพิกัด (กันแย่งกับการ search/คลิกระหว่างรอ GPS)
+        if (this.map && this.selectedLat === null) {
+          this.map.setView([pos.coords.latitude, pos.coords.longitude], this.MARKER_ZOOM);
+        }
+      },
+      () => { /* ปฏิเสธ/ไม่มีสัญญาณ → คงมุมประเทศไทย */ },
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 600000 }
+    );
   },
 
   _placeMarker(lat, lon) {
@@ -128,7 +175,8 @@ const MapPicker = {
       this.marker.on('dragend', () => {
         const p = this.marker.getLatLng();
         this.selectedLat = p.lat; this.selectedLon = p.lng;
-        this._reverseGeocode(p.lat, p.lng);
+        this.userAdjusted = true;   // ลากแก้ → ปรับพิกัด แต่คงชื่อเดิม
+        if (!this.selectedName) this._reverseGeocode(p.lat, p.lng);
         this._updateCoordsDisplay();
       });
     } else {
@@ -140,15 +188,15 @@ const MapPicker = {
   _updateCoordsDisplay() {
     const c = document.getElementById('mapCoordsDisplay');
     const b = document.getElementById('mapConfirmBtn');
-    if (c && this.selectedLat !== null) c.innerHTML = `📍 ${this.selectedLat.toFixed(6)}, ${this.selectedLon.toFixed(6)}${this.selectedName ? ' · ' + this.selectedName : ''}`;
+    if (c && this.selectedLat !== null) c.innerHTML = `📍 ${this.selectedLat.toFixed(6)}, ${this.selectedLon.toFixed(6)}${this.selectedName ? ' · ' + this._esc(this.selectedName) : ''}`;
     if (b) b.style.opacity = this.selectedLat !== null ? '1' : '0.4';
   },
 
-  // ===== Search via Nominatim (free, 1 req/sec) =====
+  // ===== Search via PlaceService (Local → Longdo → Google → Nominatim) =====
   _onSearchInput(value) {
     clearTimeout(this.searchTimer);
     const v = value.trim();
-    if (v.length < 3) {
+    if (v.length < 2) {
       const r = document.getElementById('mapSearchResults');
       if (r) r.innerHTML = '';
       return;
@@ -162,34 +210,77 @@ const MapPicker = {
     if (!q || !resultsEl) return;
     resultsEl.innerHTML = '<div style="padding:10px;color:#94a3b8;font-size:13px;">⌛ กำลังค้นหา...</div>';
     try {
-      const url = `https://nominatim.openstreetmap.org/search?format=json&limit=8&accept-language=th&countrycodes=th&q=${encodeURIComponent(q)}`;
-      const res = await fetch(url);
-      const data = await res.json();
-      if (!data.length) {
-        resultsEl.innerHTML = '<div style="padding:10px;color:#94a3b8;font-size:13px;">ไม่พบสถานที่ — ลองพิมพ์ใหม่หรือคลิกบนแผนที่</div>';
+      const results = (typeof PlaceService !== 'undefined')
+        ? await PlaceService.search(q)
+        : await this._searchNominatimFallback(q);
+
+      if (!results.length) {
+        // ไม่เจอที่ไหนเลย → เสนอเพิ่มเป็นสถานที่ใหม่จากชื่อที่ค้น
+        this._pendingQuery = q;
+        resultsEl.innerHTML =
+          `<div style="padding:10px;">
+             <div style="color:#94a3b8;font-size:13px;margin-bottom:8px;">ไม่พบ "${this._esc(q)}" — เพิ่มเป็นสถานที่ใหม่ได้</div>
+             <button onclick="MapPicker._startManualAdd()" style="padding:8px 12px;background:${this.ACCENT};color:#fff;border:none;border-radius:8px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;">➕ เพิ่ม "${this._esc(q)}" แล้วปักหมุดเอง</button>
+           </div>`;
         return;
       }
-      resultsEl.innerHTML = data.map((d, i) => `
-        <div onclick="MapPicker._pickResult(${d.lat}, ${d.lon}, ${JSON.stringify(d.display_name).replace(/"/g,'&quot;')})"
-          style="padding:8px 10px;border-bottom:1px solid #f1f5f9;cursor:pointer;font-size:13px;color:#1e293b;line-height:1.4;"
-          onmouseover="this.style.background='#dbeafe'"
-          onmouseout="this.style.background='transparent'">
-          <div style="font-weight:600;">${d.display_name.split(',')[0]}</div>
-          <div style="font-size:11px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${d.display_name}</div>
-        </div>`).join('');
+
+      this._lastResults = results;
+      resultsEl.innerHTML = results.map((r, i) => {
+        const cnt  = (r.source === 'local' && r.use_count) ? `<span style="font-size:10px;color:#94a3b8;margin-left:6px;">${r.use_count}× ใช้</span>` : '';
+        const addr = r.address ? `<div style="font-size:11px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${this._esc(r.address)}</div>` : '';
+        return `<div onclick="MapPicker._pickResult(${i})"
+            style="padding:8px 10px;border-bottom:1px solid #f1f5f9;cursor:pointer;font-size:13px;color:#1e293b;line-height:1.4;"
+            onmouseover="this.style.background='${this.HOVER}'" onmouseout="this.style.background='transparent'">
+            <div style="margin-bottom:2px;">${this._badge(r.source)}${cnt}</div>
+            <div style="font-weight:600;">${this._esc(r.place_name)}</div>
+            ${addr}
+          </div>`;
+      }).join('');
     } catch (e) {
-      resultsEl.innerHTML = `<div style="padding:10px;color:#dc2626;font-size:13px;">❌ ค้นหาไม่สำเร็จ: ${e.message}</div>`;
+      resultsEl.innerHTML = `<div style="padding:10px;color:#dc2626;font-size:13px;">❌ ค้นหาไม่สำเร็จ: ${this._esc(e.message)}</div>`;
     }
   },
 
-  _pickResult(lat, lon, name) {
-    this.selectedName = name;
-    this._placeMarker(parseFloat(lat), parseFloat(lon));
-    this.map.setView([lat, lon], 16);
-    const r = document.getElementById('mapSearchResults');
-    if (r) r.innerHTML = '';
+  // badge บอกที่มาของผลลัพธ์
+  _badge(src) {
+    const m = {
+      local:     ['📍', 'local',     '#dcfce7', '#166534'],
+      longdo:    ['🔍', 'longdo',    '#dbeafe', '#1e40af'],
+      google:    ['🌐', 'google',    '#f3e8ff', '#7e22ce'],
+      nominatim: ['🗺', 'nominatim', '#f1f5f9', '#475569']
+    }[src] || ['•', src || '?', '#f1f5f9', '#475569'];
+    return `<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;background:${m[2]};color:${m[3]};white-space:nowrap;">${m[0]} ${m[1]}</span>`;
+  },
+
+  _pickResult(i) {
+    const r = this._lastResults && this._lastResults[i];
+    if (!r) return;
+    this.selectedName = r.place_name;
+    this.selectedSource = r.source;
+    this.userAdjusted = false;
+    this._manualPending = false;
+    this._placeMarker(parseFloat(r.latitude), parseFloat(r.longitude));
+    this.map.setView([r.latitude, r.longitude], 16);
+    const rEl = document.getElementById('mapSearchResults');
+    if (rEl) rEl.innerHTML = '';
     const inp = document.getElementById('mapSearchInput');
-    if (inp) inp.value = name.split(',')[0];
+    if (inp) inp.value = r.place_name;
+  },
+
+  // เริ่มโหมดเพิ่มเอง: ชื่อจากที่ค้น → คลิกแผนที่ปักหมุด → ยืนยัน
+  _startManualAdd() {
+    const q = this._pendingQuery || '';
+    if (!q) return;
+    this.selectedName = q;
+    this.selectedSource = 'manual';
+    this.userAdjusted = false;
+    this._manualPending = true;
+    const inp = document.getElementById('mapSearchInput');
+    if (inp) inp.value = q;
+    const rEl = document.getElementById('mapSearchResults');
+    if (rEl) rEl.innerHTML = `<div style="padding:8px 10px;color:${this.ACCENT};font-size:13px;font-weight:600;">📌 แตะบนแผนที่เพื่อปักหมุดของ "${this._esc(q)}" แล้วกด ✓ ยืนยัน</div>`;
+    if (this.selectedLat !== null) this._updateCoordsDisplay();
   },
 
   async _reverseGeocode(lat, lon) {
@@ -204,11 +295,52 @@ const MapPicker = {
     } catch { /* silent */ }
   },
 
+  // fallback เมื่อ PlaceService ยังไม่ถูกโหลด (กันค้นพังสนิท)
+  async _searchNominatimFallback(query) {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=8&accept-language=th&countrycodes=th&q=${encodeURIComponent(query)}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    return (data || []).map(d => ({
+      place_name: (d.display_name || '').split(',')[0],
+      latitude: parseFloat(d.lat), longitude: parseFloat(d.lon),
+      source: 'nominatim', address: d.display_name || ''
+    }));
+  },
+
+  // ===== AUTO-LEARN: บันทึกเข้า shared place DB ตอนกดยืนยัน =====
   confirm() {
     if (this.selectedLat === null) return;
     const coords = `${this.selectedLat.toFixed(6)}, ${this.selectedLon.toFixed(6)}`;
-    if (this.onConfirm) this.onConfirm(coords, this.selectedName || '');
+    const name = this.selectedName || '';
+    // best-effort save — ไม่บล็อก UX (cache อัปเดตทันที, Firestore เขียนเบื้องหลัง)
+    if (name && typeof PlaceService !== 'undefined') {
+      PlaceService.savePlace({
+        place_name: name,
+        latitude: this.selectedLat,
+        longitude: this.selectedLon,
+        source: this.selectedSource || 'manual',
+        user_adjusted: this.userAdjusted,
+        created_by: this._creator()
+      }).catch(e => console.warn('[MapPicker] auto-learn save failed:', e.message));
+    }
+    if (this.onConfirm) this.onConfirm(coords, name);
     this.close();
+  },
+
+  // ผู้บันทึก = บัญชีที่ล็อกอินอยู่ (surveyor หรือ admin)
+  _creator() {
+    try {
+      if (typeof App !== 'undefined') {
+        if (App._role === 'admin' && App._adminUsername) return App._adminUsername;
+        if (App._surveyorName) return App._surveyorName;
+        if (App._adminUsername) return App._adminUsername;
+      }
+    } catch (_) {}
+    return 'unknown';
+  },
+
+  _esc(s) {
+    return (s || '').toString().replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
   },
 
   close() {

@@ -1,0 +1,342 @@
+// ===== PLACE SERVICE — Self-Growing Place Search (Banphai Survey) =====
+// Multi-provider orchestrator + auto-learn (Firestore `places` collection).
+// แหล่งค้น: [1] Local cache → [2] Longdo POI → [3] Google (stub) → [4] Nominatim
+// ทำ 1 ชุด แล้ว copy ไป Roadside/js/ และ Home/js/ (drop-in, ไม่แตะ signature MapPicker)
+//
+// Output shape (ทุก provider คืนรูปนี้):
+//   { place_name, latitude, longitude, source, confidence }
+//   source = 'local' | 'longdo' | 'google' | 'nominatim'
+const PlaceService = {
+  // ---- in-memory cache ของ places (mirror localStorage) ----
+  _cache: [],
+  _cacheLoadedAt: 0,
+  _loadingPromise: null,
+
+  CACHE_KEY:    'bp_places_cache',
+  CACHE_TS_KEY: 'bp_places_cache_ts',
+  CACHE_TTL:    30 * 60 * 1000,   // 30 นาที refresh
+
+  // ---- API key config (Firestore config/app · แก้ผ่าน tools/config.html) ----
+  CONFIG_COLLECTION: 'config',
+  CONFIG_DOC:    'app',
+  CONFIG_KEY:    'bp_config_cache',   // cache ไว้ใช้ตอน offline
+  _configApplied: false,
+  _configLoading: false,
+
+  COLLECTION:   'places',
+  // ค่า default (fallback) — ถ้า config/app มี key จะถูก override ตอน loadConfig()
+  LONGDO_KEY:   '4ffd5bcaa8a5941163c24dbe2a4401e8',
+  // Google Places API (New) key — fallback ในโค้ด
+  // ⚠️ key ฝั่ง browser เปิดเผยได้เสมอ — ป้องกันด้วย HTTP referrer restriction ใน Google Cloud
+  //    (อนุญาตเฉพาะ itsminimize.github.io/* + localhost:5500/*) + จำกัด API = Places API (New)
+  GOOGLE_KEY:   'AIzaSyAJzTlYmUTDCspYgcZ3ceebnAHeaHhbe0w',
+
+  // บ้านไผ่ center — ใช้ bias ผล Longdo/Nominatim
+  CENTER_LAT: 16.0590,
+  CENTER_LON: 102.7313,
+  SPAN_M:     50000,              // 50 km
+
+  CONFIDENCE: { local: 1.0, longdo: 0.9, google: 0.95, manual: 1.0, nominatim: 0.5 },
+  DEDUPE_M:   150,               // ชื่อตรง + ใกล้กว่านี้ = ที่เดียวกัน
+
+  // ===================== helpers =====================
+  _db() {
+    try {
+      if (typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length) {
+        return firebase.firestore();
+      }
+    } catch (_) {}
+    return null;
+  },
+
+  _norm(s) {
+    return (s || '').toString().trim().toLowerCase().replace(/\s+/g, ' ');
+  },
+
+  // ระยะทาง (เมตร) แบบ haversine
+  _distM(lat1, lon1, lat2, lon2) {
+    const R = 6371000, toRad = d => d * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat/2)**2 +
+              Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
+    return 2 * R * Math.asin(Math.sqrt(a));
+  },
+
+  // ===================== cache =====================
+  _readLocal() {
+    try {
+      const raw = localStorage.getItem(this.CACHE_KEY);
+      const ts  = parseInt(localStorage.getItem(this.CACHE_TS_KEY) || '0', 10);
+      if (raw) { this._cache = JSON.parse(raw) || []; this._cacheLoadedAt = ts || 0; }
+    } catch (_) {}
+  },
+
+  _writeLocal() {
+    try {
+      localStorage.setItem(this.CACHE_KEY, JSON.stringify(this._cache));
+      localStorage.setItem(this.CACHE_TS_KEY, String(this._cacheLoadedAt));
+    } catch (_) {}
+  },
+
+  // โหลด places จาก Firestore → cache (เรียกตอน init / TTL หมด)
+  // dedupe การโหลดพร้อมกันด้วย _loadingPromise
+  async loadCache(force = false) {
+    if (!this._cacheLoadedAt) this._readLocal();
+    const fresh = (Date.now() - this._cacheLoadedAt) < this.CACHE_TTL;
+    if (!force && fresh && this._cache.length) return this._cache;
+    if (this._loadingPromise) return this._loadingPromise;
+
+    const db = this._db();
+    if (!db) return this._cache; // offline / firebase ไม่พร้อม → ใช้ของเดิมไปก่อน
+
+    this._loadingPromise = (async () => {
+      try {
+        const snap = await db.collection(this.COLLECTION).get();
+        this._cache = snap.docs.map(d => d.data());
+        this._cacheLoadedAt = Date.now();
+        this._writeLocal();
+      } catch (e) {
+        console.warn('[PlaceService] loadCache failed:', e.message);
+      } finally {
+        this._loadingPromise = null;
+      }
+      return this._cache;
+    })();
+    return this._loadingPromise;
+  },
+
+  // ===================== API KEY CONFIG =====================
+  // อ่าน key จาก Firestore config/app → override GOOGLE_KEY/LONGDO_KEY (fallback = ค่าในโค้ด)
+  // apply จาก localStorage ทันที (ไม่บล็อก) + refresh จาก Firestore เบื้องหลังเมื่อ TTL หมด
+  loadConfig() {
+    // 1) apply ค่าที่ cache ไว้ทันที (instant + ใช้ได้ offline)
+    if (!this._configApplied) {
+      try {
+        const raw = localStorage.getItem(this.CONFIG_KEY);
+        if (raw) this._applyConfig(JSON.parse(raw));
+      } catch (_) {}
+    }
+    // 2) refresh สดจาก Firestore เบื้องหลัง (ได้ key ล่าสุดทุกครั้งที่เปิดแผนที่ · ไม่บล็อก · ไม่หน่วง)
+    if (this._configLoading) return;     // มี request ค้างอยู่ → ไม่ยิงซ้ำ
+    const db = this._db();
+    if (!db) return;                     // offline → ใช้ค่า cache/โค้ด ไปก่อน
+    this._configLoading = true;
+    db.collection(this.CONFIG_COLLECTION).doc(this.CONFIG_DOC).get()
+      .then(doc => {
+        const cfg = doc.exists ? doc.data() : {};
+        localStorage.setItem(this.CONFIG_KEY, JSON.stringify(cfg));
+        this._applyConfig(cfg);
+      })
+      .catch(e => console.warn('[PlaceService] loadConfig failed:', e.message))
+      .finally(() => { this._configLoading = false; });
+  },
+
+  _applyConfig(cfg) {
+    if (cfg && cfg.google_places_key) this.GOOGLE_KEY = cfg.google_places_key;
+    if (cfg && cfg.longdo_key)        this.LONGDO_KEY = cfg.longdo_key;
+    this._configApplied = true;
+  },
+
+  // ===================== SEARCH ORCHESTRATOR =====================
+  async search(query) {
+    const q = (query || '').trim();
+    if (!q) return [];
+
+    this.loadConfig();   // ใช้ key ล่าสุดจาก config (ไม่บล็อก — apply จาก localStorage ทันที)
+    await this.loadCache();
+
+    // [1] Local — เจอ → จบ ไม่เรียก API
+    const local = this._searchLocal(q);
+    if (local.length) return local;
+
+    // [2] Longdo POI
+    try {
+      const longdo = await this._searchLongdo(q);
+      if (longdo.length) return longdo;
+    } catch (e) { console.warn('[PlaceService] Longdo failed:', e.message); }
+
+    // [3] Google Places (New) — ทำงานเมื่อมี GOOGLE_KEY (ไม่มี key → คืน [])
+    try {
+      const google = await this._searchGoogle(q);
+      if (google.length) return google;
+    } catch (e) { console.warn('[PlaceService] Google failed:', e.message); }
+
+    // [4] Nominatim fallback (ของเดิม)
+    try {
+      return await this._searchNominatim(q);
+    } catch (e) { console.warn('[PlaceService] Nominatim failed:', e.message); return []; }
+  },
+
+  // ---- [1] Local: substring/keyword match, เรียง use_count ----
+  _searchLocal(query) {
+    const q = this._norm(query);
+    if (!q) return [];
+    const hits = this._cache.filter(p => {
+      const name = p.name_lower || this._norm(p.place_name);
+      if (name.includes(q)) return true;
+      if (Array.isArray(p.keywords)) {
+        return p.keywords.some(k => this._norm(k).includes(q));
+      }
+      return false;
+    });
+    hits.sort((a, b) => (b.use_count || 0) - (a.use_count || 0));
+    return hits.slice(0, 8).map(p => ({
+      place_name: p.place_name,
+      latitude:   p.latitude,
+      longitude:  p.longitude,
+      source:     'local',
+      confidence: p.confidence || this.CONFIDENCE.local,
+      use_count:  p.use_count || 0,
+      _id:        p.id
+    }));
+  },
+
+  // ---- [2] Longdo POI search (search.longdo.com — เรียกผ่าน fetch ได้ ไม่ติด CORS) ----
+  async _searchLongdo(query) {
+    const url = `https://search.longdo.com/mapsearch/json/search` +
+                `?keyword=${encodeURIComponent(query)}` +
+                `&lat=${this.CENTER_LAT}&lon=${this.CENTER_LON}` +
+                `&span=${this.SPAN_M}&limit=8&key=${this.LONGDO_KEY}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const json = await res.json();
+    const items = json.data || [];
+    return items
+      .filter(it => it.lat != null && it.lon != null)
+      .map(it => ({
+        place_name: it.name || it.address || '(ไม่มีชื่อ)',
+        latitude:   parseFloat(it.lat),
+        longitude:  parseFloat(it.lon),
+        source:     'longdo',
+        confidence: this.CONFIDENCE.longdo,
+        address:    it.address || ''
+      }));
+  },
+
+  // ---- [3] Google Places (New) — Text Search (รองรับ CORS เรียกจาก browser ได้) ----
+  // ต้องเปิด "Places API (New)" ใน Google Cloud + ใส่ GOOGLE_KEY
+  async _searchGoogle(query) {
+    if (!this.GOOGLE_KEY) return [];   // ไม่มี key → ข้ามเงียบๆ
+    const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
+      method: 'POST',
+      headers: {
+        'Content-Type':     'application/json',
+        'X-Goog-Api-Key':   this.GOOGLE_KEY,
+        'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.location'
+      },
+      body: JSON.stringify({
+        textQuery:    query,
+        languageCode: 'th',
+        regionCode:   'TH',
+        maxResultCount: 8,
+        locationBias: { circle: {
+          center: { latitude: this.CENTER_LAT, longitude: this.CENTER_LON },
+          radius: this.SPAN_M
+        }}
+      })
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const json = await res.json();
+    return (json.places || [])
+      .filter(p => p.location)
+      .map(p => ({
+        place_name: (p.displayName && p.displayName.text) || p.formattedAddress || '(ไม่มีชื่อ)',
+        latitude:   p.location.latitude,
+        longitude:  p.location.longitude,
+        source:     'google',
+        confidence: this.CONFIDENCE.google,
+        address:    p.formattedAddress || ''
+      }));
+  },
+
+  // ---- [4] Nominatim fallback (ของเดิม) ----
+  async _searchNominatim(query) {
+    const url = `https://nominatim.openstreetmap.org/search` +
+                `?format=json&limit=8&accept-language=th&countrycodes=th` +
+                `&q=${encodeURIComponent(query)}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    return (data || []).map(d => ({
+      place_name: (d.display_name || '').split(',')[0],
+      latitude:   parseFloat(d.lat),
+      longitude:  parseFloat(d.lon),
+      source:     'nominatim',
+      confidence: this.CONFIDENCE.nominatim,
+      address:    d.display_name || ''
+    }));
+  },
+
+  // ===================== AUTO-LEARN =====================
+  // เรียกตอนกดยืนยันหมุด → upsert เข้า Firestore places + อัปเดต cache ทันที
+  // คืน { action: 'increment'|'create'|'update', place }
+  async savePlace({ place_name, latitude, longitude, source, user_adjusted, created_by }) {
+    place_name = (place_name || '').trim();
+    latitude   = parseFloat(latitude);
+    longitude  = parseFloat(longitude);
+    if (!place_name || isNaN(latitude) || isNaN(longitude)) {
+      throw new Error('savePlace: ต้องมี place_name + พิกัดที่ถูกต้อง');
+    }
+    source = source || 'manual';
+    const nowISO = new Date().toISOString();
+    const nameLower = this._norm(place_name);
+    const db = this._db();
+
+    await this.loadCache();
+
+    // หา place เดิม: name_lower ตรง + พิกัดใกล้ (< DEDUPE_M)
+    const existing = this._cache.find(p => {
+      const pn = p.name_lower || this._norm(p.place_name);
+      if (pn !== nameLower) return false;
+      return this._distM(latitude, longitude, p.latitude, p.longitude) < this.DEDUPE_M;
+    });
+
+    // ---- กรณีมีอยู่แล้ว → use_count++ (+ อัปเดตพิกัดถ้าผู้ใช้ลากแก้) ----
+    if (existing) {
+      existing.use_count = (existing.use_count || 0) + 1;
+      existing.updated_at = nowISO;
+      const patch = { use_count: existing.use_count, updated_at: nowISO };
+      // ถ้าเลือกจาก local อยู่แล้ว → แค่นับ ไม่ขยับพิกัด
+      if (source !== 'local' && user_adjusted) {
+        existing.latitude  = latitude;
+        existing.longitude = longitude;
+        existing.user_adjusted = true;
+        patch.latitude = latitude;
+        patch.longitude = longitude;
+        patch.user_adjusted = true;
+      }
+      this._writeLocal();
+      if (db) {
+        try { await db.collection(this.COLLECTION).doc(existing.id).set(patch, { merge: true }); }
+        catch (e) { console.warn('[PlaceService] update failed:', e.message); }
+      }
+      return { action: 'increment', place: existing };
+    }
+
+    // ---- ไม่มี → create ใหม่ ----
+    const place = {
+      id:           'PL-' + Date.now(),
+      place_name,
+      name_lower:   nameLower,
+      keywords:     [],
+      latitude,
+      longitude,
+      source,
+      confidence:   this.CONFIDENCE[source] != null ? this.CONFIDENCE[source] : this.CONFIDENCE.manual,
+      user_adjusted: !!user_adjusted,
+      use_count:    1,
+      created_at:   nowISO,
+      created_by:   created_by || 'unknown',
+      updated_at:   nowISO
+    };
+    this._cache.push(place);
+    this._writeLocal();
+    if (db) {
+      try { await db.collection(this.COLLECTION).doc(place.id).set(place); }
+      catch (e) { console.warn('[PlaceService] create failed:', e.message); }
+    }
+    return { action: 'create', place };
+  }
+};
+
+if (typeof window !== 'undefined') window.PlaceService = PlaceService;

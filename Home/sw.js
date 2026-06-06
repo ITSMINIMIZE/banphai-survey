@@ -1,5 +1,5 @@
 // Service Worker — Home Interview
-const CACHE_VERSION = 'hi-v4-leaflet';
+const CACHE_VERSION = 'hi-v6-place';
 const CORE_ASSETS = [
   './',
   './index.html',
@@ -7,7 +7,7 @@ const CORE_ASSETS = [
   './js/data.js',
   './js/app.js',
   './js/firebase.js',
-  './js/map.js',
+  './js/place-service.js',
   './js/map-leaflet.js',
   './manifest.json'
 ];

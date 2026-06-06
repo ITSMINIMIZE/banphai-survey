@@ -1,7 +1,7 @@
 // Service Worker — Roadside Interview
 // กลยุทธ์: network-first สำหรับทุกอย่าง, fall back cache เมื่อ offline
 // ทุก deploy ใหม่ขึ้น CACHE_VERSION → cache เก่าโดนล้างอัตโนมัติ
-const CACHE_VERSION = 'ri-v5-wiz-soft';
+const CACHE_VERSION = 'ri-v6-place';
 const CORE_ASSETS = [
   './',
   './index.html',
@@ -9,7 +9,7 @@ const CORE_ASSETS = [
   './js/data.js',
   './js/app.js',
   './js/firebase.js',
-  './js/map.js',
+  './js/place-service.js',
   './js/map-leaflet.js',
   './manifest.json'
 ];

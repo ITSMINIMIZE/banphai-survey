@@ -585,7 +585,7 @@ const App = {
       <div class="form-grid">
         <div class="form-row">
           <label class="form-label req">ตำบล</label>
-          <input id="s_subdistrict" class="form-input" autocomplete="off" value="${st?.subdistrict||''}" placeholder="กด GPS เพื่อดึงอัตโนมัติ" />
+          <input id="s_subdistrict" class="form-input" autocomplete="off" value="${st?.subdistrict||''}" placeholder="กรอกตำบล" />
         </div>
         <div class="form-row">
           <label class="form-label req">อำเภอ</label>
@@ -1336,17 +1336,15 @@ const App = {
       .then(r => r.json())
       .then(d => {
         const a = d.address || {};
-        const subdistrict = a.suburb || a.village || a.neighbourhood || a.hamlet || '';
-        const district    = a.city_district || a.county || a.district || '';
-        const province    = a.province || a.state || '';
-        const sub = document.getElementById('s_subdistrict');
+        // เติมเฉพาะ อำเภอ/จังหวัด — ตำบลจาก OSM ไม่ค่อยแม่น ให้กรอกเอง
+        const district = a.city_district || a.county || a.district || '';
+        const province = a.province || a.state || '';
         const dis = document.getElementById('s_district');
         const pro = document.getElementById('s_province');
-        if (sub && subdistrict) sub.value = subdistrict;
-        if (dis && district)    dis.value = district;
-        if (pro && province)    pro.value = province;
-        if (subdistrict || district)
-          this.toast(`พบที่อยู่: ต.${subdistrict||'?'} อ.${district||'?'}`, 'success');
+        if (dis && district) dis.value = district;
+        if (pro && province) pro.value = province;
+        if (district || province)
+          this.toast(`พบที่อยู่: อ.${district||'?'} จ.${province||'?'}`, 'success');
       })
       .catch(() => {});
   },
