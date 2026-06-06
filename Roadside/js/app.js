@@ -1309,25 +1309,38 @@ const App = {
   // ===================== GPS =====================
   _useGPS(coordsId) {
     if (!navigator.geolocation) { this.toast('เบราว์เซอร์นี้ไม่รองรับ GPS', 'error'); return; }
+    if (!window.isSecureContext) { this.toast('GPS ใช้ได้เฉพาะผ่าน https', 'error'); return; }
     const btn = document.getElementById('gpsBtn_' + coordsId);
+    const orig = btn ? btn.textContent : '';
     if (btn) { btn.textContent = '⌛'; btn.disabled = true; }
-    navigator.geolocation.getCurrentPosition(
-      pos => {
-        const lat = pos.coords.latitude.toFixed(6);
-        const lon = pos.coords.longitude.toFixed(6);
-        const coords = `${lat}, ${lon}`;
-        const el = document.getElementById(coordsId);
-        if (el) el.value = coords;
-        if (btn) { btn.textContent = '📍'; btn.disabled = false; }
-        this.toast(`รับพิกัด GPS: ${coords}`, 'success');
-        if (coordsId === 's_coords') this._reverseGeocode(lat, lon);
-      },
-      () => {
-        if (btn) { btn.textContent = '📍'; btn.disabled = false; }
-        this.toast('ไม่สามารถอ่าน GPS ได้ — กรุณาอนุญาตการเข้าถึงตำแหน่ง', 'error');
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-    );
+
+    const onOk = pos => {
+      const lat = pos.coords.latitude.toFixed(6);
+      const lon = pos.coords.longitude.toFixed(6);
+      const coords = `${lat}, ${lon}`;
+      const el = document.getElementById(coordsId);
+      if (el) el.value = coords;
+      if (btn) { btn.textContent = orig || '📍'; btn.disabled = false; }
+      this.toast(`รับพิกัด GPS: ${coords}`, 'success');
+      if (coordsId === 's_coords') this._reverseGeocode(lat, lon);
+    };
+    const onErr = (err, isRetry) => {
+      // timeout(3)/หาไม่เจอ(2) → ลองใหม่แบบผ่อนปรน (ไม่เน้นแม่น · ใช้ค่าล่าสุดได้ · รอนานขึ้น)
+      if (!isRetry && (err.code === 2 || err.code === 3)) {
+        navigator.geolocation.getCurrentPosition(onOk, e => onErr(e, true),
+          { enableHighAccuracy: false, timeout: 20000, maximumAge: 120000 });
+        return;
+      }
+      if (btn) { btn.textContent = orig || '📍'; btn.disabled = false; }
+      let msg;
+      if (err.code === 1)      msg = 'เบราว์เซอร์บล็อกตำแหน่ง — เปิดสิทธิ์ Location ของเว็บนี้ในตั้งค่าเบราว์เซอร์';
+      else if (err.code === 2) msg = 'หาตำแหน่งไม่ได้ — เปิด Location/GPS ของเครื่อง หรือกดปุ่มแผนที่ปักหมุดแทน';
+      else if (err.code === 3) msg = 'หาตำแหน่งนานเกินไป — ลองใหม่ที่โล่ง หรือกดปุ่มแผนที่ปักหมุดแทน';
+      else                     msg = 'อ่าน GPS ไม่สำเร็จ — กดปุ่มแผนที่ปักหมุดแทนได้';
+      this.toast(msg, 'error');
+    };
+    navigator.geolocation.getCurrentPosition(onOk, e => onErr(e, false),
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 });
   },
 
   _reverseGeocode(lat, lon) {
