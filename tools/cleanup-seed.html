@@ -61,10 +61,10 @@
   <h1>🧹 Cleanup SEED Data</h1>
   <div class="sub">ลบเฉพาะ document ที่ ID มีคำว่า <code>SEED</code> ออกจาก Firestore (ข้อมูลจริงไม่ถูกแตะ)</div>
 
-  <div class="danger">
-    <b>⚠️ ต้องเปิดสิทธิ์ลบใน Firestore Rules ก่อน</b><br>
-    ปัจจุบัน rules ตั้ง <code>allow delete: if false</code> → ปุ่มด้านล่างจะลบไม่ได้<br>
-    ชั่วคราวให้แก้เป็น <code>allow delete: if true</code> (ทั้ง households + roadside_stations และ subcollection ทั้งหมด) แล้ว<b>เปลี่ยนกลับเป็น false ทันทีหลังลบเสร็จ</b>
+  <div class="warn">
+    <b>✅ ลบ SEED ได้เลย ไม่ต้องแก้ rules</b><br>
+    Firestore rules อนุญาตให้ลบเฉพาะ doc ที่ ID มีคำว่า <code>SEED</code> อยู่แล้ว
+    (<code>allow delete: if isSeed(id)</code>) — ข้อมูลจริงยังลบผ่านเว็บไม่ได้
   </div>
 
   <div class="warn">
@@ -154,8 +154,8 @@ async function cleanup(which) {
     log(`🎉 เสร็จสิ้น — ลบ ${deleted} docs (error ${errors})`, 'ok');
   } catch (e) {
     if (e.message === 'PERMISSION_DENIED') {
-      log('🚫 ลบไม่ได้ — Firestore rules ยังเป็น allow delete: if false', 'err');
-      log('   แก้ rules เป็น allow delete: if true ชั่วคราวก่อน แล้วลองใหม่', 'err');
+      log('🚫 ลบไม่ได้ — Firestore rules ยังไม่อนุญาต delete สำหรับ SEED', 'err');
+      log('   ตรวจว่า publish rules ใหม่ (allow delete: if isSeed(id)) แล้วหรือยัง', 'err');
     } else {
       log('❌ error: ' + (e.message||e), 'err');
     }
