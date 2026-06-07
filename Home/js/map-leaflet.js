@@ -1,6 +1,6 @@
 // ===== MAP PICKER (Leaflet + OSM + PlaceService) — Home theme น้ำเงิน =====
 // Interface เดียวกับ map.js (Longdo) — drop-in replacement
-// ค้นผ่าน PlaceService: Local → Longdo → Google → Nominatim · auto-learn ตอนกดยืนยัน
+// ค้นผ่าน PlaceService (staged): พิมพ์=Local · ปุ่มค้นหา=Longdo · ปุ่มค้นเพิ่ม=Google · auto-learn ตอนกดยืนยัน
 const MapPicker = {
   map: null,
   marker: null,
@@ -14,6 +14,7 @@ const MapPicker = {
   _lastQuery: null,
   _googleTried: false,
   _pendingQuery: null,
+  _mapShown: false,       // lazy-load: แผนที่ (tiles) โหลดเฉพาะตอนเปิดจริง
   searchTimer: null,
   onConfirm: null,
 
@@ -38,15 +39,14 @@ const MapPicker = {
     this._lastQuery = null;
     this._googleTried = false;
     this._pendingQuery = null;
+    this._mapShown = false;
     if (currentCoords) {
       const p = currentCoords.split(',').map(s => parseFloat(s.trim()));
       if (p.length === 2 && !isNaN(p[0]) && !isNaN(p[1])) {
         this.selectedLat = p[0]; this.selectedLon = p[1];
       }
     }
-    this._renderModal();
-    // Leaflet ต้องรอ DOM mount ก่อน
-    setTimeout(() => this._initMap(), 60);
+    this._renderModal();   // ยังไม่ render แผนที่ — โหลด tiles เฉพาะตอนกดเปิดแผนที่ (_openMapView)
     // อุ่น cache places + config (key) ไว้ล่วงหน้า (ลด latency ตอนค้นครั้งแรก)
     if (typeof PlaceService !== 'undefined') {
       PlaceService.loadConfig();
@@ -60,7 +60,7 @@ const MapPicker = {
     const isMobile = window.innerWidth < 768;
     const hint = this.selectedLat
       ? `📍 ${this.selectedLat.toFixed(6)}, ${this.selectedLon.toFixed(6)}`
-      : (isMobile ? 'แตะบนแผนที่เพื่อปักหมุด · หรือค้นหาด้านบน' : 'คลิกบนแผนที่เพื่อปักหมุด · หรือค้นหาด้านบน');
+      : 'ค้นหาด้านบน แล้วเลือกผล · หรือเปิดแผนที่เพื่อปักหมุด';
     const confirmOpacity = this.selectedLat ? '1' : '0.4';
     const accent = this.ACCENT;
 
@@ -97,7 +97,13 @@ const MapPicker = {
           <div id="mapSearchResults" style="margin-top:6px;max-height:${isMobile?'120px':'180px'};overflow-y:auto;"></div>
         </div>
 
-        <div id="mapContainer" style="flex:1;position:relative;overflow:hidden;background:#e5e7eb;"></div>
+        <div id="mapZone" style="flex:1;position:relative;overflow:hidden;background:#eef2f6;display:flex;align-items:center;justify-content:center;">
+          <div id="mapPlaceholder" style="text-align:center;padding:24px;max-width:320px;">
+            <div style="font-size:34px;margin-bottom:8px;">🗺️</div>
+            <div style="font-size:13px;color:#64748b;line-height:1.6;margin-bottom:14px;">ค้นหาสถานที่ด้านบนแล้วเลือกผลได้เลย<br>หรือเปิดแผนที่เพื่อปักหมุดเอง</div>
+            <button onclick="MapPicker._openMapView()" style="padding:10px 18px;background:${accent};color:#fff;border:none;border-radius:9px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;">🗺 เปิดแผนที่ / ปักหมุดเอง</button>
+          </div>
+        </div>
 
         <div style="padding:${isMobile?'10px 16px':'12px 20px'};border-top:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-shrink:0;background:#f8fafc;">
           <div id="mapCoordsDisplay" style="font-size:13px;color:#64748b;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${hint}</div>
@@ -109,6 +115,18 @@ const MapPicker = {
       </div>`;
     el.addEventListener('click', e => { if (e.target === el) this.close(); });
     document.body.appendChild(el);
+  },
+
+  // เปิดแผนที่จริง (lazy) — โหลด tiles ตอนนี้เท่านั้น
+  _openMapView() {
+    if (this._mapShown) return;
+    this._mapShown = true;
+    const zone = document.getElementById('mapZone');
+    if (!zone) return;
+    zone.style.display = 'block';
+    zone.style.background = '#e5e7eb';
+    zone.innerHTML = '<div id="mapContainer" style="position:absolute;inset:0;"></div>';
+    setTimeout(() => this._initMap(), 30);
   },
 
   _initMap() {
@@ -170,6 +188,7 @@ const MapPicker = {
   },
 
   _placeMarker(lat, lon) {
+    if (!this.map) return;   // แผนที่ยังไม่เปิด → ไม่ปักหมุด (พิกัดเก็บไว้ที่ selectedLat แล้ว)
     this.selectedLat = lat;
     this.selectedLon = lon;
     if (!this.marker) {
@@ -298,17 +317,29 @@ const MapPicker = {
     if (!r) return;
     this.selectedName = r.place_name;
     this.selectedSource = r.source;
+    this.selectedLat = parseFloat(r.latitude);
+    this.selectedLon = parseFloat(r.longitude);
     this.userAdjusted = false;
     this._manualPending = false;
-    this._placeMarker(parseFloat(r.latitude), parseFloat(r.longitude));
-    this.map.setView([r.latitude, r.longitude], 16);
-    const rEl = document.getElementById('mapSearchResults');
-    if (rEl) rEl.innerHTML = '';
     const inp = document.getElementById('mapSearchInput');
     if (inp) inp.value = r.place_name;
+    // แผนที่เปิดอยู่ → ปักหมุด+เลื่อนไป · ยังไม่เปิด → แค่เก็บพิกัด (ไม่โหลด tiles)
+    if (this.map) {
+      this._placeMarker(this.selectedLat, this.selectedLon);
+      this.map.setView([this.selectedLat, this.selectedLon], this.MARKER_ZOOM);
+    }
+    this._updateCoordsDisplay();
+    const mapBtn = this._mapShown ? '' :
+      `<button onclick="MapPicker._openMapView()" style="margin-top:7px;padding:5px 10px;background:#fff;color:${this.ACCENT};border:1px solid ${this.ACCENT};border-radius:7px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;">🗺 ดู/ปรับบนแผนที่</button>`;
+    const rEl = document.getElementById('mapSearchResults');
+    if (rEl) rEl.innerHTML =
+      `<div style="padding:9px 11px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;font-size:13px;color:#065f46;line-height:1.5;">
+         ✓ เลือก: <b>${this._esc(r.place_name)}</b><br>
+         <span style="font-size:11px;color:#047857;">กด “✓ ยืนยัน” ด้านล่างได้เลย</span><br>${mapBtn}
+       </div>`;
   },
 
-  // เริ่มโหมดเพิ่มเอง: ชื่อจากที่ค้น → คลิกแผนที่ปักหมุด → ยืนยัน
+  // เริ่มโหมดเพิ่มเอง: ชื่อจากที่ค้น → เปิดแผนที่ → แตะปักหมุด → ยืนยัน
   _startManualAdd() {
     const q = this._pendingQuery || '';
     if (!q) return;
@@ -320,6 +351,7 @@ const MapPicker = {
     if (inp) inp.value = q;
     const rEl = document.getElementById('mapSearchResults');
     if (rEl) rEl.innerHTML = `<div style="padding:8px 10px;color:${this.ACCENT};font-size:13px;font-weight:600;">📌 แตะบนแผนที่เพื่อปักหมุดของ "${this._esc(q)}" แล้วกด ✓ ยืนยัน</div>`;
+    this._openMapView();   // เปิดแผนที่ให้ปักหมุด
     if (this.selectedLat !== null) this._updateCoordsDisplay();
   },
 

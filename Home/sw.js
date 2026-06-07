@@ -1,5 +1,5 @@
 // Service Worker — Home Interview
-const CACHE_VERSION = 'hi-v11-longdo-staged';
+const CACHE_VERSION = 'hi-v12-lazymap';
 const CORE_ASSETS = [
   './',
   './index.html',
