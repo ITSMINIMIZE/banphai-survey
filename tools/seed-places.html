@@ -42,17 +42,22 @@
   <h1>📍 Pre-seed Places</h1>
   <div class="sub">เติมสถานที่ยอดฮิตในพื้นที่ลง Firestore <code>places</code> ก่อนวันสำรวจ → surveyor ค้นเจอใน local ทันที ไม่ต้องยิง Longdo/Google (ประหยัด quota + เร็ว)</div>
 
-  <div class="prov">⚠️ รูปแบบไฟล์ยังเป็นแบบชั่วคราว (provisional) — เดี๋ยวคุยปรับเป็นไฟล์เดียวกันอีกที</div>
-
   <div class="info">
-    <b>รูปแบบ:</b> บรรทัดละ 1 สถานที่ → <code>ชื่อ, lat, lon</code> · เพิ่ม keyword (ค้นด้วยคำอื่น) ได้ท้ายสุด คั่นด้วย <code>;</code><br>
-    ตัวอย่าง:<br>
-    <code>โรงพยาบาลบ้านไผ่, 16.0588, 102.7302, รพ บ้านไผ่;hospital banphai</code><br>
-    <code>ตลาดสดบ้านไผ่, 16.0601, 102.7338</code><br>
-    บรรทัดว่าง/ขึ้นต้นด้วย <code>#</code> = ข้าม · กดดูตัวอย่างก่อนเขียนได้
+    <b>ไฟล์ Excel — 4 คอลัมน์ (มีหัวตาราง):</b>
+    <code>place_name</code> · <code>latitude</code> · <code>longitude</code> · <code>keywords</code> (ทางเลือก · คำค้นอื่น คั่นด้วย <code>;</code>)<br>
+    ระบบเติมให้เอง: id, source, use_count ฯลฯ · กด <b>ดาวน์โหลด template</b> ไปกรอกได้<br>
+    <b>ซ้ำ?</b> ชื่อตรง+พิกัดใกล้ (&lt;150m) = <b>รวมกัน</b> (เก็บ use_count เดิม · รวม keywords · ไม่เกิด doc ซ้ำ)
   </div>
 
-  <textarea id="input" placeholder="โรงพยาบาลบ้านไผ่, 16.0588, 102.7302, รพ บ้านไผ่
+  <div class="row">
+    <label class="btn btn-go" style="display:inline-flex;align-items:center;cursor:pointer;">📂 เลือกไฟล์ Excel
+      <input id="file" type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleFile(this.files[0])" />
+    </label>
+    <button class="btn btn-ghost" onclick="downloadTemplate()">⬇️ ดาวน์โหลด template</button>
+  </div>
+
+  <div style="font-size:12px;color:#64748b;margin:6px 0 4px;">หรือพิมพ์/วางเองด้านล่าง — บรรทัดละ <code>ชื่อ, lat, lon, [keywords;...]</code> (ขึ้นต้น <code>#</code> = ข้าม):</div>
+  <textarea id="input" placeholder="โรงพยาบาลบ้านไผ่, 16.0588, 102.7302, รพ;hospital;โรงพยาบาล
 ตลาดสดบ้านไผ่, 16.0601, 102.7338
 ..."></textarea>
 
@@ -65,12 +70,13 @@
   <div class="stat">
     <div><strong id="cParsed">0</strong><span>อ่านได้</span></div>
     <div><strong id="cAdded">0</strong><span>เพิ่มใหม่</span></div>
-    <div><strong id="cSkip">0</strong><span>ข้าม (ซ้ำ/ผิด)</span></div>
+    <div><strong id="cMerged">0</strong><span>รวม/อัปเดต</span></div>
   </div>
 
   <div class="log" id="log"></div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script>
@@ -85,6 +91,49 @@ const clearLog=()=>logEl.innerHTML='';
 const norm=s=>(s||'').toString().trim().toLowerCase().replace(/\s+/g,' ');
 
 let _parsed=[];
+
+// ===== Excel import (SheetJS) =====
+function getCol(row, names){
+  for(const k of Object.keys(row)){
+    if(names.includes(k.toString().trim().toLowerCase())) return row[k];
+  }
+  return '';
+}
+async function handleFile(file){
+  if(!file) return;
+  clearLog(); log('อ่านไฟล์: '+file.name,'info');
+  try{
+    const buf=await file.arrayBuffer();
+    const wb=XLSX.read(buf,{type:'array'});
+    const ws=wb.Sheets[wb.SheetNames[0]];
+    const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
+    const out=[]; let bad=0;
+    for(const row of rows){
+      const name=(getCol(row,['place_name','name','ชื่อ','ชื่อสถานที่'])||'').toString().trim();
+      const lat=parseFloat(getCol(row,['latitude','lat']));
+      const lon=parseFloat(getCol(row,['longitude','lon','lng']));
+      if(!name||isNaN(lat)||isNaN(lon)){ bad++; continue; }
+      const keywords=(getCol(row,['keywords','keyword','คำค้น'])||'').toString().split(/[;,]/).map(s=>s.trim()).filter(Boolean);
+      out.push({place_name:name,latitude:lat,longitude:lon,keywords});
+    }
+    _parsed=out;
+    $('cParsed').textContent=out.length; $('cAdded').textContent=0; $('cMerged').textContent=0;
+    out.slice(0,10).forEach(p=>log(`✓ ${p.place_name} (${p.latitude}, ${p.longitude})${p.keywords.length?' · kw: '+p.keywords.join(', '):''}`,'ok'));
+    if(out.length>10) log(`... และอีก ${out.length-10} รายการ`,'info');
+    log(`อ่านจาก Excel ได้ ${out.length} · ข้ามที่อ่านไม่ได้ ${bad}`, out.length?'ok':'warn');
+    $('writeBtn').disabled = out.length===0;
+  }catch(e){ log('อ่านไฟล์ไม่สำเร็จ: '+e.message,'err'); }
+}
+function downloadTemplate(){
+  const ws=XLSX.utils.aoa_to_sheet([
+    ['place_name','latitude','longitude','keywords'],
+    ['โรงพยาบาลบ้านไผ่',16.0588,102.7302,'รพ;hospital;โรงพยาบาล'],
+    ['ตลาดสดบ้านไผ่',16.0601,102.7338,'']
+  ]);
+  ws['!cols']=[{wch:34},{wch:12},{wch:12},{wch:30}];
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'places');
+  XLSX.writeFile(wb,'places-template.xlsx');
+}
 
 // parse textarea → [{place_name,lat,lon,keywords}]
 function parseInput(){
@@ -107,7 +156,8 @@ function preview(){
   const {out,bad}=parseInput();
   _parsed=out;
   $('cParsed').textContent=out.length;
-  $('cAdded').textContent=0; $('cSkip').textContent=bad;
+  $('cAdded').textContent=0; $('cMerged').textContent=0;
+  if(bad) log(`ผิดรูปแบบ ${bad} บรรทัด (ข้าม)`,'warn');
   out.slice(0,10).forEach(p=>log(`✓ ${p.place_name} (${p.latitude}, ${p.longitude})${p.keywords.length?' · kw: '+p.keywords.join(', '):''}`,'ok'));
   if(out.length>10) log(`... และอีก ${out.length-10} รายการ`,'info');
   log(`อ่านได้ ${out.length} · ผิดรูปแบบ ${bad}`, out.length?'ok':'warn');
@@ -115,38 +165,49 @@ function preview(){
 }
 
 async function run(){
-  if(!_parsed.length){ preview(); if(!_parsed.length) return; }
-  if(!confirm(`เขียน ${_parsed.length} สถานที่เข้า Firestore places? (ข้ามรายการที่ชื่อซ้ำ+ใกล้กัน)`)) return;
+  if(!_parsed.length){ preview(); if(!_parsed.length){ log('ไม่มีข้อมูลให้เขียน','warn'); return; } }
+  if(!confirm(`เขียน/รวม ${_parsed.length} สถานที่เข้า places? (ซ้ำ = รวมกัน ไม่สร้าง doc ใหม่)`)) return;
   $('writeBtn').disabled=true;
-  log('โหลด places เดิมเพื่อกันซ้ำ...','info');
+  log('โหลด places เดิมเพื่อตรวจซ้ำ...','info');
 
-  // load existing for dedupe (name_lower + ใกล้ < 150m)
   let existing=[];
   try{ const snap=await db.collection('places').get(); existing=snap.docs.map(d=>d.data()); log(`places เดิมมี ${existing.length}`,'info'); }
   catch(e){ log('อ่าน places เดิมไม่ได้: '+e.message,'err'); $('writeBtn').disabled=false; return; }
 
   const distM=(a,b,c,d)=>{const R=6371000,r=x=>x*Math.PI/180;const dLat=r(c-a),dLon=r(d-b);const t=Math.sin(dLat/2)**2+Math.cos(r(a))*Math.cos(r(c))*Math.sin(dLon/2)**2;return 2*R*Math.asin(Math.sqrt(t));};
-  const isDup=p=>existing.some(e=>norm(e.place_name)===norm(p.place_name)&&distM(p.latitude,p.longitude,e.latitude,e.longitude)<150);
+  const findDup=p=>existing.find(e=>norm(e.place_name)===norm(p.place_name)&&distM(p.latitude,p.longitude,e.latitude,e.longitude)<150);
 
-  let added=0,skip=0,batch=db.batch(),ops=0;
+  let added=0,merged=0,batch=db.batch(),ops=0;
   const nowISO=new Date().toISOString();
+  const commitIf=async()=>{ if(ops>=400){ await batch.commit(); batch=db.batch(); ops=0; } };
+
   for(let i=0;i<_parsed.length;i++){
     const p=_parsed[i];
-    if(isDup(p)){ skip++; $('cSkip').textContent=skip; continue; }
-    const id='PL-'+Date.now()+'-'+i;
-    const doc={
-      id, place_name:p.place_name, name_lower:norm(p.place_name), keywords:p.keywords,
-      latitude:p.latitude, longitude:p.longitude,
-      source:'preseed', confidence:1.0, user_adjusted:false, use_count:0,
-      created_at:nowISO, created_by:'preseed', updated_at:nowISO
-    };
-    batch.set(db.collection('places').doc(id),doc);
-    existing.push(doc); // กันซ้ำในชุดเดียวกัน
-    ops++; added++; $('cAdded').textContent=added;
-    if(ops>=400){ await batch.commit(); batch=db.batch(); ops=0; }
+    const ex=findDup(p);
+    if(ex){
+      // รวม: keep doc เดิม (use_count คงไว้) · รวม keywords · อัปเดตพิกัดถ้ายังไม่เคยลากปรับ
+      const kw=Array.from(new Set([...(ex.keywords||[]), ...p.keywords]));
+      const patch={ keywords:kw, updated_at:nowISO };
+      if(!ex.user_adjusted){ patch.latitude=p.latitude; patch.longitude=p.longitude; ex.latitude=p.latitude; ex.longitude=p.longitude; }
+      ex.keywords=kw;
+      batch.set(db.collection('places').doc(ex.id), patch, {merge:true});
+      merged++; $('cMerged').textContent=merged;
+    } else {
+      const id='PL-'+Date.now()+'-'+i;
+      const doc={
+        id, place_name:p.place_name, name_lower:norm(p.place_name), keywords:p.keywords,
+        latitude:p.latitude, longitude:p.longitude,
+        source:'preseed', confidence:1.0, user_adjusted:false, use_count:0,
+        created_at:nowISO, created_by:'preseed', updated_at:nowISO
+      };
+      batch.set(db.collection('places').doc(id),doc);
+      existing.push(doc); // กันซ้ำภายในชุดเดียวกัน
+      added++; $('cAdded').textContent=added;
+    }
+    ops++; await commitIf();
   }
   if(ops>0) await batch.commit();
-  log(`🎉 เสร็จ — เพิ่ม ${added} · ข้ามซ้ำ ${skip}`,'ok');
+  log(`🎉 เสร็จ — เพิ่มใหม่ ${added} · รวม/อัปเดต ${merged}`,'ok');
   $('writeBtn').disabled=false;
 }
 </script>
