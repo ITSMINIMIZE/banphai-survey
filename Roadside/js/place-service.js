@@ -8,15 +8,14 @@
 //   source = 'local' | 'longdo' | 'google' | 'nominatim'
 const PlaceService = {
   // ---- in-memory cache ของ places (mirror localStorage) ----
-  // อ่านจาก Firestore "ครั้งเดียวต่อเซสชัน" (ตอนเปิดเว็บ) — places เตรียมไว้ล่วงหน้า ไม่เปลี่ยนระหว่างวัน
-  // → ลด reads มหาศาลตอนคนใช้พร้อมกันเยอะ · รีเฟรชใหม่ = รีโหลดหน้า (หรือปุ่ม reload cache)
+  // refresh ทุก 15 นาที — places ถูกเพิ่มระหว่างสำรวจ (auto-learn) คนอื่นเห็นของใหม่ภายใน ~15 นาที
   _cache: [],
   _cacheLoadedAt: 0,
-  _cacheFetchedThisSession: false,
   _loadingPromise: null,
 
   CACHE_KEY:    'bp_places_cache',
   CACHE_TS_KEY: 'bp_places_cache_ts',
+  CACHE_TTL:    15 * 60 * 1000,   // 15 นาที
 
   // ---- API key config (Firestore config/app · แก้ผ่าน tools/config.html) ----
   // อ่าน "ครั้งเดียวต่อเซสชัน" เช่นกัน — key แทบไม่เปลี่ยน (เปลี่ยนได้แต่มีผลตอนเปิดเว็บใหม่)
@@ -82,11 +81,12 @@ const PlaceService = {
     } catch (_) {}
   },
 
-  // โหลด places จาก Firestore "ครั้งเดียวต่อเซสชัน" (force=true เพื่อรีเฟรชเอง)
+  // โหลด places จาก Firestore → cache (refresh เมื่อ TTL หมด · force=true เพื่อรีเฟรชเอง)
   // dedupe การโหลดพร้อมกันด้วย _loadingPromise
   async loadCache(force = false) {
     if (!this._cacheLoadedAt) this._readLocal();           // instant จาก localStorage ก่อน
-    if (!force && this._cacheFetchedThisSession) return this._cache;  // อ่าน Firestore แล้วในเซสชันนี้ → ไม่ยิงซ้ำ
+    const fresh = (Date.now() - this._cacheLoadedAt) < this.CACHE_TTL;
+    if (!force && fresh && this._cache.length) return this._cache;  // ยัง fresh → ไม่ยิงซ้ำ
     if (this._loadingPromise) return this._loadingPromise;
 
     const db = this._db();
@@ -97,7 +97,6 @@ const PlaceService = {
         const snap = await db.collection(this.COLLECTION).get();
         this._cache = snap.docs.map(d => d.data());
         this._cacheLoadedAt = Date.now();
-        this._cacheFetchedThisSession = true;
         this._writeLocal();
       } catch (e) {
         console.warn('[PlaceService] loadCache failed:', e.message);
