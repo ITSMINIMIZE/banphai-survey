@@ -46,7 +46,8 @@
     <b>ไฟล์ Excel — 4 คอลัมน์ (มีหัวตาราง):</b>
     <code>place_name</code> · <code>latitude</code> · <code>longitude</code> · <code>keywords</code> (ทางเลือก · คำค้นอื่น คั่นด้วย <code>;</code>)<br>
     ระบบเติมให้เอง: id, source, use_count ฯลฯ · กด <b>ดาวน์โหลด template</b> ไปกรอกได้<br>
-    <b>ซ้ำ?</b> ชื่อตรง+พิกัดใกล้ (&lt;150m) = <b>รวมกัน</b> (เก็บ use_count เดิม · รวม keywords · ไม่เกิด doc ซ้ำ)
+    <b>ซ้ำ?</b> ชื่อตรง+พิกัดใกล้ (&lt;150m) = <b>รวมกัน</b> (เก็บ use_count เดิม · รวม keywords · ไม่เกิด doc ซ้ำ)<br>
+    🔄 <b>สลับ lat/lon ให้อัตโนมัติ</b> ถ้ากรอกสลับ (ตรวจทีละแถว) · พิกัดนอกไทยจะถูกข้าม + แจ้งใน log
   </div>
 
   <div class="row">
@@ -90,6 +91,15 @@ const log=(m,c='info')=>{logEl.innerHTML+=`<div class="${c}">[${new Date().toLoc
 const clearLog=()=>logEl.innerHTML='';
 const norm=s=>(s||'').toString().trim().toLowerCase().replace(/\s+/g,' ');
 
+// ขอบเขตไทย: lat 5–21, lon 96–106 (สองช่วงไม่ทับกัน → ตรวจการสลับได้แม่น)
+// คืน status: ok | swapped (สลับให้แล้ว) | bad (นอกไทย/พิมพ์ผิด)
+function fixCoord(lat, lon){
+  const inLat=v=>v>=5&&v<=21, inLon=v=>v>=96&&v<=106;
+  if(inLat(lat)&&inLon(lon)) return {lat,lon,status:'ok'};
+  if(inLat(lon)&&inLon(lat)) return {lat:lon,lon:lat,status:'swapped'};   // สลับ
+  return {lat,lon,status:'bad'};
+}
+
 let _parsed=[];
 
 // ===== Excel import (SheetJS) =====
@@ -113,8 +123,11 @@ async function handleFile(file){
       const lat=parseFloat(getCol(row,['latitude','lat']));
       const lon=parseFloat(getCol(row,['longitude','lon','lng']));
       if(!name||isNaN(lat)||isNaN(lon)){ bad++; continue; }
+      const f=fixCoord(lat,lon);
+      if(f.status==='bad'){ bad++; log(`ข้าม (พิกัดนอกไทย): ${name} (${lat}, ${lon})`,'warn'); continue; }
+      if(f.status==='swapped') log(`🔄 สลับ lat/lon ให้: ${name} → (${f.lat}, ${f.lon})`,'warn');
       const keywords=(getCol(row,['keywords','keyword','คำค้น'])||'').toString().split(/[;,]/).map(s=>s.trim()).filter(Boolean);
-      out.push({place_name:name,latitude:lat,longitude:lon,keywords});
+      out.push({place_name:name,latitude:f.lat,longitude:f.lon,keywords});
     }
     _parsed=out;
     $('cParsed').textContent=out.length; $('cAdded').textContent=0; $('cMerged').textContent=0;
@@ -145,8 +158,11 @@ function parseInput(){
     const parts=line.split(',').map(s=>s.trim());
     const name=parts[0], lat=parseFloat(parts[1]), lon=parseFloat(parts[2]);
     if(!name||isNaN(lat)||isNaN(lon)){ bad++; log(`ข้าม (อ่านไม่ได้): ${line}`,'warn'); continue; }
+    const f=fixCoord(lat,lon);
+    if(f.status==='bad'){ bad++; log(`ข้าม (พิกัดนอกไทย): ${name} (${lat}, ${lon})`,'warn'); continue; }
+    if(f.status==='swapped') log(`🔄 สลับ lat/lon ให้: ${name} → (${f.lat}, ${f.lon})`,'warn');
     const keywords=(parts[3]||'').split(';').map(s=>s.trim()).filter(Boolean);
-    out.push({place_name:name,latitude:lat,longitude:lon,keywords});
+    out.push({place_name:name,latitude:f.lat,longitude:f.lon,keywords});
   }
   return {out,bad};
 }
