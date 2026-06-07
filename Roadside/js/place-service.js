@@ -8,20 +8,24 @@
 //   source = 'local' | 'longdo' | 'google' | 'nominatim'
 const PlaceService = {
   // ---- in-memory cache ของ places (mirror localStorage) ----
+  // อ่านจาก Firestore "ครั้งเดียวต่อเซสชัน" (ตอนเปิดเว็บ) — places เตรียมไว้ล่วงหน้า ไม่เปลี่ยนระหว่างวัน
+  // → ลด reads มหาศาลตอนคนใช้พร้อมกันเยอะ · รีเฟรชใหม่ = รีโหลดหน้า (หรือปุ่ม reload cache)
   _cache: [],
   _cacheLoadedAt: 0,
+  _cacheFetchedThisSession: false,
   _loadingPromise: null,
 
   CACHE_KEY:    'bp_places_cache',
   CACHE_TS_KEY: 'bp_places_cache_ts',
-  CACHE_TTL:    30 * 60 * 1000,   // 30 นาที refresh
 
   // ---- API key config (Firestore config/app · แก้ผ่าน tools/config.html) ----
+  // อ่าน "ครั้งเดียวต่อเซสชัน" เช่นกัน — key แทบไม่เปลี่ยน (เปลี่ยนได้แต่มีผลตอนเปิดเว็บใหม่)
   CONFIG_COLLECTION: 'config',
   CONFIG_DOC:    'app',
   CONFIG_KEY:    'bp_config_cache',   // cache ไว้ใช้ตอน offline
   _configApplied: false,
   _configLoading: false,
+  _configFetchedThisSession: false,
 
   COLLECTION:   'places',
   // ค่า default (fallback) — ถ้า config/app มี key จะถูก override ตอน loadConfig()
@@ -78,12 +82,11 @@ const PlaceService = {
     } catch (_) {}
   },
 
-  // โหลด places จาก Firestore → cache (เรียกตอน init / TTL หมด)
+  // โหลด places จาก Firestore "ครั้งเดียวต่อเซสชัน" (force=true เพื่อรีเฟรชเอง)
   // dedupe การโหลดพร้อมกันด้วย _loadingPromise
   async loadCache(force = false) {
-    if (!this._cacheLoadedAt) this._readLocal();
-    const fresh = (Date.now() - this._cacheLoadedAt) < this.CACHE_TTL;
-    if (!force && fresh && this._cache.length) return this._cache;
+    if (!this._cacheLoadedAt) this._readLocal();           // instant จาก localStorage ก่อน
+    if (!force && this._cacheFetchedThisSession) return this._cache;  // อ่าน Firestore แล้วในเซสชันนี้ → ไม่ยิงซ้ำ
     if (this._loadingPromise) return this._loadingPromise;
 
     const db = this._db();
@@ -94,6 +97,7 @@ const PlaceService = {
         const snap = await db.collection(this.COLLECTION).get();
         this._cache = snap.docs.map(d => d.data());
         this._cacheLoadedAt = Date.now();
+        this._cacheFetchedThisSession = true;
         this._writeLocal();
       } catch (e) {
         console.warn('[PlaceService] loadCache failed:', e.message);
@@ -116,8 +120,8 @@ const PlaceService = {
         if (raw) this._applyConfig(JSON.parse(raw));
       } catch (_) {}
     }
-    // 2) refresh สดจาก Firestore เบื้องหลัง (ได้ key ล่าสุดทุกครั้งที่เปิดแผนที่ · ไม่บล็อก · ไม่หน่วง)
-    if (this._configLoading) return;     // มี request ค้างอยู่ → ไม่ยิงซ้ำ
+    // 2) อ่านสดจาก Firestore "ครั้งเดียวต่อเซสชัน" (key เปลี่ยนได้ แต่มีผลตอนเปิดเว็บใหม่)
+    if (this._configFetchedThisSession || this._configLoading) return;
     const db = this._db();
     if (!db) return;                     // offline → ใช้ค่า cache/โค้ด ไปก่อน
     this._configLoading = true;
@@ -126,6 +130,7 @@ const PlaceService = {
         const cfg = doc.exists ? doc.data() : {};
         localStorage.setItem(this.CONFIG_KEY, JSON.stringify(cfg));
         this._applyConfig(cfg);
+        this._configFetchedThisSession = true;
       })
       .catch(e => console.warn('[PlaceService] loadConfig failed:', e.message))
       .finally(() => { this._configLoading = false; });

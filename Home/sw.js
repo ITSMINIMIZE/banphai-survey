@@ -1,5 +1,5 @@
 // Service Worker — Home Interview
-const CACHE_VERSION = 'hi-v8-search-map';
+const CACHE_VERSION = 'hi-v9-read-once';
 const CORE_ASSETS = [
   './',
   './index.html',
