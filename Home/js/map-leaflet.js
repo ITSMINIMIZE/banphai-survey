@@ -11,6 +11,8 @@ const MapPicker = {
   userAdjusted: false,    // ลากหมุดแก้ → true
   _manualPending: false,  // โหมดเพิ่มเอง: คลิกแผนที่ครั้งถัดไปให้คงชื่อที่พิมพ์
   _lastResults: null,
+  _lastQuery: null,
+  _googleTried: false,
   _pendingQuery: null,
   searchTimer: null,
   onConfirm: null,
@@ -33,6 +35,8 @@ const MapPicker = {
     this.userAdjusted = false;
     this._manualPending = false;
     this._lastResults = null;
+    this._lastQuery = null;
+    this._googleTried = false;
     this._pendingQuery = null;
     if (currentCoords) {
       const p = currentCoords.split(',').map(s => parseFloat(s.trim()));
@@ -82,10 +86,10 @@ const MapPicker = {
             <input id="mapSearchInput" placeholder="ค้นหาสถานที่... เช่น โรงพยาบาลบ้านไผ่"
               style="flex:1;padding:9px 13px;border:1.5px solid #e2e8f0;border-radius:8px;font-family:inherit;font-size:14px;color:#1e293b;outline:none;"
               oninput="MapPicker._onSearchInput(this.value)"
-              onkeydown="if(event.key==='Enter')MapPicker._search(this.value, true)"
+              onkeydown="if(event.key==='Enter')MapPicker._search(this.value, 'longdo')"
               onfocus="this.style.borderColor='${accent}'"
               onblur="this.style.borderColor='#e2e8f0'" />
-            <button onclick="MapPicker._search(document.getElementById('mapSearchInput').value, true)"
+            <button onclick="MapPicker._search(document.getElementById('mapSearchInput').value, 'longdo')"
               style="padding:9px 14px;background:${accent};color:#fff;border:none;border-radius:8px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap;">
               ค้นหา
             </button>
@@ -136,15 +140,13 @@ const MapPicker = {
     this.map.on('click', (e) => {
       this._placeMarker(e.latlng.lat, e.latlng.lng);
       if (this._manualPending && this.selectedName) {
-        // โหมดเพิ่มเอง: ปักหมุดให้ชื่อที่พิมพ์ค้นไว้ → คงชื่อ ไม่ reverse geocode ทับ
+        // โหมดเพิ่มเอง: ปักหมุดให้ชื่อที่พิมพ์ค้นไว้ → คงชื่อ
         this._manualPending = false;
-        this._updateCoordsDisplay();
       } else {
-        // คลิกแผนที่เปล่า → manual + หาชื่อจากพิกัด
+        // คลิกแผนที่เปล่า → manual (ไม่ reverse geocode — เลิกใช้ Nominatim · ชื่อพิมพ์/เลือกเอง)
         this.selectedSource = 'manual';
-        this.selectedName = null;
-        this._reverseGeocode(e.latlng.lat, e.latlng.lng);
       }
+      this._updateCoordsDisplay();
     });
 
     // force layout recompute หลัง modal mount
@@ -175,8 +177,7 @@ const MapPicker = {
       this.marker.on('dragend', () => {
         const p = this.marker.getLatLng();
         this.selectedLat = p.lat; this.selectedLon = p.lng;
-        this.userAdjusted = true;   // ลากแก้ → ปรับพิกัด แต่คงชื่อเดิม
-        if (!this.selectedName) this._reverseGeocode(p.lat, p.lng);
+        this.userAdjusted = true;   // ลากแก้ → ปรับพิกัด คงชื่อเดิม (ไม่ reverse)
         this._updateCoordsDisplay();
       });
     } else {
@@ -192,55 +193,93 @@ const MapPicker = {
     if (b) b.style.opacity = this.selectedLat !== null ? '1' : '0.4';
   },
 
-  // ===== Search via PlaceService (Local → Longdo → Google → Nominatim) =====
+  // ===== Search (staged · ประหยัด API) =====
+  // พิมพ์สด → ค้น local เท่านั้น (ไม่ยิง API) · กดปุ่มค้นหา → Longdo · กด "ค้นเพิ่ม Google" → Google
   _onSearchInput(value) {
     clearTimeout(this.searchTimer);
     const v = value.trim();
-    if (v.length < 2) {
-      const r = document.getElementById('mapSearchResults');
-      if (r) r.innerHTML = '';
-      return;
-    }
-    this.searchTimer = setTimeout(() => this._search(v), 450);
+    const r = document.getElementById('mapSearchResults');
+    if (v.length < 2) { if (r) r.innerHTML = ''; return; }
+    this.searchTimer = setTimeout(() => this._search(v, 'local'), 300);
   },
 
-  // deep=true (กดปุ่มค้นหา/Enter) → รวมทุกแหล่ง บังคับเรียก Google ด้วย · deep=false (พิมพ์สด) → เร็ว หยุดที่แหล่งแรกที่เจอ
-  async _search(query, deep) {
+  // mode: 'local' (พิมพ์สด) | 'longdo' (กดค้นหา) | 'google' (กดค้นเพิ่ม)
+  async _search(query, mode) {
+    mode = mode || 'local';
     const q = (query || '').trim();
     const resultsEl = document.getElementById('mapSearchResults');
     if (!q || !resultsEl) return;
-    resultsEl.innerHTML = `<div style="padding:10px;color:#94a3b8;font-size:13px;">⌛ ${deep ? 'ค้นหาทุกแหล่ง (รวม Google)...' : 'กำลังค้นหา...'}</div>`;
-    try {
-      const results = (typeof PlaceService === 'undefined')
-        ? await this._searchNominatimFallback(q)
-        : (deep ? await PlaceService.searchAll(q) : await PlaceService.search(q));
-
-      if (!results.length) {
-        // ไม่เจอที่ไหนเลย → เสนอเพิ่มเป็นสถานที่ใหม่จากชื่อที่ค้น
-        this._pendingQuery = q;
-        resultsEl.innerHTML =
-          `<div style="padding:10px;">
-             <div style="color:#94a3b8;font-size:13px;margin-bottom:8px;">ไม่พบ "${this._esc(q)}" — เพิ่มเป็นสถานที่ใหม่ได้</div>
-             <button onclick="MapPicker._startManualAdd()" style="padding:8px 12px;background:${this.ACCENT};color:#fff;border:none;border-radius:8px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;">➕ เพิ่ม "${this._esc(q)}" แล้วปักหมุดเอง</button>
-           </div>`;
-        return;
-      }
-
-      this._lastResults = results;
-      resultsEl.innerHTML = results.map((r, i) => {
-        const cnt  = (r.source === 'local' && r.use_count) ? `<span style="font-size:10px;color:#94a3b8;margin-left:6px;">${r.use_count}× ใช้</span>` : '';
-        const addr = r.address ? `<div style="font-size:11px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${this._esc(r.address)}</div>` : '';
-        return `<div onclick="MapPicker._pickResult(${i})"
-            style="padding:8px 10px;border-bottom:1px solid #f1f5f9;cursor:pointer;font-size:13px;color:#1e293b;line-height:1.4;"
-            onmouseover="this.style.background='${this.HOVER}'" onmouseout="this.style.background='transparent'">
-            <div style="margin-bottom:2px;">${this._badge(r.source)}${cnt}</div>
-            <div style="font-weight:600;">${this._esc(r.place_name)}</div>
-            ${addr}
-          </div>`;
-      }).join('');
-    } catch (e) {
-      resultsEl.innerHTML = `<div style="padding:10px;color:#dc2626;font-size:13px;">❌ ค้นหาไม่สำเร็จ: ${this._esc(e.message)}</div>`;
+    if (typeof PlaceService === 'undefined') {
+      resultsEl.innerHTML = '<div style="padding:10px;color:#dc2626;font-size:13px;">ระบบค้นหายังไม่พร้อม</div>';
+      return;
     }
+
+    if (mode === 'local') {
+      this._lastQuery = q;
+      this._googleTried = false;
+      this._lastResults = PlaceService.searchLocal(q);
+      this._renderResults(false);
+      return;
+    }
+
+    if (mode === 'longdo') {
+      resultsEl.innerHTML = '<div style="padding:10px;color:#94a3b8;font-size:13px;">⌛ กำลังค้นหา...</div>';
+      this._lastQuery = q;
+      this._googleTried = false;
+      try { this._lastResults = await PlaceService.searchLongdo(q); }
+      catch (e) { this._lastResults = []; }
+      this._renderResults(true);
+      return;
+    }
+
+    if (mode === 'google') {
+      resultsEl.insertAdjacentHTML('beforeend', '<div id="gLoad" style="padding:8px 10px;color:#7e22ce;font-size:13px;">⌛ ค้นเพิ่มใน Google...</div>');
+      this._googleTried = true;
+      let g = [];
+      try { g = await PlaceService.searchGoogle(q); } catch (e) {}
+      this._lastResults = PlaceService._dedupeResults([...(this._lastResults || []), ...g]);
+      this._renderResults(true);
+    }
+  },
+
+  // วาดผลลัพธ์ + ปุ่ม escalate Google / เพิ่มสถานที่ใหม่
+  _renderResults(externalDone) {
+    const resultsEl = document.getElementById('mapSearchResults');
+    if (!resultsEl) return;
+    const q = this._lastQuery || '';
+    const list = this._lastResults || [];
+
+    let html = list.map((r, i) => {
+      const cnt  = (r.source === 'local' && r.use_count) ? `<span style="font-size:10px;color:#94a3b8;margin-left:6px;">${r.use_count}× ใช้</span>` : '';
+      const addr = r.address ? `<div style="font-size:11px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${this._esc(r.address)}</div>` : '';
+      return `<div onclick="MapPicker._pickResult(${i})"
+          style="padding:8px 10px;border-bottom:1px solid #f1f5f9;cursor:pointer;font-size:13px;color:#1e293b;line-height:1.4;"
+          onmouseover="this.style.background='${this.HOVER}'" onmouseout="this.style.background='transparent'">
+          <div style="margin-bottom:2px;">${this._badge(r.source)}${cnt}</div>
+          <div style="font-weight:600;">${this._esc(r.place_name)}</div>
+          ${addr}
+        </div>`;
+    }).join('');
+
+    if (!list.length) {
+      html = externalDone
+        ? `<div style="padding:8px 10px;color:#94a3b8;font-size:13px;">ไม่พบ "${this._esc(q)}"</div>`
+        : `<div style="padding:8px 10px;color:#94a3b8;font-size:13px;">พิมพ์แล้วกดปุ่ม “ค้นหา” เพื่อค้นจาก Longdo</div>`;
+    }
+
+    if (externalDone) {
+      this._pendingQuery = q;
+      html += '<div style="display:flex;gap:8px;padding:8px 2px;flex-wrap:wrap;">';
+      if (!this._googleTried) {
+        html += `<button onclick="MapPicker._search(MapPicker._lastQuery,'google')"
+            style="padding:7px 11px;background:#f3e8ff;color:#7e22ce;border:1px solid #d8b4fe;border-radius:8px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;">🌐 ค้นเพิ่มใน Google</button>`;
+      }
+      html += `<button onclick="MapPicker._startManualAdd()"
+            style="padding:7px 11px;background:${this.ACCENT};color:#fff;border:none;border-radius:8px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;">➕ เพิ่ม "${this._esc(q)}" เป็นสถานที่ใหม่</button>`;
+      html += '</div>';
+    }
+
+    resultsEl.innerHTML = html;
   },
 
   // badge บอกที่มาของผลลัพธ์
@@ -282,30 +321,6 @@ const MapPicker = {
     const rEl = document.getElementById('mapSearchResults');
     if (rEl) rEl.innerHTML = `<div style="padding:8px 10px;color:${this.ACCENT};font-size:13px;font-weight:600;">📌 แตะบนแผนที่เพื่อปักหมุดของ "${this._esc(q)}" แล้วกด ✓ ยืนยัน</div>`;
     if (this.selectedLat !== null) this._updateCoordsDisplay();
-  },
-
-  async _reverseGeocode(lat, lon) {
-    try {
-      const url = `https://nominatim.openstreetmap.org/reverse?format=json&accept-language=th&lat=${lat}&lon=${lon}&zoom=18`;
-      const res = await fetch(url);
-      const d = await res.json();
-      if (d && d.display_name) {
-        this.selectedName = d.display_name.split(',')[0];
-        this._updateCoordsDisplay();
-      }
-    } catch { /* silent */ }
-  },
-
-  // fallback เมื่อ PlaceService ยังไม่ถูกโหลด (กันค้นพังสนิท)
-  async _searchNominatimFallback(query) {
-    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=8&accept-language=th&countrycodes=th&q=${encodeURIComponent(query)}`;
-    const res = await fetch(url);
-    const data = await res.json();
-    return (data || []).map(d => ({
-      place_name: (d.display_name || '').split(',')[0],
-      latitude: parseFloat(d.lat), longitude: parseFloat(d.lon),
-      source: 'nominatim', address: d.display_name || ''
-    }));
   },
 
   // ===== AUTO-LEARN: บันทึกเข้า shared place DB ตอนกดยืนยัน =====

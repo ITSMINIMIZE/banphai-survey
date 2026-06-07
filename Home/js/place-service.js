@@ -1,6 +1,6 @@
 // ===== PLACE SERVICE — Self-Growing Place Search (Banphai Survey) =====
 // Multi-provider orchestrator + auto-learn (Firestore `places` collection).
-// แหล่งค้น: [1] Local cache → [2] Longdo POI → [3] Google (stub) → [4] Nominatim
+// แหล่งค้น (staged ประหยัด API): พิมพ์=Local · กดค้นหา=Longdo · กดค้นเพิ่ม=Google
 // ทำ 1 ชุด แล้ว copy ไป Roadside/js/ และ Home/js/ (drop-in, ไม่แตะ signature MapPicker)
 //
 // Output shape (ทุก provider คืนรูปนี้):
@@ -141,56 +141,33 @@ const PlaceService = {
     this._configApplied = true;
   },
 
-  // ===================== SEARCH ORCHESTRATOR =====================
-  async search(query) {
+  // ===================== SEARCH (staged เพื่อประหยัด API) =====================
+  // [พิมพ์สด] → local เท่านั้น ไม่ยิง API
+  searchLocal(query) {
     const q = (query || '').trim();
-    if (!q) return [];
-
-    this.loadConfig();   // ใช้ key ล่าสุดจาก config (ไม่บล็อก — apply จาก localStorage ทันที)
-    await this.loadCache();
-
-    // [1] Local — เจอ → จบ ไม่เรียก API
-    const local = this._searchLocal(q);
-    if (local.length) return local;
-
-    // [2] Longdo POI
-    try {
-      const longdo = await this._searchLongdo(q);
-      if (longdo.length) return longdo;
-    } catch (e) { console.warn('[PlaceService] Longdo failed:', e.message); }
-
-    // [3] Google Places (New) — ทำงานเมื่อมี GOOGLE_KEY (ไม่มี key → คืน [])
-    try {
-      const google = await this._searchGoogle(q);
-      if (google.length) return google;
-    } catch (e) { console.warn('[PlaceService] Google failed:', e.message); }
-
-    // [4] Nominatim fallback (ของเดิม)
-    try {
-      return await this._searchNominatim(q);
-    } catch (e) { console.warn('[PlaceService] Nominatim failed:', e.message); return []; }
+    return q ? this._searchLocal(q) : [];
   },
 
-  // ===================== DEEP SEARCH (กดปุ่มค้นหา → รวมทุกแหล่ง) =====================
-  // ไม่หยุดที่ provider แรกที่เจอ — รวม Local + Longdo + Google เข้าด้วยกัน (กรณี Longdo เจอแต่ไม่ใช่ที่ต้องการ)
-  async searchAll(query) {
+  // [กดปุ่ม "ค้นหา"] → local + Longdo (ยังไม่แตะ Google)
+  async searchLongdo(query) {
     const q = (query || '').trim();
     if (!q) return [];
     this.loadConfig();
     await this.loadCache();
-
     const local = this._searchLocal(q);
-    const [longdo, google] = await Promise.all([
-      this._searchLongdo(q).catch(e => { console.warn('[PlaceService] Longdo failed:', e.message); return []; }),
-      this._searchGoogle(q).catch(e => { console.warn('[PlaceService] Google failed:', e.message); return []; })
-    ]);
+    let longdo = [];
+    try { longdo = await this._searchLongdo(q); }
+    catch (e) { console.warn('[PlaceService] Longdo failed:', e.message); }
+    return this._dedupeResults([...local, ...longdo]);
+  },
 
-    let merged = this._dedupeResults([...local, ...longdo, ...google]);  // เรียง local → longdo → google
-    if (!merged.length) {
-      const nomi = await this._searchNominatim(q).catch(() => []);
-      merged = this._dedupeResults(nomi);
-    }
-    return merged;
+  // [กด "ค้นเพิ่มใน Google"] → Google เท่านั้น (เรียกเมื่อ Longdo ไม่เจอที่ต้องการ — ประหยัด cost)
+  async searchGoogle(query) {
+    const q = (query || '').trim();
+    if (!q) return [];
+    this.loadConfig();
+    try { return await this._searchGoogle(q); }
+    catch (e) { console.warn('[PlaceService] Google failed:', e.message); return []; }
   },
 
   // รวมผลจากหลายแหล่ง · ตัดซ้ำ (ชื่อตรง + ใกล้ < 80m) · คงอันแรกตามลำดับความสำคัญ
@@ -289,23 +266,6 @@ const PlaceService = {
       }));
   },
 
-  // ---- [4] Nominatim fallback (ของเดิม) ----
-  async _searchNominatim(query) {
-    const url = `https://nominatim.openstreetmap.org/search` +
-                `?format=json&limit=8&accept-language=th&countrycodes=th` +
-                `&q=${encodeURIComponent(query)}`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    return (data || []).map(d => ({
-      place_name: (d.display_name || '').split(',')[0],
-      latitude:   parseFloat(d.lat),
-      longitude:  parseFloat(d.lon),
-      source:     'nominatim',
-      confidence: this.CONFIDENCE.nominatim,
-      address:    d.display_name || ''
-    }));
-  },
 
   // ===================== AUTO-LEARN =====================
   // เรียกตอนกดยืนยันหมุด → upsert เข้า Firestore places + อัปเดต cache ทันที

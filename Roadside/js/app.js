@@ -585,7 +585,7 @@ const App = {
       <div class="form-grid">
         <div class="form-row">
           <label class="form-label req">ตำบล</label>
-          <input id="s_subdistrict" class="form-input" autocomplete="off" value="${st?.subdistrict||''}" placeholder="กรอกตำบล" />
+          <input id="s_subdistrict" class="form-input" autocomplete="off" value="${st?.subdistrict||''}" placeholder="กด GPS เพื่อดึงอัตโนมัติ" />
         </div>
         <div class="form-row">
           <label class="form-label req">อำเภอ</label>
@@ -1360,21 +1360,22 @@ const App = {
       { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 });
   },
 
+  // reverse geocode → Longdo address (ข้อมูลไทยแม่น · ได้ ตำบล ด้วย · ไม่ติด throttle เหมือน Nominatim)
   _reverseGeocode(lat, lon) {
-    // Nominatim (OSM) — ฟรี ไม่ต้อง key
-    fetch(`https://nominatim.openstreetmap.org/reverse?format=json&accept-language=th&lat=${lat}&lon=${lon}&zoom=14&addressdetails=1`)
+    const key = (typeof PlaceService !== 'undefined' && PlaceService.LONGDO_KEY) || '';
+    fetch(`https://api.longdo.com/map/services/address?lon=${lon}&lat=${lat}&key=${key}&locale=th`)
       .then(r => r.json())
       .then(d => {
-        const a = d.address || {};
-        // เติมเฉพาะ อำเภอ/จังหวัด — ตำบลจาก OSM ไม่ค่อยแม่น ให้กรอกเอง
-        const district = a.city_district || a.county || a.district || '';
-        const province = a.province || a.state || '';
-        const dis = document.getElementById('s_district');
-        const pro = document.getElementById('s_province');
-        if (dis && district) dis.value = district;
-        if (pro && province) pro.value = province;
-        if (district || province)
-          this.toast(`พบที่อยู่: อ.${district||'?'} จ.${province||'?'}`, 'success');
+        const strip = s => (s || '').replace(/^(ต\.|อ\.|จ\.|ตำบล|อำเภอ|จังหวัด)\s*/, '').trim();
+        const sub = strip(d.subdistrict), dis = strip(d.district), pro = strip(d.province);
+        const subEl = document.getElementById('s_subdistrict');
+        const disEl = document.getElementById('s_district');
+        const proEl = document.getElementById('s_province');
+        if (subEl && sub) subEl.value = sub;
+        if (disEl && dis) disEl.value = dis;
+        if (proEl && pro) proEl.value = pro;
+        if (sub || dis || pro)
+          this.toast(`พบที่อยู่: ต.${sub||'?'} อ.${dis||'?'} จ.${pro||'?'}`, 'success');
       })
       .catch(() => {});
   },

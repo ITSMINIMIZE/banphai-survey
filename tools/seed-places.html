@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Pre-seed Places — เติมสถานที่ก่อนสำรวจ</title>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet" />
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;font-family:'Sarabun',sans-serif}
+  body{background:linear-gradient(160deg,#ecfeff,#f0fdfa,#f8fafc);min-height:100vh;padding:24px}
+  .card{max-width:760px;margin:0 auto;background:#fff;border-radius:16px;padding:26px;box-shadow:0 8px 40px rgba(0,0,0,.08)}
+  h1{font-size:21px;color:#0f172a;margin-bottom:4px}
+  .sub{font-size:13px;color:#64748b;margin-bottom:16px;line-height:1.6}
+  .info{background:#ecfeff;border:1px solid #a5f3fc;border-radius:10px;padding:14px;margin-bottom:16px;font-size:13px;color:#155e75;line-height:1.7}
+  code{background:#f1f5f9;padding:1px 6px;border-radius:5px;color:#0369a1;font-size:12px}
+  textarea{width:100%;height:200px;padding:12px;border:1.5px solid #e2e8f0;border-radius:10px;font:13px ui-monospace,Menlo,monospace;color:#1e293b;outline:none;resize:vertical}
+  textarea:focus{border-color:#0891b2}
+  .row{display:flex;gap:10px;margin:14px 0}
+  .btn{padding:12px 18px;border:none;border-radius:10px;font:600 14px 'Sarabun';cursor:pointer;transition:all .15s}
+  .btn-go{background:#0891b2;color:#fff}.btn-go:hover{background:#0e7490}.btn-go:disabled{background:#cbd5e1;cursor:not-allowed}
+  .btn-ghost{background:#f1f5f9;color:#475569;border:1px solid #e2e8f0}
+  .stat{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0}
+  .stat>div{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px;text-align:center}
+  .stat strong{display:block;font-size:22px;color:#0f172a;line-height:1}
+  .stat span{font-size:11px;color:#64748b;margin-top:4px;display:block;letter-spacing:.04em}
+  .log{background:#0f172a;color:#94a3b8;font:12px ui-monospace,Menlo,monospace;padding:14px;border-radius:8px;height:200px;overflow-y:auto;line-height:1.6}
+  .log .ok{color:#34d399}.log .err{color:#f87171}.log .info{color:#60a5fa}.log .warn{color:#fbbf24}
+  .prov{font-size:11px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;margin-bottom:14px}
+</style>
+<script>
+/* 🔒 Tools gate */
+(function(){
+  var TOOLS_PW='adminbanphai';
+  if(sessionStorage.getItem('tools_ok')==='1')return;
+  function gate(){var ov=document.createElement('div');ov.style.cssText='position:fixed;inset:0;z-index:99999;background:#0f172a;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;font-family:Sarabun,sans-serif;padding:24px;';ov.innerHTML='<div style="font-size:40px">🔒</div><div style="color:#f1f5f9;font-size:18px;font-weight:700">เครื่องมือสำหรับผู้ดูแล</div><div style="color:#94a3b8;font-size:13px">ใส่รหัสผ่านเพื่อเข้าใช้งาน</div><input id="_gpw" type="password" placeholder="รหัสผ่าน" style="padding:12px 16px;border-radius:10px;border:1px solid #334155;background:#1e293b;color:#f1f5f9;font-size:15px;width:240px;outline:none" /><button id="_gbtn" style="padding:12px 28px;border:none;border-radius:10px;background:#0891b2;color:#fff;font-weight:600;font-size:15px;cursor:pointer">เข้าใช้งาน</button><div id="_gerr" style="color:#f87171;font-size:13px;height:16px"></div>';document.body.appendChild(ov);var inp=ov.querySelector('#_gpw'),btn=ov.querySelector('#_gbtn'),err=ov.querySelector('#_gerr');function go(){if(inp.value===TOOLS_PW){sessionStorage.setItem('tools_ok','1');ov.remove();}else{err.textContent='รหัสผ่านไม่ถูกต้อง';inp.value='';inp.focus();}}btn.onclick=go;inp.onkeydown=function(e){if(e.key==='Enter')go();};inp.focus();}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',gate);else gate();
+})();
+</script>
+</head>
+<body>
+<div class="card">
+  <h1>📍 Pre-seed Places</h1>
+  <div class="sub">เติมสถานที่ยอดฮิตในพื้นที่ลง Firestore <code>places</code> ก่อนวันสำรวจ → surveyor ค้นเจอใน local ทันที ไม่ต้องยิง Longdo/Google (ประหยัด quota + เร็ว)</div>
+
+  <div class="prov">⚠️ รูปแบบไฟล์ยังเป็นแบบชั่วคราว (provisional) — เดี๋ยวคุยปรับเป็นไฟล์เดียวกันอีกที</div>
+
+  <div class="info">
+    <b>รูปแบบ:</b> บรรทัดละ 1 สถานที่ → <code>ชื่อ, lat, lon</code> · เพิ่ม keyword (ค้นด้วยคำอื่น) ได้ท้ายสุด คั่นด้วย <code>;</code><br>
+    ตัวอย่าง:<br>
+    <code>โรงพยาบาลบ้านไผ่, 16.0588, 102.7302, รพ บ้านไผ่;hospital banphai</code><br>
+    <code>ตลาดสดบ้านไผ่, 16.0601, 102.7338</code><br>
+    บรรทัดว่าง/ขึ้นต้นด้วย <code>#</code> = ข้าม · กดดูตัวอย่างก่อนเขียนได้
+  </div>
+
+  <textarea id="input" placeholder="โรงพยาบาลบ้านไผ่, 16.0588, 102.7302, รพ บ้านไผ่
+ตลาดสดบ้านไผ่, 16.0601, 102.7338
+..."></textarea>
+
+  <div class="row">
+    <button class="btn btn-ghost" onclick="preview()">👁 ตรวจ/ดูตัวอย่าง</button>
+    <button class="btn btn-go" id="writeBtn" onclick="run()" disabled>💾 เขียนเข้า places</button>
+    <button class="btn btn-ghost" onclick="clearLog()">ล้าง log</button>
+  </div>
+
+  <div class="stat">
+    <div><strong id="cParsed">0</strong><span>อ่านได้</span></div>
+    <div><strong id="cAdded">0</strong><span>เพิ่มใหม่</span></div>
+    <div><strong id="cSkip">0</strong><span>ข้าม (ซ้ำ/ผิด)</span></div>
+  </div>
+
+  <div class="log" id="log"></div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script>
+const cfg={apiKey:'AIzaSyA_f0UniGXeSRRn4VjD-56Gp9Xb0M-I8kQ',authDomain:'banphai-survey.firebaseapp.com',projectId:'banphai-survey',storageBucket:'banphai-survey.firebasestorage.app',messagingSenderId:'755175522135',appId:'1:755175522135:web:da20ccae36e1d1e9210812'};
+if(!firebase.apps.length)firebase.initializeApp(cfg);
+const db=firebase.firestore();
+
+const $=id=>document.getElementById(id);
+const logEl=$('log');
+const log=(m,c='info')=>{logEl.innerHTML+=`<div class="${c}">[${new Date().toLocaleTimeString('th-TH')}] ${m}</div>`;logEl.scrollTop=logEl.scrollHeight;};
+const clearLog=()=>logEl.innerHTML='';
+const norm=s=>(s||'').toString().trim().toLowerCase().replace(/\s+/g,' ');
+
+let _parsed=[];
+
+// parse textarea → [{place_name,lat,lon,keywords}]
+function parseInput(){
+  const lines=$('input').value.split('\n');
+  const out=[]; let bad=0;
+  for(const raw of lines){
+    const line=raw.trim();
+    if(!line||line.startsWith('#'))continue;
+    const parts=line.split(',').map(s=>s.trim());
+    const name=parts[0], lat=parseFloat(parts[1]), lon=parseFloat(parts[2]);
+    if(!name||isNaN(lat)||isNaN(lon)){ bad++; log(`ข้าม (อ่านไม่ได้): ${line}`,'warn'); continue; }
+    const keywords=(parts[3]||'').split(';').map(s=>s.trim()).filter(Boolean);
+    out.push({place_name:name,latitude:lat,longitude:lon,keywords});
+  }
+  return {out,bad};
+}
+
+function preview(){
+  clearLog();
+  const {out,bad}=parseInput();
+  _parsed=out;
+  $('cParsed').textContent=out.length;
+  $('cAdded').textContent=0; $('cSkip').textContent=bad;
+  out.slice(0,10).forEach(p=>log(`✓ ${p.place_name} (${p.latitude}, ${p.longitude})${p.keywords.length?' · kw: '+p.keywords.join(', '):''}`,'ok'));
+  if(out.length>10) log(`... และอีก ${out.length-10} รายการ`,'info');
+  log(`อ่านได้ ${out.length} · ผิดรูปแบบ ${bad}`, out.length?'ok':'warn');
+  $('writeBtn').disabled = out.length===0;
+}
+
+async function run(){
+  if(!_parsed.length){ preview(); if(!_parsed.length) return; }
+  if(!confirm(`เขียน ${_parsed.length} สถานที่เข้า Firestore places? (ข้ามรายการที่ชื่อซ้ำ+ใกล้กัน)`)) return;
+  $('writeBtn').disabled=true;
+  log('โหลด places เดิมเพื่อกันซ้ำ...','info');
+
+  // load existing for dedupe (name_lower + ใกล้ < 150m)
+  let existing=[];
+  try{ const snap=await db.collection('places').get(); existing=snap.docs.map(d=>d.data()); log(`places เดิมมี ${existing.length}`,'info'); }
+  catch(e){ log('อ่าน places เดิมไม่ได้: '+e.message,'err'); $('writeBtn').disabled=false; return; }
+
+  const distM=(a,b,c,d)=>{const R=6371000,r=x=>x*Math.PI/180;const dLat=r(c-a),dLon=r(d-b);const t=Math.sin(dLat/2)**2+Math.cos(r(a))*Math.cos(r(c))*Math.sin(dLon/2)**2;return 2*R*Math.asin(Math.sqrt(t));};
+  const isDup=p=>existing.some(e=>norm(e.place_name)===norm(p.place_name)&&distM(p.latitude,p.longitude,e.latitude,e.longitude)<150);
+
+  let added=0,skip=0,batch=db.batch(),ops=0;
+  const nowISO=new Date().toISOString();
+  for(let i=0;i<_parsed.length;i++){
+    const p=_parsed[i];
+    if(isDup(p)){ skip++; $('cSkip').textContent=skip; continue; }
+    const id='PL-'+Date.now()+'-'+i;
+    const doc={
+      id, place_name:p.place_name, name_lower:norm(p.place_name), keywords:p.keywords,
+      latitude:p.latitude, longitude:p.longitude,
+      source:'preseed', confidence:1.0, user_adjusted:false, use_count:0,
+      created_at:nowISO, created_by:'preseed', updated_at:nowISO
+    };
+    batch.set(db.collection('places').doc(id),doc);
+    existing.push(doc); // กันซ้ำในชุดเดียวกัน
+    ops++; added++; $('cAdded').textContent=added;
+    if(ops>=400){ await batch.commit(); batch=db.batch(); ops=0; }
+  }
+  if(ops>0) await batch.commit();
+  log(`🎉 เสร็จ — เพิ่ม ${added} · ข้ามซ้ำ ${skip}`,'ok');
+  $('writeBtn').disabled=false;
+}
+</script>
+</body>
+</html>

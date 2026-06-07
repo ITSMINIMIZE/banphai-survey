@@ -1,5 +1,5 @@
 // Service Worker — Home Interview
-const CACHE_VERSION = 'hi-v10-places-ttl';
+const CACHE_VERSION = 'hi-v11-longdo-staged';
 const CORE_ASSETS = [
   './',
   './index.html',
