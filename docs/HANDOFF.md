@@ -91,7 +91,7 @@ sed -e 's/Roadside theme ส้ม/Home theme น้ำเงิน/' -e "s/ACCE
 ## 6. Firestore
 **Collections:** `households/{}/members/{}/trips/{}` · `roadside_stations/{}/interviews/{}` · `places/{}` · `config/{}`
 
-**Rules (⚠️ ผู้ใช้ต้อง publish เองใน Console — ยังไม่ publish ตัวล่าสุด):**
+**Rules (✅ publish แล้วใน Console — ใช้งานอยู่):**
 ```
 rules_version='2';
 service cloud.firestore { match /databases/{database}/documents {
@@ -141,11 +141,12 @@ service cloud.firestore { match /databases/{database}/documents {
 
 ---
 
-## 9. ✅ TODO ฝั่งผู้ใช้ (ก่อนสำรวจจริง)
-1. **Publish Firestore rules ใหม่** (ข้อ 6 — มี isSeed delete + config block) ใน Firebase Console
-2. **Pre-seed places** สถานที่ยอดฮิตในพื้นที่ (⚙ → Pre-seed Places) → warm cache ลดยิง Longdo/Google
-3. **Flip Blaze + ตั้ง budget alert** (กันเงินบานปลาย)
-4. **ลบ test docs เก่า** ใน Firestore `places`: `PL-1780729942530`, `PL-1780730280388` (ถ้ายังอยู่)
+## 9. TODO ฝั่งผู้ใช้
+✅ Publish Firestore rules (ข้อ 6) — **ทำแล้ว (ใช้งานอยู่)** · ✅ ลบ test docs เก่า — **ทำแล้ว**
+
+เหลือก่อนสำรวจจริง:
+1. **Pre-seed places** สถานที่ยอดฮิตในพื้นที่ (⚙ → Pre-seed Places) → warm cache ลดยิง Longdo/Google
+2. **Flip Blaze + ตั้ง budget alert** (กันเงินบานปลาย)
 
 ---
 
