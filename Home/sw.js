@@ -1,5 +1,5 @@
 // Service Worker — Home Interview
-const CACHE_VERSION = 'hi-v12-lazymap';
+const CACHE_VERSION = 'hi-v13-delta';
 const CORE_ASSETS = [
   './',
   './index.html',

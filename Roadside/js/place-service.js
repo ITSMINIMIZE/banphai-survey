@@ -8,14 +8,18 @@
 //   source = 'local' | 'longdo' | 'google' | 'nominatim'
 const PlaceService = {
   // ---- in-memory cache ของ places (mirror localStorage) ----
-  // refresh ทุก 15 นาที — places ถูกเพิ่มระหว่างสำรวจ (auto-learn) คนอื่นเห็นของใหม่ภายใน ~15 นาที
+  // เปิดแอป/cache ว่าง = full read (สมบูรณ์ = safety net) · หลังจากนั้นทุก 15 นาที = delta
+  // (อ่านเฉพาะ updated_at ใหม่ → base ที่นิ่งไม่ถูกดึงซ้ำ ลด read มาก) · error = ใช้ cache เดิม
   _cache: [],
   _cacheLoadedAt: 0,
+  _lastSync: '',
   _loadingPromise: null,
 
-  CACHE_KEY:    'bp_places_cache',
-  CACHE_TS_KEY: 'bp_places_cache_ts',
-  CACHE_TTL:    15 * 60 * 1000,   // 15 นาที
+  CACHE_KEY:      'bp_places_cache',
+  CACHE_TS_KEY:   'bp_places_cache_ts',
+  CACHE_SYNC_KEY: 'bp_places_lastsync',
+  CACHE_TTL:      15 * 60 * 1000,   // 15 นาที
+  SYNC_BUFFER_MS: 30 * 60 * 1000,   // อ่าน delta เผื่อย้อนหลัง กัน clock เพี้ยน
 
   // ---- API key config (Firestore config/app · แก้ผ่าน tools/config.html) ----
   // อ่าน "ครั้งเดียวต่อเซสชัน" เช่นกัน — key แทบไม่เปลี่ยน (เปลี่ยนได้แต่มีผลตอนเปิดเว็บใหม่)
@@ -71,6 +75,7 @@ const PlaceService = {
       const raw = localStorage.getItem(this.CACHE_KEY);
       const ts  = parseInt(localStorage.getItem(this.CACHE_TS_KEY) || '0', 10);
       if (raw) { this._cache = JSON.parse(raw) || []; this._cacheLoadedAt = ts || 0; }
+      this._lastSync = localStorage.getItem(this.CACHE_SYNC_KEY) || '';
     } catch (_) {}
   },
 
@@ -78,11 +83,23 @@ const PlaceService = {
     try {
       localStorage.setItem(this.CACHE_KEY, JSON.stringify(this._cache));
       localStorage.setItem(this.CACHE_TS_KEY, String(this._cacheLoadedAt));
+      localStorage.setItem(this.CACHE_SYNC_KEY, this._lastSync || '');
     } catch (_) {}
   },
 
-  // โหลด places จาก Firestore → cache (refresh เมื่อ TTL หมด · force=true เพื่อรีเฟรชเอง)
-  // dedupe การโหลดพร้อมกันด้วย _loadingPromise
+  _upsertCache(doc) {
+    if (!doc || !doc.id) return;
+    const i = this._cache.findIndex(p => p.id === doc.id);
+    if (i >= 0) this._cache[i] = doc; else this._cache.push(doc);
+  },
+
+  _maxUpdatedAt() {
+    let m = this._lastSync || '';
+    for (const p of this._cache) { if (p.updated_at && p.updated_at > m) m = p.updated_at; }
+    return m;
+  },
+
+  // โหลด places (delta + full-read safety net) — error = คง cache เดิม (search ไม่พัง)
   async loadCache(force = false) {
     if (!this._cacheLoadedAt) this._readLocal();           // instant จาก localStorage ก่อน
     const fresh = (Date.now() - this._cacheLoadedAt) < this.CACHE_TTL;
@@ -94,12 +111,21 @@ const PlaceService = {
 
     this._loadingPromise = (async () => {
       try {
-        const snap = await db.collection(this.COLLECTION).get();
-        this._cache = snap.docs.map(d => d.data());
+        if (this._cache.length && this._lastSync) {
+          // DELTA: อ่านเฉพาะ doc ที่ updated_at ใหม่ (เผื่อย้อนหลังกัน clock เพี้ยน) → base ที่นิ่งไม่ถูกดึงซ้ำ
+          const since = new Date(Date.parse(this._lastSync) - this.SYNC_BUFFER_MS).toISOString();
+          const snap = await db.collection(this.COLLECTION).where('updated_at', '>', since).get();
+          snap.docs.forEach(d => this._upsertCache(d.data()));
+        } else {
+          // FULL READ: ครั้งแรก/cache ว่าง → snapshot สมบูรณ์ (safety net · self-heal ทุกครั้งเปิดแอป)
+          const snap = await db.collection(this.COLLECTION).get();
+          this._cache = snap.docs.map(d => d.data());
+        }
+        this._lastSync = this._maxUpdatedAt();
         this._cacheLoadedAt = Date.now();
         this._writeLocal();
       } catch (e) {
-        console.warn('[PlaceService] loadCache failed:', e.message);
+        console.warn('[PlaceService] loadCache failed (ใช้ cache เดิม):', e.message);
       } finally {
         this._loadingPromise = null;
       }
