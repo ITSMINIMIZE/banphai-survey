@@ -1726,6 +1726,22 @@ const App = {
     this.toast('Export Excel สำเร็จ', 'success');
   },
 
+  // ช่องพิมพ์ "delete" เพื่อกันการลบพลาด — ปุ่มลบ (btnId) เริ่มต้น disabled จนกว่าจะพิมพ์ถูก
+  _deleteConfirmHTML(btnId) {
+    return `<div style="margin-top:14px;">
+      <label style="display:block;font-size:13px;color:var(--gray-600);margin-bottom:6px;">
+        พิมพ์ <strong style="color:var(--danger);">delete</strong> เพื่อยืนยันการลบ
+      </label>
+      <input type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
+        placeholder="delete" oninput="App._armDelete(this,'${btnId}')"
+        style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:15px;">
+    </div>`;
+  },
+  _armDelete(input, btnId) {
+    const btn = document.getElementById(btnId);
+    if (btn) btn.disabled = input.value.trim().toLowerCase() !== 'delete';
+  },
+
   confirmClearAll() {
     const isAdmin = this._role === 'admin';
     const stats = DB.stats(isAdmin ? null : this._surveyorName);
@@ -1739,10 +1755,11 @@ const App = {
           <li>${stats.trips} การเดินทาง</li>
         </ul>
       </div>
-      <p style="font-size:13px;color:var(--success);font-weight:600;">✅ ข้อมูลบน Cloud ยังอยู่ครบ — กด "ดึงข้อมูล" เพื่อโหลดกลับมาได้ทุกเมื่อ</p>`,
+      <p style="font-size:13px;color:var(--success);font-weight:600;">✅ ข้อมูลบน Cloud ยังอยู่ครบ — กด "ดึงข้อมูล" เพื่อโหลดกลับมาได้ทุกเมื่อ</p>
+      ${this._deleteConfirmHTML('delCacheBtn')}`,
       `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
        ${isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="App.exportData()" style="color:var(--primary);">⬇ Export ก่อน</button>` : ''}
-       <button class="btn btn-danger" onclick="App.${isAdmin ? 'clearAll' : 'clearMyData'}()">ล้าง cache</button>`
+       <button id="delCacheBtn" class="btn btn-danger" disabled onclick="App.${isAdmin ? 'clearAll' : 'clearMyData'}()">ล้าง cache</button>`
     );
   },
 

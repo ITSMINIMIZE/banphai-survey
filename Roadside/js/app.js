@@ -1662,6 +1662,22 @@ const App = {
     this.toast(`Export สำเร็จ · ${totalKept} ราย`, 'success');
   },
 
+  // ช่องพิมพ์ "delete" เพื่อกันการลบพลาด — ปุ่มลบ (btnId) เริ่มต้น disabled จนกว่าจะพิมพ์ถูก
+  _deleteConfirmHTML(btnId) {
+    return `<div style="margin-top:14px;">
+      <label style="display:block;font-size:13px;color:var(--gray-600);margin-bottom:6px;">
+        พิมพ์ <strong style="color:var(--danger);">delete</strong> เพื่อยืนยันการลบ
+      </label>
+      <input type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
+        placeholder="delete" oninput="App._armDelete(this,'${btnId}')"
+        style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:15px;">
+    </div>`;
+  },
+  _armDelete(input, btnId) {
+    const btn = document.getElementById(btnId);
+    if (btn) btn.disabled = input.value.trim().toLowerCase() !== 'delete';
+  },
+
   confirmClearAll() {
     const isAdmin = this._role === 'admin';
     if (isAdmin) {
@@ -1674,10 +1690,11 @@ const App = {
             <li>${stats.interviews} การสำรวจ</li>
           </ul>
         </div>
-        <p style="font-size:14px;color:var(--gray-600);">ไม่สามารถย้อนกลับได้ — แนะนำให้ Export ก่อน</p>`,
+        <p style="font-size:14px;color:var(--gray-600);">ไม่สามารถย้อนกลับได้ — แนะนำให้ Export ก่อน</p>
+        ${this._deleteConfirmHTML('delAllBtn')}`,
         `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
          <button class="btn btn-ghost btn-sm" onclick="App.exportData()" style="color:var(--primary);">⬇ Export ก่อนลบ</button>
-         <button class="btn btn-danger" onclick="App.clearAll()">ล้างข้อมูลทั้งหมด</button>`
+         <button id="delAllBtn" class="btn btn-danger" disabled onclick="App.clearAll()">ล้างข้อมูลทั้งหมด</button>`
       );
     } else {
       const myIvCount = DB.getStations()
@@ -1687,9 +1704,10 @@ const App = {
           จะลบ <strong>การสำรวจของฉัน ${myIvCount} ราย</strong> ออกจากเครื่องนี้<br>
           <span style="color:var(--success);font-weight:600;">✅ ข้อมูลจุดสำรวจยังคงอยู่</span>
         </p>
-        <p style="font-size:13px;color:var(--gray-400);">หากได้ Sync ขึ้น Firebase แล้ว ข้อมูลยังอยู่บน Cloud ดึงกลับมาได้ทุกเมื่อ</p>`,
+        <p style="font-size:13px;color:var(--gray-400);">หากได้ Sync ขึ้น Firebase แล้ว ข้อมูลยังอยู่บน Cloud ดึงกลับมาได้ทุกเมื่อ</p>
+        ${this._deleteConfirmHTML('delMineBtn')}`,
         `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
-         <button class="btn btn-danger" onclick="App.clearMyData()">ล้างข้อมูลของฉัน</button>`
+         <button id="delMineBtn" class="btn btn-danger" disabled onclick="App.clearMyData()">ล้างข้อมูลของฉัน</button>`
       );
     }
   },
