@@ -1,216 +1,12 @@
 // ===== HOME INTERVIEW APP (v2) =====
 const App = {
   page: 'home', hhId: null, memberId: null, memberTab: 'info', editingTripId: null,
-  _clientIp: '',
-  _role: null,          // 'admin' | 'surveyor'
-  _surveyorName: '',    // ชื่อ-นามสกุล ผู้สำรวจ
-  _adminUsername: '',   // username ผู้ดูแลระบบ
+  _mapActive: false,
 
-  init() {
-    DB.load();
-    fetch('https://api.ipify.org?format=json')
-      .then(r => r.json())
-      .then(d => { this._clientIp = d.ip || ''; })
-      .catch(() => {});
-
-    // แสดง loading แล้วรอ Firebase Auth ตรวจสอบ session
-    document.querySelector('.topbar').style.display = 'none';
-    document.getElementById('app').innerHTML =
-      '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;color:#94a3b8;font-size:14px;">กำลังโหลด...</div>';
-
-    if (typeof firebase !== 'undefined' && firebase.apps?.length) {
-      FB.onAuthStateChanged(user => {
-        if (this._role) return; // เข้าระบบแล้ว ไม่ต้องทำซ้ำ
-        if (user) {
-          // มี session admin อยู่ → เข้าเลย
-          this._adminUsername = user.email.replace(FB.EMAIL_DOMAIN, '');
-          this._role = 'admin';
-          this._enterApp();
-        } else {
-          this._showLoginGate();
-        }
-      });
-    } else {
-      this._showLoginGate();
-    }
-  },
-
-  // ===================== LOGIN GATE =====================
-  _showLoginGate() {
-    document.querySelector('.topbar').style.display = 'none';
-    document.getElementById('app').innerHTML = this._loginGateHTML();
-  },
-
-  _loginGateHTML() {
-    return `
-      <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;
-                  justify-content:center;padding:24px;background:var(--bg);">
-        <div style="text-align:center;margin-bottom:48px;">
-          <div style="font-size:48px;margin-bottom:12px;">🏠</div>
-          <div style="font-size:22px;font-weight:700;color:var(--gray-800);">Home Interview</div>
-          <div style="font-size:13px;color:var(--gray-500);margin-top:6px;">โครงการวางผังเมืองรวมอำเภอบ้านไผ่ จ.ขอนแก่น</div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:12px;width:100%;max-width:300px;">
-          <button class="btn btn-primary" style="padding:14px;font-size:15px;"
-            onclick="App.loginAsSurveyor()">
-            📋 เข้าใช้งานเป็นผู้สำรวจ
-          </button>
-          <button class="btn btn-ghost" style="padding:14px;font-size:15px;"
-            onclick="App.loginAsAdmin()">
-            🔐 เข้าสู่ระบบ (ผู้ดูแลระบบ)
-          </button>
-        </div>
-      </div>`;
-  },
-
-  // ---- ผู้สำรวจ ----
-  loginAsSurveyor() {
-    this.showModal('📋 เข้าใช้งานเป็นผู้สำรวจ', `
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-        <div class="form-row">
-          <label class="form-label req">ชื่อ</label>
-          <input id="sv_fname" class="form-input" autocomplete="off" placeholder="ชื่อจริง" />
-        </div>
-        <div class="form-row">
-          <label class="form-label req">นามสกุล</label>
-          <input id="sv_lname" class="form-input" autocomplete="off" placeholder="นามสกุล" />
-        </div>
-      </div>
-      <p style="font-size:12px;color:var(--gray-400);margin-top:6px;">ไม่ต้องใส่คำนำหน้า · ต้องพิมพ์ชื่อให้ตรงกันทุกครั้งเพื่อดึงข้อมูลของคุณ</p>`,
-      `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
-       <button class="btn btn-primary" onclick="App.doSurveyorLogin()">เข้าใช้งาน</button>`
-    );
-    setTimeout(() => document.getElementById('sv_fname')?.focus(), 50);
-  },
-
-  doSurveyorLogin() {
-    const fname = document.getElementById('sv_fname')?.value.trim();
-    const lname = document.getElementById('sv_lname')?.value.trim();
-    if (!fname) { this.toast('กรุณากรอกชื่อ', 'error'); return; }
-    if (!lname) { this.toast('กรุณากรอกนามสกุล', 'error'); return; }
-    this._surveyorName = `${fname} ${lname}`;
-    this._role = 'surveyor';
-    this.closeModal();
-    this._enterApp();
-  },
-
-  // ---- ผู้ดูแลระบบ ----
-  loginAsAdmin() {
-    this.showModal('🔐 เข้าสู่ระบบ (ผู้ดูแลระบบ)', `
-      <div class="form-row">
-        <label class="form-label req">ชื่อผู้ใช้</label>
-        <input id="adm_user" class="form-input" autocomplete="off" placeholder="username"
-          onkeydown="if(event.key==='Enter')document.getElementById('adm_pass').focus()" />
-      </div>
-      <div class="form-row">
-        <label class="form-label req">รหัสผ่าน</label>
-        <input id="adm_pass" class="form-input" type="password" placeholder="password"
-          onkeydown="if(event.key==='Enter')App.doAdminLogin()" />
-      </div>`,
-      `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
-       <button class="btn btn-primary" id="adminLoginBtn" onclick="App.doAdminLogin()">เข้าสู่ระบบ</button>`
-    );
-    setTimeout(() => document.getElementById('adm_user')?.focus(), 50);
-  },
-
-  async doAdminLogin() {
-    const username = document.getElementById('adm_user')?.value.trim();
-    const password = document.getElementById('adm_pass')?.value;
-    if (!username || !password) { this.toast('กรุณากรอกให้ครบ', 'error'); return; }
-    const btn = document.getElementById('adminLoginBtn');
-    if (btn) { btn.textContent = '⌛ กำลังตรวจสอบ...'; btn.disabled = true; }
-    try {
-      if (!FB.db) FB.init();
-      await FB.loginAdmin(username, password);
-      this._adminUsername = username;
-      this._role = 'admin';
-      this.closeModal();
-      this._enterApp();
-    } catch (e) {
-      if (btn) { btn.textContent = 'เข้าสู่ระบบ'; btn.disabled = false; }
-      this.toast('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง', 'error');
-    }
-  },
-
-  // ---- เข้าแอปหลังจาก login ----
-  _enterApp() {
-    document.querySelector('.topbar').style.display = '';
-    const right = document.getElementById('topbarRight');
-    if (right) {
-      right.outerHTML = `<div id="topbarRight" class="tb-right">
-        <a class="tb-link" href="../index.html">◈ เมนูหลัก</a>
-        <span class="tb-sep">|</span>
-        <span class="tb-user">
-          ${this._role === 'admin' ? '🔐' : '👤'} ${this.esc(this._role === 'admin' ? this._adminUsername : this._surveyorName)}
-        </span>
-        <button class="tb-logout" onclick="App.logout()">ออก</button>
-      </div>`;
-    }
-    this.navigate('home');
-    this._silentPull();
-  },
-
-  async _silentPull() {
-    const THROTTLE_MS = 5 * 60 * 1000;
-    const last = +localStorage.getItem('_hi_last_auto_pull') || 0;
-    if (Date.now() - last < THROTTLE_MS) return;
-    try {
-      if (typeof firebase === 'undefined') return;
-      if (!FB.db) FB.init();
-      if (!FB.db) return;
-      const count = this._role === 'admin'
-        ? await FB.pullAll()
-        : await FB.pullBySurveyor(this._surveyorName);
-      localStorage.setItem('_hi_last_auto_pull', String(Date.now()));
-      this.toast(`☁️ โหลดข้อมูลแล้ว ${count} ครัวเรือน`, 'success');
-      this.render();
-    } catch { /* silent */ }
-  },
-
-  // escape free text ก่อนใส่ใน innerHTML — กันชื่อ/สถานที่ที่มี < > " ' & ทำ layout เพี้ยน
-  esc(s) {
-    return String(s ?? '').replace(/[&<>"']/g, c =>
-      ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
-  },
-
-  _relativeTime(iso) {
-    if (!iso) return '';
-    const diff = Date.now() - new Date(iso).getTime();
-    if (diff < 0) return '';
-    const sec = Math.floor(diff / 1000);
-    if (sec < 30)  return 'เมื่อกี้นี้';
-    if (sec < 60)  return `${sec} วินาทีที่แล้ว`;
-    const min = Math.floor(sec / 60);
-    if (min < 60)  return `${min} นาทีที่แล้ว`;
-    const hr = Math.floor(min / 60);
-    if (hr < 24)   return `${hr} ชม.ที่แล้ว`;
-    const day = Math.floor(hr / 24);
-    if (day < 7)   return `${day} วันที่แล้ว`;
-    return new Date(iso).toLocaleDateString('th-TH');
-  },
-
-  _syncBadge() {
-    const last = typeof FB !== 'undefined' ? FB.lastSync() : null;
-    if (!last) return `<span class="sync-badge sync-badge-none">⚠ ยังไม่เคย sync</span>`;
-    return `<span class="sync-badge" title="${new Date(last).toLocaleString('th-TH')}">
-              ☁️ sync ล่าสุด: ${this._relativeTime(last)}
-            </span>`;
-  },
-
-  // ---- ออกจากระบบ ----
-  logout() {
-    if (!confirm('ออกจากระบบ?')) return;
-    if (this._role === 'admin') FB.logoutAdmin().catch(() => {});
-    this._role = null;
-    this._surveyorName = '';
-    this._adminUsername = '';
-    // คืน topbar right เป็นลิงก์เมนูหลัก
-    const right = document.getElementById('topbarRight');
-    if (right) right.outerHTML = `<a class="tb-link" id="topbarRight" href="../index.html">◈ เมนูหลัก</a>`;
-    this._showLoginGate();
-  },
+  init() { DB.load(); this.navigate('home'); },
 
   navigate(page, hhId, memberId) {
+    if (this._mapActive) { MapDashboard.destroy(); this._mapActive = false; }
     this.page = page;
     if (hhId !== undefined) this.hhId = hhId;
     if (memberId !== undefined) this.memberId = memberId;
@@ -235,27 +31,28 @@ const App = {
     } else if (this.page === 'household') {
       const hh = DB.getHousehold(this.hhId);
       bc.className = 'breadcrumb visible';
-      bc.innerHTML = `<a onclick="App.navigate('home')">หน้าหลัก</a> <span>›</span> ${hh ? (hh.houseNo ? 'บ้านเลขที่ ' + this.esc(hh.houseNo) : hh.id) : ''}`;
+      bc.innerHTML = `<a onclick="App.navigate('home')">หน้าหลัก</a> <span>›</span> ${hh ? (hh.houseNo ? 'บ้านเลขที่ ' + hh.houseNo : hh.id) : ''}`;
       app.innerHTML = this.pageHousehold();
     } else if (this.page === 'member') {
       const hh = DB.getHousehold(this.hhId);
       const m  = DB.getMember(this.hhId, this.memberId);
       bc.className = 'breadcrumb visible';
       bc.innerHTML = `<a onclick="App.navigate('home')">หน้าหลัก</a> <span>›</span>
-        <a onclick="App.navigate('household','${this.hhId}')">${hh ? (hh.houseNo ? 'บ้านเลขที่ ' + this.esc(hh.houseNo) : hh.id) : ''}</a>
+        <a onclick="App.navigate('household','${this.hhId}')">${hh ? (hh.houseNo ? 'บ้านเลขที่ ' + hh.houseNo : hh.id) : ''}</a>
         <span>›</span> สมาชิกที่ ${m ? m.seq : ''}`;
       app.innerHTML = this.pageMember();
+    } else if (this.page === 'map') {
+      bc.className = 'breadcrumb visible';
+      bc.innerHTML = `<a onclick="App.navigate('home')">หน้าหลัก</a> <span>›</span> แผนที่สำรวจ`;
+      app.innerHTML = this.pageMap();
+      setTimeout(() => { MapDashboard.init(); this._mapActive = true; }, 100);
     }
   },
 
   // ===================== PAGE: HOME =====================
   pageHome() {
-    const isAdmin = this._role === 'admin';
-    const allHhs  = DB.getHouseholds();
-    const hhs     = isAdmin ? allHhs : allHhs.filter(h => h.surveyorName === this._surveyorName);
-    const members = hhs.reduce((s, h) => s + h.members.length, 0);
-    const trips   = hhs.reduce((s, h) => h.members.reduce((s2, m) => s2 + m.trips.length, s), 0);
-
+    const hhs   = DB.getHouseholds();
+    const stats = DB.stats();
     return `<div class="page container">
       <div class="dash-hero">
         <div class="dash-hero-text">
@@ -263,22 +60,24 @@ const App = {
           <p>โครงการวางผังเมืองรวมอำเภอบ้านไผ่ จ.ขอนแก่น</p>
         </div>
         <div class="dash-stats">
-          <div class="dash-stat"><div class="dash-stat-val">${hhs.length}</div><div class="dash-stat-lbl">ครัวเรือน</div></div>
-          <div class="dash-stat"><div class="dash-stat-val">${members}</div><div class="dash-stat-lbl">สมาชิก</div></div>
-          <div class="dash-stat"><div class="dash-stat-val">${trips}</div><div class="dash-stat-lbl">การเดินทาง</div></div>
+          <div class="dash-stat"><div class="dash-stat-val">${stats.households}</div><div class="dash-stat-lbl">ครัวเรือน</div></div>
+          <div class="dash-stat"><div class="dash-stat-val">${stats.members}</div><div class="dash-stat-lbl">สมาชิก</div></div>
+          <div class="dash-stat"><div class="dash-stat-val">${stats.trips}</div><div class="dash-stat-lbl">การเดินทาง</div></div>
         </div>
       </div>
 
       <div class="sec-header">
         <div>
           <div class="sec-title">รายการครัวเรือน</div>
-          <div class="sec-sub">พบ ${hhs.length} ครัวเรือน${!isAdmin ? ' (ของคุณ)' : ''} · ${this._syncBadge()}</div>
+          <div class="sec-sub">พบ ${hhs.length} ครัวเรือน</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          ${isAdmin && hhs.length > 0 ? `<button class="btn btn-ghost btn-sm" onclick="App.exportData()">⬇ Export Excel</button>` : ''}
-          ${hhs.length > 0 ? `<button class="btn btn-ghost btn-sm" id="syncBtn" onclick="App.syncToCloud()">☁️ Sync</button>` : ''}
+          <button class="btn btn-ghost btn-sm" onclick="App.navigate('map')">🗺 แผนที่สำรวจ</button>
+          ${hhs.length > 0 ? `
+            <button class="btn btn-ghost btn-sm" onclick="App.exportData()">⬇ Export Excel</button>
+            <button class="btn btn-ghost btn-sm" id="syncBtn" onclick="App.syncToCloud()">☁️ Sync</button>
+            <button class="btn btn-danger btn-sm" onclick="App.confirmClearAll()">🗑 ล้างข้อมูล</button>` : ''}
           <button class="btn btn-ghost btn-sm" id="pullBtn" onclick="App.pullFromCloud()">☁️ ดึงข้อมูล</button>
-          ${hhs.length > 0 ? `<button class="btn btn-danger btn-sm" onclick="App.confirmClearAll()">🗑 ล้าง cache</button>` : ''}
           <button class="btn btn-primary" onclick="App.openAddHousehold()">+ เพิ่มครัวเรือน</button>
         </div>
       </div>
@@ -294,17 +93,17 @@ const App = {
           </div>
         </div>` :
         `<div class="hh-list">${hhs.map(hh => {
-          const t    = hh.members.reduce((s, m) => s + m.trips.length, 0);
-          const totM = Object.values(hh.memberGrid || {}).reduce((s, v) => s + (+v || 0), 0);
-          const addr = [hh.houseNo ? 'บ้านเลขที่ ' + hh.houseNo : '', hh.moo ? 'ม.' + hh.moo : '', hh.road].filter(Boolean).join(' ');
+          const trips  = hh.members.reduce((s, m) => s + m.trips.length, 0);
+          const totalM = Object.values(hh.memberGrid || {}).reduce((s, v) => s + (+v || 0), 0);
+          const addr   = [hh.houseNo ? 'บ้านเลขที่ ' + hh.houseNo : '', hh.moo ? 'ม.' + hh.moo : '', hh.road].filter(Boolean).join(' ');
           return `<div class="hh-card" onclick="App.navigate('household','${hh.id}')">
             <div class="hh-card-icon">🏠</div>
             <div class="hh-card-body">
-              <div class="hh-card-id">${this.esc(addr) || 'ไม่ระบุที่อยู่'}</div>
-              <div class="hh-card-addr">${hh.surveyorName ? 'ผู้สำรวจ: ' + this.esc(hh.surveyorName) : ''}</div>
+              <div class="hh-card-id">${addr || 'ไม่ระบุที่อยู่'}</div>
+              <div class="hh-card-addr">${hh.surveyorName ? 'ผู้สำรวจ: ' + hh.surveyorName : ''}</div>
               <div class="hh-card-tags">
-                <span class="tag tag-blue">👥 ${totM} คน</span>
-                <span class="tag tag-green">🚗 ${t} เที่ยว</span>
+                <span class="tag tag-blue">👥 ${totalM} คน</span>
+                <span class="tag tag-green">🚗 ${trips} เที่ยว</span>
                 <span class="tag tag-gray">📅 ${hh.surveyDate}</span>
                 ${hh.residentialType ? `<span class="tag tag-gray">${hh.residentialType}</span>` : ''}
               </div>
@@ -348,16 +147,14 @@ const App = {
       <div class="hh-detail-header">
         <div class="hh-detail-icon">🏠</div>
         <div class="hh-detail-info">
-          <div class="hh-detail-id">${this.esc(addr) || 'ไม่ระบุที่อยู่'}</div>
+          <div class="hh-detail-id">${addr || 'ไม่ระบุที่อยู่'}</div>
           <div class="hh-detail-addr">${hh.residentialType || ''}</div>
           <div class="hh-detail-tags">
             ${hh.travelDate    ? `<span class="tag tag-blue">🗓 เดินทาง ${hh.travelDate}</span>` : ''}
             <span class="tag tag-gray">📋 บันทึก ${hh.surveyDate}</span>
-            ${hh.surveyorName  ? `<span class="tag tag-gray">🧑‍💼 ${this.esc(hh.surveyorName)}</span>`  : ''}
-            ${hh.supervisorName? `<span class="tag tag-gray">👔 ${this.esc(hh.supervisorName)}</span>`  : ''}
+            ${hh.surveyorName  ? `<span class="tag tag-gray">🧑‍💼 ${hh.surveyorName}</span>`  : ''}
+            ${hh.supervisorName? `<span class="tag tag-gray">👔 ${hh.supervisorName}</span>`  : ''}
             ${hh.coordinates   ? `<span class="tag tag-blue">📍 ${hh.coordinates}</span>`     : ''}
-            ${hh.deviceId      ? `<span class="tag tag-gray" title="Device ID: ${hh.deviceId}">💻 ${hh.deviceId.slice(0,8)}…</span>` : ''}
-            ${hh.clientIp      ? `<span class="tag tag-gray">🌐 ${hh.clientIp}</span>`          : ''}
           </div>
         </div>
         <div style="display:flex;gap:6px;flex-shrink:0;">
@@ -432,6 +229,26 @@ const App = {
   },
 
   // ===================== PAGE: MAP DASHBOARD =====================
+  pageMap() {
+    return `<div class="map-page">
+      <div class="map-layout">
+        <div class="map-main">
+          <div id="surveyMapContainer"></div>
+        </div>
+        <div class="map-panel" id="mapStatsPanel">
+          <div class="map-panel-header">
+            <div class="sec-title">Survey collections</div>
+            <div class="sec-sub" id="mapTotalCount">กำลังโหลด...</div>
+            <div class="sec-sub" id="mapLiveStatus" style="margin-top:6px;font-size:12px;">🟡 กำลังเชื่อมต่อ...</div>
+          </div>
+          <div class="zone-list" id="zoneList">
+            <div class="zone-empty">กำลังโหลด...</div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  },
+
   // ===================== PAGE: MEMBER =====================
   pageMember() {
     const hh = DB.getHousehold(this.hhId);
@@ -533,7 +350,7 @@ const App = {
 
       <div class="form-row">
         <label class="form-label">ชื่อสถานที่ทำงาน / สถานศึกษา</label>
-        <input id="f_wpName" class="form-input" autocomplete="off" value="${m.workplaceName || ''}" placeholder="เช่น โรงเรียนบ้านไผ่, บริษัท ABC" />
+        <input id="f_wpName" class="form-input" autocomplete="off" value="${m.workplaceName || ''}" placeholder="เช่น โรงเรียนนางรอง, บริษัท ABC" />
       </div>
       <div class="form-grid">
         <div class="form-row">
@@ -588,9 +405,8 @@ const App = {
     const hh   = DB.getHousehold(this.hhId);
     const grid = hh?.memberGrid || {};
     const otherMembers = (hh?.members || []).filter(m => m.id !== this.memberId);
-    // เด็กอายุต่ำกว่า 6 ปี (m_child/f_child) ไม่นับเป็นผู้ถูกสัมภาษณ์ → ไม่รวมในเพดาน
-    const maleKeys   = ['m_study','m_work','m_notw'];
-    const femaleKeys = ['f_study','f_work','f_notw'];
+    const maleKeys   = ['m_study','m_work','m_notw','m_child'];
+    const femaleKeys = ['f_study','f_work','f_notw','f_child'];
     const maleCap    = maleKeys.reduce((s, k)   => s + (+(grid[k]||0)), 0);
     const femaleCap  = femaleKeys.reduce((s, k) => s + (+(grid[k]||0)), 0);
     const maleUsed   = otherMembers.filter(m => m.gender === 'ชาย').length;
@@ -660,9 +476,9 @@ const App = {
               <div class="trip-seq">${t.seq}</div>
               <div class="trip-body">
                 <div class="trip-route">
-                  <span class="trip-origin">${this.esc(t.origin) || '?'}</span>
+                  <span>${t.origin || '?'}</span>
                   <span class="trip-arrow">→</span>
-                  <span class="trip-dest">${this.esc(t.destination) || '?'}</span>
+                  <span>${t.destination || '?'}</span>
                 </div>
                 <div class="trip-meta">
                   ${t.purpose      ? `<span>🎯 ${t.purpose}</span>` : ''}
@@ -714,8 +530,6 @@ const App = {
   _hhFormHTML(hh) {
     // hh = null for add, existing object for edit
     const names      = this._loadSurveyorNames();
-    // ถ้า role = surveyor ใช้ชื่อ login เป็น default ผู้สำรวจ
-    const defaultSurveyor = this._role === 'surveyor' ? this._surveyorName : names.surveyor;
     const resOpts    = OPT.residentialType.map(r =>
       `<option value="${r}" ${r === hh?.residentialType ? 'selected' : ''}>${r}</option>`).join('');
     const gridCards  = OPT.memberGridRows.map(row => {
@@ -730,7 +544,7 @@ const App = {
           </div>
         </div>
         <select id="mg_${row.key}" class="form-select" autocomplete="off">
-          ${[0,1,2,3,4,5].map(n => `<option value="${n}" ${n === +cur ? 'selected' : ''}>${n === 0 ? '' : n + ' คน'}</option>`).join('')}
+          ${[0,1,2,3,4,5].map(n => `<option value="${n}" ${n === +cur ? 'selected' : ''}>${n === 0 ? '0 คน' : n + ' คน'}</option>`).join('')}
         </select>
       </div>`;
     }).join('');
@@ -751,7 +565,7 @@ const App = {
         <div class="form-row">
           <label class="form-label req">ชื่อ–สกุลผู้สำรวจ</label>
           <input id="m_sname" class="form-input" autocomplete="off" placeholder="ชื่อ นามสกุล"
-            value="${hh ? (hh.surveyorName||'') : defaultSurveyor}" />
+            value="${hh ? (hh.surveyorName||'') : names.surveyor}" />
         </div>
         <div class="form-row">
           <label class="form-label req">ชื่อผู้ควบคุม</label>
@@ -771,12 +585,12 @@ const App = {
         <div style="display:flex;gap:6px;">
           <input id="m_coords" class="form-input" autocomplete="off" placeholder="เช่น 16.0590, 102.7313"
             style="flex:1;min-width:0;" value="${hh?.coordinates||''}" />
-          <button type="button" onclick="App._openHhMap()"
-            style="padding:9px 12px;background:#eff6ff;color:#2563eb;border:1.5px solid #2563eb;
-                   border-radius:var(--radius-sm);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">🗺</button>
           <button type="button" id="gpsBtn_m_coords" onclick="App._useGPS('m_coords')"
             style="padding:9px 12px;background:#f0fdf4;color:#16a34a;border:1.5px solid #16a34a;
                    border-radius:var(--radius-sm);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">📍 GPS</button>
+          <button type="button" onclick="MapPicker.open(document.getElementById('m_coords').value, v => { document.getElementById('m_coords').value = v; })"
+            style="padding:9px 12px;background:var(--primary-light);color:var(--primary);border:1.5px solid var(--primary);
+                   border-radius:var(--radius-sm);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">🗺</button>
         </div>
       </div>
       <div class="form-grid">
@@ -802,23 +616,21 @@ const App = {
       <div class="form-grid">
         <div class="form-row">
           <label class="form-label req">ตำบล</label>
-          <input id="m_subdistrict" class="form-input" autocomplete="off" placeholder="กด GPS เพื่อดึงอัตโนมัติ" value="${hh?.subdistrict||''}" />
+          <input id="m_subdistrict" class="form-input" autocomplete="off" placeholder="เช่น บ้านไผ่" value="${hh?.subdistrict||''}" />
         </div>
         <div class="form-row">
           <label class="form-label req">อำเภอ</label>
-          <input id="m_district" class="form-input" autocomplete="off" placeholder="กด GPS เพื่อดึงอัตโนมัติ" value="${hh?.district||''}" />
+          <input id="m_district" class="form-input" autocomplete="off" value="${hh?.district||'บ้านไผ่'}" />
         </div>
         <div class="form-row">
           <label class="form-label">จังหวัด</label>
-          <input id="m_province" class="form-input" autocomplete="off" placeholder="กด GPS เพื่อดึงอัตโนมัติ" value="${hh?.province||''}" />
+          <input id="m_province" class="form-input" autocomplete="off" value="${hh?.province||'ขอนแก่น'}" />
         </div>
       </div>
       <div class="form-row">
-        <label class="form-label">โทรศัพท์</label>
+        <label class="form-label">โทรศัพท์ (10 หลัก)</label>
         <input id="m_phone" class="form-input" type="tel" inputmode="numeric"
-          maxlength="12" placeholder="08x-xxx-xxxx" autocomplete="off"
-          oninput="App._formatPhone(this)"
-          value="${App._displayPhone(hh?.phone||'')}" />
+          maxlength="10" pattern="0[0-9]{9}" placeholder="0xxxxxxxxx" autocomplete="off" value="${hh?.phone||''}" />
       </div>
 
       <div class="section-label">ประเภทที่อยู่อาศัย</div>
@@ -894,9 +706,9 @@ const App = {
       alley:           document.getElementById('m_alley')?.value.trim()       || '',
       road:            document.getElementById('m_road')?.value.trim()        || '',
       subdistrict:     document.getElementById('m_subdistrict')?.value.trim() || '',
-      district:        document.getElementById('m_district')?.value.trim()    || '',
-      province:        document.getElementById('m_province')?.value.trim()    || '',
-      phone:           (document.getElementById('m_phone')?.value || '').replace(/-/g,'').trim(),
+      district:        document.getElementById('m_district')?.value.trim()    || 'บ้านไผ่',
+      province:        document.getElementById('m_province')?.value.trim()    || 'ขอนแก่น',
+      phone:           document.getElementById('m_phone')?.value.trim()       || '',
       residentialType: document.getElementById('m_restype')?.value            || '',
       memberGrid,
       householdIncome: +(document.getElementById('m_income')?.value)          || 0,
@@ -948,12 +760,7 @@ const App = {
     const errs = this._validateHhForm(data);
     if (errs.length) { this.toast('กรุณากรอก: ' + errs.join(', '), 'error'); return; }
     this._saveSurveyorNames(data.surveyorName, data.supervisorName);
-    const hh = DB.addHousehold({
-      ...data,
-      surveyDate: new Date().toISOString().split('T')[0],
-      deviceId:   (typeof FB !== 'undefined' ? FB.deviceId() : null) || localStorage.getItem('_device_id') || '',
-      clientIp:   this._clientIp || ''
-    });
+    const hh = DB.addHousehold({ ...data, surveyDate: new Date().toISOString().split('T')[0] });
     this.closeModal();
     this.toast('เพิ่มครัวเรือนแล้ว', 'success');
     this.navigate('household', hh.id);
@@ -981,19 +788,18 @@ const App = {
 
   confirmDeleteHousehold(id) {
     const hh = DB.getHousehold(id);
-    this.showModal('🗑 ลบครัวเรือนจากเครื่องนี้',
-      `<p style="color:var(--gray-600)">จะลบครัวเรือน <strong>[${hh?.areaCode || hh?.id}]</strong>
-       พร้อมสมาชิก ${hh?.members.length || 0} คน <b>ออกจากเครื่องนี้</b></p>
-       <p style="font-size:13px;color:var(--success);font-weight:600;margin-top:8px;">✅ ข้อมูลบน Cloud ยังอยู่ — ดึงกลับได้</p>`,
+    this.showModal('⚠️ ลบครัวเรือน',
+      `<p style="color:var(--gray-600)">ต้องการลบครัวเรือน <strong>[${hh?.areaCode || hh?.id}]</strong>
+       พร้อมสมาชิก ${hh?.members.length || 0} คน ใช่หรือไม่?<br><br>ไม่สามารถย้อนกลับได้</p>`,
       `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
-       <button class="btn btn-danger" onclick="App.deleteHousehold('${id}')">ลบจากเครื่องนี้</button>`
+       <button class="btn btn-danger" onclick="App.deleteHousehold('${id}')">ลบ</button>`
     );
   },
 
   deleteHousehold(id) {
     DB.deleteHousehold(id);
     this.closeModal();
-    this.toast('ลบจากเครื่องนี้แล้ว · Cloud ยังอยู่', 'success');
+    this.toast('ลบครัวเรือนแล้ว', 'danger');
     this.navigate('home');
   },
 
@@ -1026,18 +832,17 @@ const App = {
 
   confirmDeleteMember(mid) {
     const m = DB.getMember(this.hhId, mid);
-    this.showModal('🗑 ลบสมาชิกจากเครื่องนี้',
-      `<p style="color:var(--gray-600)">จะลบสมาชิกที่ ${m?.seq} พร้อมการเดินทาง ${m?.trips.length || 0} เที่ยว <b>ออกจากเครื่องนี้</b></p>
-       <p style="font-size:13px;color:var(--success);font-weight:600;margin-top:8px;">✅ ข้อมูลบน Cloud ยังอยู่ — ดึงกลับได้</p>`,
+    this.showModal('⚠️ ลบสมาชิก',
+      `<p style="color:var(--gray-600)">ต้องการลบสมาชิกที่ ${m?.seq} พร้อมการเดินทาง ${m?.trips.length || 0} เที่ยว ใช่หรือไม่?</p>`,
       `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
-       <button class="btn btn-danger" onclick="App.deleteMember('${mid}')">ลบจากเครื่องนี้</button>`
+       <button class="btn btn-danger" onclick="App.deleteMember('${mid}')">ลบ</button>`
     );
   },
 
   deleteMember(mid) {
     DB.deleteMember(this.hhId, mid);
     this.closeModal();
-    this.toast('ลบจากเครื่องนี้แล้ว · Cloud ยังอยู่', 'success');
+    this.toast('ลบสมาชิกแล้ว', 'danger');
     this.navigate('household', this.hhId);
   },
 
@@ -1128,7 +933,7 @@ const App = {
 
     this.showModal(isEdit ? '✏️ แก้ไขการเดินทาง' : '🚗 เพิ่มการเดินทาง', `
       <!-- ต้นทาง (read-only — auto-filled จากบ้านหรือปลายทางครั้งก่อน) -->
-      <div class="section-label"><span class="od-pill od-pill-from">🟢 ต้นทาง — จุดเริ่มต้น</span></div>
+      <div class="section-label">ต้นทาง</div>
       <div class="form-row">
         <label class="form-label">สถานที่ตั้งต้นทาง
           <span style="font-size:11px;font-weight:400;color:var(--gray-400);margin-left:6px;">🔒 กำหนดอัตโนมัติ</span>
@@ -1163,7 +968,7 @@ const App = {
       </div>
 
       <!-- ปลายทาง -->
-      <div class="section-label"><span class="od-pill od-pill-to">🔴 ปลายทาง — จุดหมาย</span></div>
+      <div class="section-label">ปลายทาง</div>
       <div class="form-row">
         <label class="form-label">สถานที่ตั้งปลายทาง</label>
         <div style="display:flex;gap:8px;">
@@ -1227,93 +1032,37 @@ const App = {
     );
   },
 
-  // format/display phone helpers
-  _formatPhone(el) {
-    let v = el.value.replace(/\D/g, '').slice(0, 10);
-    if (v.length > 6) v = v.slice(0,3) + '-' + v.slice(3,6) + '-' + v.slice(6);
-    else if (v.length > 3) v = v.slice(0,3) + '-' + v.slice(3);
-    el.value = v;
-  },
-  _displayPhone(digits) {
-    if (!digits) return '';
-    const v = digits.replace(/\D/g,'');
-    if (v.length > 6) return v.slice(0,3) + '-' + v.slice(3,6) + '-' + v.slice(6);
-    if (v.length > 3) return v.slice(0,3) + '-' + v.slice(3);
-    return v;
-  },
-
-  // reverse geocode พิกัด → ตำบล/อำเภอ/จังหวัด (Nominatim/OSM — ฟรี ไม่ต้อง key)
-  // reverse geocode → Longdo address (ข้อมูลไทยแม่น · ได้ ตำบล ด้วย · ไม่ติด throttle เหมือน Nominatim)
-  _reverseGeocode(lat, lon) {
-    const key = (typeof PlaceService !== 'undefined' && PlaceService.LONGDO_KEY) || '';
-    fetch(`https://api.longdo.com/map/services/address?lon=${lon}&lat=${lat}&key=${key}&locale=th`)
-      .then(r => r.json())
-      .then(d => {
-        const strip = s => (s || '').replace(/^(ต\.|อ\.|จ\.|ตำบล|อำเภอ|จังหวัด)\s*/, '').trim();
-        const sub = strip(d.subdistrict), dis = strip(d.district), pro = strip(d.province);
-        const subEl = document.getElementById('m_subdistrict');
-        const disEl = document.getElementById('m_district');
-        const proEl = document.getElementById('m_province');
-        if (subEl && sub) subEl.value = sub;
-        if (disEl && dis) disEl.value = dis;
-        if (proEl && pro) proEl.value = pro;
-        if (sub || dis || pro)
-          this.toast(`พบที่อยู่: ต.${sub||'?'} อ.${dis||'?'} จ.${pro||'?'}`, 'success');
-      })
-      .catch(() => {});
-  },
-
-  // ใช้ GPS เครื่องอ่านพิกัดปัจจุบัน
+  // ใช้ GPS เครื่องอ่านพิกัดปัจจุบัน (ทำงานออฟไลน์ได้)
   _useGPS(coordsId) {
-    if (!navigator.geolocation) { this.toast('เบราว์เซอร์นี้ไม่รองรับ GPS', 'error'); return; }
-    if (!window.isSecureContext) { this.toast('GPS ใช้ได้เฉพาะผ่าน https', 'error'); return; }
+    if (!navigator.geolocation) {
+      this.toast('เบราว์เซอร์นี้ไม่รองรับ GPS', 'error'); return;
+    }
     const btn = document.getElementById('gpsBtn_' + coordsId);
-    const orig = btn ? btn.textContent : '';
     if (btn) { btn.textContent = '⌛'; btn.disabled = true; }
 
-    const onOk = pos => {
-      const lat = pos.coords.latitude.toFixed(6);
-      const lon = pos.coords.longitude.toFixed(6);
-      const coords = `${lat}, ${lon}`;
-      const el = document.getElementById(coordsId);
-      if (el) el.value = coords;
-      const hintEl = document.querySelector(`[data-coordshint="${coordsId}"]`);
-      if (hintEl) hintEl.textContent = '📍 ' + coords;
-      if (btn) { btn.textContent = orig || '📍'; btn.disabled = false; }
-      this.toast(`รับพิกัด GPS: ${coords}`, 'success');
-      // ถ้าเป็นฟอร์มครัวเรือน ดึงชื่ออำเภอ/จังหวัดอัตโนมัติ
-      if (coordsId === 'm_coords') this._reverseGeocode(lat, lon);
-    };
-    const onErr = (err, isRetry) => {
-      // timeout(3)/หาไม่เจอ(2) → ลองใหม่แบบผ่อนปรน (ไม่เน้นแม่น · ใช้ค่าล่าสุดได้ · รอนานขึ้น)
-      if (!isRetry && (err.code === 2 || err.code === 3)) {
-        navigator.geolocation.getCurrentPosition(onOk, e => onErr(e, true),
-          { enableHighAccuracy: false, timeout: 20000, maximumAge: 120000 });
-        return;
-      }
-      if (btn) { btn.textContent = orig || '📍'; btn.disabled = false; }
-      let msg;
-      if (err.code === 1)      msg = 'เบราว์เซอร์บล็อกตำแหน่ง — เปิดสิทธิ์ Location ของเว็บนี้ในตั้งค่าเบราว์เซอร์';
-      else if (err.code === 2) msg = 'หาตำแหน่งไม่ได้ — เปิด Location/GPS ของเครื่อง หรือกดปุ่มแผนที่ปักหมุดแทน';
-      else if (err.code === 3) msg = 'หาตำแหน่งนานเกินไป — ลองใหม่ที่โล่ง หรือกดปุ่มแผนที่ปักหมุดแทน';
-      else                     msg = 'อ่าน GPS ไม่สำเร็จ — กดปุ่มแผนที่ปักหมุดแทนได้';
-      this.toast(msg, 'error');
-    };
-    navigator.geolocation.getCurrentPosition(onOk, e => onErr(e, false),
-      { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 });
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        const lat = pos.coords.latitude.toFixed(6);
+        const lon = pos.coords.longitude.toFixed(6);
+        const coords = `${lat}, ${lon}`;
+        const el = document.getElementById(coordsId);
+        if (el) el.value = coords;
+        // อัพเดต hint display
+        const hint = el?.nextElementSibling?.nextElementSibling; // ข้าม GPS btn + map btn
+        const hintEl = document.querySelector(`[data-coordshint="${coordsId}"]`);
+        if (hintEl) hintEl.textContent = '📍 ' + coords;
+        if (btn) { btn.textContent = '📍'; btn.disabled = false; }
+        this.toast(`รับพิกัด GPS: ${coords}`, 'success');
+      },
+      () => {
+        if (btn) { btn.textContent = '📍 GPS'; btn.disabled = false; }
+        this.toast('ไม่สามารถอ่าน GPS ได้ — กรุณาอนุญาตการเข้าถึงตำแหน่ง', 'error');
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
   },
 
   // เปิด map picker สำหรับ trip (รับ coordsInputId)
-  // เปิดแผนที่สำหรับพิกัดครัวเรือน (ฟอร์มสมาชิก/ครัวเรือน — ทั้งบันทึกและแก้ไข)
-  _openHhMap() {
-    const coordsEl = document.getElementById('m_coords');
-    MapPicker.open(coordsEl?.value || '', coords => {
-      if (coordsEl) coordsEl.value = coords;
-      const p = coords.split(',');
-      this._reverseGeocode(parseFloat(p[0]), parseFloat(p[1]));  // เติม อำเภอ/จังหวัด
-    });
-  },
-
   _openMap(coordsId) {
     const coordsEl = document.getElementById(coordsId);
     MapPicker.open(coordsEl?.value || '', coords => {
@@ -1505,7 +1254,7 @@ const App = {
 
   deleteTrip(tripId) {
     DB.deleteTrip(this.hhId, this.memberId, tripId);
-    this.toast('ลบจากเครื่องนี้แล้ว · Cloud ยังอยู่', 'success');
+    this.toast('ลบการเดินทางแล้ว', 'danger');
     this.render();
   },
 
@@ -1546,13 +1295,10 @@ const App = {
 
   // ===================== FIREBASE SYNC / PULL =====================
   pullFromCloud() {
-    const isAdmin    = this._role === 'admin';
     const localCount = DB.getHouseholds().length;
-    const filterNote = isAdmin ? '' :
-      `<br><span style="color:var(--primary);font-size:12px;">🔍 จะดึงเฉพาะข้อมูลของ "${this._surveyorName}" เท่านั้น</span>`;
     const msg = localCount > 0
-      ? `<p style="font-size:14px;color:var(--gray-600);">จะดึงข้อมูลจาก Firebase มา<b>รวม</b>กับข้อมูลในเครื่อง ${localCount} ครัวเรือน<br>ข้อมูลที่ซ้ำ ID กันจะใช้ข้อมูลจาก Firebase แทน${filterNote}</p>`
-      : `<p style="font-size:14px;color:var(--gray-600);">จะดึงข้อมูลจาก Firebase มาไว้ในเครื่องนี้${filterNote}</p>`;
+      ? `<p style="font-size:14px;color:var(--gray-600);">จะดึงข้อมูลจาก Firebase มา<b>รวม</b>กับข้อมูลในเครื่อง ${localCount} ครัวเรือน<br>ข้อมูลที่ซ้ำ ID กันจะใช้ข้อมูลจาก Firebase แทน</p>`
+      : `<p style="font-size:14px;color:var(--gray-600);">จะดึงข้อมูลทั้งหมดจาก Firebase มาไว้ในเครื่องนี้</p>`;
     this.showModal('☁️ ดึงข้อมูลจาก Firebase', msg,
       `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
        <button class="btn btn-primary" onclick="App.closeModal();App._doPull()">ดึงข้อมูล</button>`
@@ -1567,9 +1313,7 @@ const App = {
       if (typeof FB === 'undefined') throw new Error('firebase.js โหลดไม่สำเร็จ');
       if (!FB.db) FB.init();
       if (!FB.db) throw new Error('Firebase เชื่อมต่อไม่ได้ — ลองรีเฟรชหน้า');
-      const count = this._role === 'admin'
-        ? await FB.pullAll()
-        : await FB.pullBySurveyor(this._surveyorName);
+      const count = await FB.pullAll();
       this.toast(`☁️ ดึงข้อมูลสำเร็จ รวม ${count} ครัวเรือน`, 'success');
       this.navigate('home');
     } catch (e) {
@@ -1587,11 +1331,10 @@ const App = {
       if (typeof FB === 'undefined') throw new Error('firebase.js โหลดไม่สำเร็จ');
       if (!FB.db) FB.init();
       if (!FB.db) throw new Error('Firebase เชื่อมต่อไม่ได้ — ลองรีเฟรชหน้า');
-      const isAdmin = this._role === 'admin';
-      const summary = await FB.syncAll(isAdmin ? null : this._surveyorName);
+      const count = await FB.syncAll();
       const lastSync = FB.lastSync();
       const timeStr = lastSync ? new Date(lastSync).toLocaleTimeString('th-TH') : '';
-      this.toast(`☁️ sync สำเร็จ · ${summary}${timeStr ? ' · ' + timeStr : ''}`, 'success');
+      this.toast(`☁️ sync สำเร็จ ${count} ครัวเรือน${timeStr ? ' · ' + timeStr : ''}`, 'success');
     } catch (e) {
       this.toast('sync ไม่สำเร็จ: ' + e.message, 'error');
     } finally {
@@ -1601,7 +1344,6 @@ const App = {
 
   // ===================== EXPORT / CLEAR =====================
   exportData() {
-    if (this._role !== 'admin') { this.toast('เฉพาะผู้ดูแลระบบเท่านั้น', 'error'); return; }
     if (typeof XLSX === 'undefined') {
       this.toast('โหลด SheetJS ไม่สำเร็จ — ตรวจสอบอินเทอร์เน็ต', 'error');
       return;
@@ -1610,47 +1352,42 @@ const App = {
     const wb   = XLSX.utils.book_new();
 
     // ===== Sheet 1: ครัวเรือน =====
-    const hhRows = data.households.map(hh => {
-      // ยานพาหนะ: เก็บแยก ส่วนตัว/บริษัท/ราชการ ทุกประเภท
-      const vcol = {};
-      OPT.vehicleTypes.forEach(vt => {
-        const v = hh.vehicles?.[vt.key] || {};
-        vcol[`${vt.label} (ส่วนตัว)`]   = +(v.private || 0);
-        vcol[`${vt.label} (บริษัท)`]    = +(v.company || 0);
-        vcol[`${vt.label} (ราชการ)`]   = +(v.gov     || 0);
-      });
-      return {
-        'ID':                        hh.id,
-        'วันที่เดินทาง':             hh.travelDate,
-        'วันที่บันทึก':              hh.surveyDate,
-        'ผู้สำรวจ':                  hh.surveyorName,
-        'ผู้ควบคุม':                 hh.supervisorName,
-        'รหัสพื้นที่':               hh.areaCode,
-        'บ้านเลขที่':                hh.houseNo,
-        'หมู่':                      hh.moo,
-        'ซอย':                       hh.alley,
-        'ถนน':                       hh.road,
-        'โทรศัพท์':                  hh.phone,
-        'พิกัด':                     hh.coordinates,
-        'ตำบล':                      hh.subdistrict,
-        'อำเภอ':                     hh.district,
-        'จังหวัด':                   hh.province,
-        'Device ID':                 hh.deviceId,
-        'IP เครื่อง':                hh.clientIp,
-        'ประเภทที่อยู่อาศัย':        hh.residentialType,
-        'สมาชิก ชาย-กำลังศึกษา':    +(hh.memberGrid?.m_study || 0),
-        'สมาชิก ชาย-ทำงานแล้ว':     +(hh.memberGrid?.m_work  || 0),
-        'สมาชิก ชาย-ไม่ได้ทำงาน':   +(hh.memberGrid?.m_notw  || 0),
-        'สมาชิก หญิง-กำลังศึกษา':   +(hh.memberGrid?.f_study || 0),
-        'สมาชิก หญิง-ทำงานแล้ว':    +(hh.memberGrid?.f_work  || 0),
-        'สมาชิก หญิง-ไม่ได้ทำงาน':  +(hh.memberGrid?.f_notw  || 0),
-        'สมาชิก ชาย-ต่ำกว่า6ปี':    +(hh.memberGrid?.m_child || 0),
-        'สมาชิก หญิง-ต่ำกว่า6ปี':   +(hh.memberGrid?.f_child || 0),
-        'รายได้ครัวเรือน':           hh.householdIncome,
-        'มียานพาหนะ':                hh.hasVehicle,
-        ...vcol
-      };
-    });
+    const hhRows = data.households.map(hh => ({
+      'ID':                        hh.id,
+      'วันที่เดินทาง':             hh.travelDate,
+      'วันที่บันทึก':              hh.surveyDate,
+      'ผู้สำรวจ':                  hh.surveyorName,
+      'ผู้ควบคุม':                 hh.supervisorName,
+      'ตำบล/อปท.':                 hh.subdistrict,
+      'รหัสพื้นที่':               hh.areaCode,
+      'บ้านเลขที่':                hh.houseNo,
+      'หมู่':                      hh.moo,
+      'ซอย':                       hh.alley,
+      'ถนน':                       hh.road,
+      'โทรศัพท์':                  hh.phone,
+      'พิกัด':                     hh.coordinates,
+      'ประเภทที่อยู่อาศัย':        hh.residentialType,
+      'สมาชิก ชาย-กำลังศึกษา':    +(hh.memberGrid?.m_study || 0),
+      'สมาชิก ชาย-ทำงานแล้ว':     +(hh.memberGrid?.m_work  || 0),
+      'สมาชิก ชาย-ไม่ได้ทำงาน':   +(hh.memberGrid?.m_notw  || 0),
+      'สมาชิก หญิง-กำลังศึกษา':   +(hh.memberGrid?.f_study || 0),
+      'สมาชิก หญิง-ทำงานแล้ว':    +(hh.memberGrid?.f_work  || 0),
+      'สมาชิก หญิง-ไม่ได้ทำงาน':  +(hh.memberGrid?.f_notw  || 0),
+      'สมาชิก ชาย-ต่ำกว่า6ปี':    +(hh.memberGrid?.m_child || 0),
+      'สมาชิก หญิง-ต่ำกว่า6ปี':   +(hh.memberGrid?.f_child || 0),
+      'รายได้ครัวเรือน':           hh.householdIncome,
+      'มียานพาหนะ':                hh.hasVehicle,
+      'จักรยาน2ล้อ':               +(hh.vehicles?.bicycle2   || 0),
+      'จักรยาน3ล้อ':               +(hh.vehicles?.bicycle3   || 0),
+      'รถจักรยานยนต์':             +(hh.vehicles?.motorcycle || 0),
+      'รถสามล้อเครื่อง':           +(hh.vehicles?.tuk3       || 0),
+      'รถยนต์':                    +(hh.vehicles?.car        || 0),
+      'รถโดยสารเล็ก-กลาง':        +(hh.vehicles?.minibus    || 0),
+      'รถโดยสารใหญ่':              +(hh.vehicles?.bus        || 0),
+      'รถปิ๊กอัพ':                 +(hh.vehicles?.pickup     || 0),
+      'รถบรรทุก6ล้อขึ้นไป':       +(hh.vehicles?.truck6     || 0),
+      'ยานพาหนะอื่นๆ':             +(hh.vehicles?.other      || 0),
+    }));
 
     // ===== Sheet 2: สมาชิก =====
     const memberRows = data.households.flatMap(hh =>
@@ -1726,40 +1463,21 @@ const App = {
     this.toast('Export Excel สำเร็จ', 'success');
   },
 
-  // ช่องพิมพ์ "delete" เพื่อกันการลบพลาด — ปุ่มลบ (btnId) เริ่มต้น disabled จนกว่าจะพิมพ์ถูก
-  _deleteConfirmHTML(btnId) {
-    return `<div style="margin-top:14px;">
-      <label style="display:block;font-size:13px;color:var(--gray-600);margin-bottom:6px;">
-        พิมพ์ <strong style="color:var(--danger);">delete</strong> เพื่อยืนยันการลบ
-      </label>
-      <input type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
-        placeholder="delete" oninput="App._armDelete(this,'${btnId}')"
-        style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:15px;">
-    </div>`;
-  },
-  _armDelete(input, btnId) {
-    const btn = document.getElementById(btnId);
-    if (btn) btn.disabled = input.value.trim().toLowerCase() !== 'delete';
-  },
-
   confirmClearAll() {
-    const isAdmin = this._role === 'admin';
-    const stats = DB.stats(isAdmin ? null : this._surveyorName);
-    const title = isAdmin ? '🗑 ล้างข้อมูลทั้งหมดจากเครื่องนี้' : '🗑 ล้างข้อมูลของฉันจากเครื่องนี้';
-    this.showModal(title,
-      `<div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:14px 16px;margin-bottom:12px;">
-        <strong style="color:#92400e;">ข้อมูลในเครื่องที่จะหาย:</strong>
-        <ul style="margin-top:8px;padding-left:18px;font-size:14px;color:#78350f;line-height:1.8;">
+    const stats = DB.stats();
+    this.showModal('⚠️ ล้างข้อมูลทั้งหมด',
+      `<div style="background:#fee2e2;border:1px solid #fca5a5;border-radius:8px;padding:14px 16px;margin-bottom:12px;">
+        <strong style="color:#dc2626;">ข้อมูลที่จะถูกลบ:</strong>
+        <ul style="margin-top:8px;padding-left:18px;font-size:14px;color:#7f1d1d;line-height:1.8;">
           <li>${stats.households} ครัวเรือน</li>
           <li>${stats.members} สมาชิก</li>
           <li>${stats.trips} การเดินทาง</li>
         </ul>
       </div>
-      <p style="font-size:13px;color:var(--success);font-weight:600;">✅ ข้อมูลบน Cloud ยังอยู่ครบ — กด "ดึงข้อมูล" เพื่อโหลดกลับมาได้ทุกเมื่อ</p>
-      ${this._deleteConfirmHTML('delCacheBtn')}`,
+      <p style="font-size:14px;color:var(--gray-600);">ไม่สามารถย้อนกลับได้ — แนะนำให้ Export ก่อน</p>`,
       `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
-       ${isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="App.exportData()" style="color:var(--primary);">⬇ Export ก่อน</button>` : ''}
-       <button id="delCacheBtn" class="btn btn-danger" disabled onclick="App.${isAdmin ? 'clearAll' : 'clearMyData'}()">ล้าง cache</button>`
+       <button class="btn btn-ghost btn-sm" onclick="App.exportData()" style="color:var(--primary);">⬇ Export ก่อนลบ</button>
+       <button class="btn btn-danger" onclick="App.clearAll()">ล้างข้อมูลทั้งหมด</button>`
     );
   },
 
@@ -1767,17 +1485,9 @@ const App = {
     localStorage.removeItem(DB.KEY);
     DB._data = null;
     this.closeModal();
-    this.toast('ล้าง cache แล้ว · Cloud ยังอยู่', 'success');
+    this.toast('ล้างข้อมูลทั้งหมดแล้ว', 'danger');
     this.navigate('home');
-  },
-
-  clearMyData() {
-    DB.clearMyData(this._surveyorName);
-    this.closeModal();
-    this.toast('ล้างข้อมูลของฉันแล้ว · Cloud ยังอยู่', 'success');
-    this.render();
-  },
-
+  }
 };
 
 document.addEventListener('DOMContentLoaded', () => App.init());
