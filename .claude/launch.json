@@ -6,6 +6,12 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["serve", "-l", "5500", "."],
       "port": 5500
+    },
+    {
+      "name": "Dashboard",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "-l", "5501", "Dashboard"],
+      "port": 5501
     }
   ]
 }
