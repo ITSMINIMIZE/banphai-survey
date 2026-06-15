@@ -5,6 +5,7 @@ const MapDashboard = {
   _zoneCounts: null,
   _resizeHandler: null,
   _activeZone: null,
+  _unsubscribe: null,    // Firestore realtime listener disposer
 
   DEFAULT_LAT: 14.6318,
   DEFAULT_LON: 102.7916,
@@ -25,17 +26,23 @@ const MapDashboard = {
     this._activeZone = null;
     this._zoneCounts = this._countHouseholdsPerZone(points, features);
 
-    // Compute bounds from zones (fallback to Nangrong default if no zones)
-    this._zoneBounds = this._computeBounds(features);
+    // Bounds cover BOTH zones and every household marker so nothing is
+    // off-screen — e.g. test points captured outside the survey area.
+    this._zoneBounds = this._extendBoundsWithPoints(
+      this._computeBounds(features),
+      points
+    );
 
     this._initLongdoMap();
 
     setTimeout(() => {
       this._drawZones(this._zoneCounts);
-      this._drawHouseholdMarkers(points);
-      this._renderStatsPanel(this._zoneCounts, points.length);
+      this._drawHouseholdMarkers(points, features);
+      this._renderStatsPanel(this._zoneCounts, points.length, points, features);
       this._fixMapSize();
       this._fitToZones();
+      // Start realtime sync after initial render
+      this._startRealtimeSync();
     }, 200);
 
     if (features.length === 0) {
@@ -43,15 +50,74 @@ const MapDashboard = {
     }
   },
 
+  // Subscribe to Firestore changes — every change refreshes the map.
+  _startRealtimeSync() {
+    if (typeof FB === 'undefined') return;
+    if (!FB.db) FB.init();
+    if (!FB.db) {
+      this._setLiveStatus('offline', 'Firebase ไม่พร้อม');
+      return;
+    }
+
+    this._setLiveStatus('connecting', 'กำลังเชื่อมต่อ...');
+    this._unsubscribe = FB.subscribe(
+      ({ count, syncedAt }) => {
+        this.refresh();
+        const t = new Date(syncedAt).toLocaleTimeString('th-TH');
+        this._setLiveStatus('live', `Live · อัปเดต ${t} · ${count} ครัวเรือน`);
+      },
+      err => {
+        this._setLiveStatus('offline', 'ขาดการเชื่อมต่อ: ' + err.message);
+      }
+    );
+  },
+
+  _setLiveStatus(state, text) {
+    const el = document.getElementById('mapLiveStatus');
+    if (!el) return;
+    const dot = state === 'live' ? '🟢' : state === 'connecting' ? '🟡' : '🔴';
+    el.textContent = `${dot} ${text}`;
+  },
+
   destroy() {
     if (this._resizeHandler) {
       window.removeEventListener('resize', this._resizeHandler);
       this._resizeHandler = null;
     }
+    if (this._unsubscribe) {
+      try { this._unsubscribe(); } catch (e) { /* already disposed */ }
+      this._unsubscribe = null;
+    }
     this._map = null;
     this._zonePolygons = null;
     this._zoneCounts = null;
     this._activeZone = null;
+  },
+
+  // Re-read DB, recount zones, and redraw overlays without re-creating the map.
+  // Used by App.syncMap() after pulling fresh data from Firebase.
+  refresh() {
+    const households = DB.getHouseholds();
+    const points = households
+      .map(hh => ({ coords: this._parseCoords(hh.coordinates), hh }))
+      .filter(p => p.coords !== null);
+
+    const features = (typeof ZONES_GEOJSON !== 'undefined' && ZONES_GEOJSON.features)
+      ? ZONES_GEOJSON.features
+      : [];
+
+    this._zoneCounts = this._countHouseholdsPerZone(points, features);
+    this._activeZone = null;
+
+    // clear previous overlays (zones + markers + count labels)
+    if (this._map) {
+      try { this._map.Overlays.clear(); } catch (e) { /* unsupported */ }
+    }
+    this._zonePolygons = new Map();
+
+    this._drawZones(this._zoneCounts);
+    this._drawHouseholdMarkers(points, features);
+    this._renderStatsPanel(this._zoneCounts, points.length, points, features);
   },
 
   // ----- Map Init -----
@@ -175,6 +241,23 @@ const MapDashboard = {
     return { minLat, maxLat, minLon, maxLon };
   },
 
+  // Extend an existing bounds object with all point coordinates.
+  // Used so the map view fits zones AND every household marker, even
+  // ones that fall outside the survey area.
+  _extendBoundsWithPoints(bounds, points) {
+    let b = bounds ? { ...bounds } : null;
+    points.forEach(({ coords }) => {
+      if (!b) b = { minLat: coords.lat, maxLat: coords.lat, minLon: coords.lon, maxLon: coords.lon };
+      else {
+        if (coords.lat < b.minLat) b.minLat = coords.lat;
+        if (coords.lat > b.maxLat) b.maxLat = coords.lat;
+        if (coords.lon < b.minLon) b.minLon = coords.lon;
+        if (coords.lon > b.maxLon) b.maxLon = coords.lon;
+      }
+    });
+    return b;
+  },
+
   _fitToZones() {
     if (!this._map || !this._zoneBounds) return;
     const b = this._zoneBounds;
@@ -263,13 +346,21 @@ const MapDashboard = {
     });
   },
 
-  _drawHouseholdMarkers(points) {
+  // Plot every household marker in red, with the house number as tooltip.
+  _drawHouseholdMarkers(points, features) {
     if (!this._map) return;
-    points.forEach(({ coords }) => {
+    points.forEach(({ coords, hh }) => {
+      const title = (hh && (hh.houseNo || hh.id)) || '';
       try {
         const dot = new longdo.Dot(
           { lon: coords.lon, lat: coords.lat },
-          { radius: 5, weight: 1.2, lineColor: '#fff', fillColor: '#10b981' }
+          {
+            radius: 6,
+            weight: 1.4,
+            lineColor: '#fff',
+            fillColor: '#ef4444',
+            title
+          }
         );
         this._map.Overlays.add(dot);
       } catch (e) { /* skip */ }
@@ -278,10 +369,18 @@ const MapDashboard = {
 
   // ----- Stats Panel -----
 
-  _renderStatsPanel(zoneCounts, totalPlotted) {
+  _renderStatsPanel(zoneCounts, totalPlotted, points, features) {
     const totalEl = document.getElementById('mapTotalCount');
     if (totalEl) {
-      totalEl.textContent = `รวม ${totalPlotted} ครัวเรือนที่มีพิกัด`;
+      let summary = `รวม ${totalPlotted} ครัวเรือนที่มีพิกัด`;
+      if (points && features && features.length) {
+        const inside = points.filter(p =>
+          features.some(f => this._pointInFeature(p.coords.lat, p.coords.lon, f))
+        ).length;
+        const outside = totalPlotted - inside;
+        summary += ` · 🟢 ${inside} ในโซน · 🔴 ${outside} นอกโซน`;
+      }
+      totalEl.textContent = summary;
     }
 
     const listEl = document.getElementById('zoneList');
