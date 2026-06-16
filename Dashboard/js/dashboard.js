@@ -444,11 +444,11 @@ function buildPairMap(source) {
     const oZ = assignZone(oCoords), dZ = assignZone(dCoords);
     if (oZ === dZ) return;
     const key = `${oZ}|${dZ}`;
-    if (!pairMap[key]) pairMap[key] = { count: 0, oZ, dZ, oLatS: 0, oLonS: 0, dLatS: 0, dLonS: 0, extN: 0 };
+    if (!pairMap[key]) pairMap[key] = { count: 0, oZ, dZ, oLatS: 0, oLonS: 0, dLatS: 0, dLonS: 0, oExtN: 0, dExtN: 0 };
     const p = pairMap[key];
     p.count++;
-    if (oZ === '(นอกพื้นที่)') { p.oLatS += oCoords.lat; p.oLonS += oCoords.lon; p.extN++; }
-    if (dZ === '(นอกพื้นที่)') { p.dLatS += dCoords.lat; p.dLonS += dCoords.lon; }
+    if (oZ === '(นอกพื้นที่)') { p.oLatS += oCoords.lat; p.oLonS += oCoords.lon; p.oExtN++; }
+    if (dZ === '(นอกพื้นที่)') { p.dLatS += dCoords.lat; p.dLonS += dCoords.lon; p.dExtN++; }
   };
   if (source === 'home' || source === 'all')
     allTrips().forEach(t => processPair(parseCoords(t.originCoords), parseCoords(t.destinationCoords)));
@@ -460,10 +460,9 @@ function buildPairMap(source) {
 function pairEndpoint(p, side, centroids) {
   const z = side === 'o' ? p.oZ : p.dZ;
   if (centroids[z]) return centroids[z];
-  const n = p.extN || 1;
   return side === 'o'
-    ? { lat: p.oLatS / n, lon: p.oLonS / n }
-    : { lat: p.dLatS / n, lon: p.dLonS / n };
+    ? { lat: p.oLatS / (p.oExtN || 1), lon: p.oLonS / (p.oExtN || 1) }
+    : { lat: p.dLatS / (p.dExtN || 1), lon: p.dLonS / (p.dExtN || 1) };
 }
 
 function renderMap(mode, source) {
