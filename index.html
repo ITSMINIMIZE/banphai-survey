@@ -65,9 +65,6 @@
     .card.dash::before { background: linear-gradient(135deg, rgba(139,92,246,.12), rgba(236,72,153,.08)); }
     .card:hover { border-color: #475569; transform: translateY(-4px); box-shadow: 0 20px 48px rgba(0,0,0,.4); }
     .card:hover::before { opacity: 1; }
-    .card.dash { cursor: default; opacity: .6; }
-    .card.dash:hover { transform: none; box-shadow: none; }
-
     .card-icon { font-size: 40px; }
     .card-badge {
       display: inline-flex;
@@ -95,7 +92,7 @@
     }
     .card.home .card-action { color: #60a5fa; }
     .card.road .card-action { color: #fb923c; }
-    .card.dash .card-action { color: #475569; }
+    .card.dash .card-action { color: #a78bfa; }
 
     .footer {
       margin-top: 48px;
@@ -157,13 +154,13 @@
       <div class="card-action">เข้าใช้งาน →</div>
     </a>
 
-    <div class="card dash">
+    <a class="card dash" href="Dashboard/">
       <span class="card-icon">📊</span>
-      <span class="card-badge badge-soon">◌ เร็ว ๆ นี้</span>
+      <span class="card-badge badge-active">● พร้อมใช้งาน</span>
       <div class="card-title">ส่วนแสดงผล</div>
       <div class="card-desc">แผนที่และสถิติสรุปผลการสำรวจจากทุกแบบสอบถาม</div>
-      <div class="card-action">กำลังพัฒนา</div>
-    </div>
+      <div class="card-action">เข้าใช้งาน →</div>
+    </a>
   </div>
 
   <div class="footer">© 2026 INTERVIEW</div>
