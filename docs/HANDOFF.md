@@ -1,7 +1,8 @@
 # HANDOFF — Banphai Survey (place search + optimization)
 
-> ส่งต่อให้ session ใหม่ · อัปเดต 2026-06-07
-> งานที่ทำเสร็จ: ระบบค้นหาสถานที่ multi-provider + auto-learn + optimize สำหรับ 40-100 คนพร้อมกัน
+> ส่งต่อให้ session ใหม่ · อัปเดต 2026-06-16
+> ระบบ: 2 แอปสำรวจ (Roadside/Home) + Dashboard analytics + เครื่องมือ admin · ค้นหาสถานที่ multi-provider + auto-learn · รองรับ 40-100 คนพร้อมกัน
+> 🔎 ดู log งานทั้งหมดได้ที่ `git log` (ทุก commit มีคำอธิบาย) · สรุปอัปเดตล่าสุดดูข้อ 12
 
 ---
 
@@ -10,7 +11,7 @@
 - **Hosting:** GitHub Pages (static) — `https://itsminimize.github.io/banphai-survey/`
 - **Repo:** github.com/ITSMINIMIZE/banphai-survey · branch `main` (deploy = push main)
 - **2 แอป:** `Roadside/` (ธีมส้ม #d97706 · สัมภาษณ์ริมทาง OD) · `Home/` (ธีมน้ำเงิน #2563eb · ครัวเรือน)
-- **Dashboard/** = การ์ด "เร็วๆ นี้" ในหน้าแรก (ยังไม่ทำ · ไม่ลิงก์)
+- **Dashboard/** = ✅ แอป analytics (ลิงก์จากหน้าแรกแล้ว) — login admin → OD matrix · desire lines · choropleth · peak hour · สถิติ + แผนที่ · อ่าน Firestore ตรง (ดูข้อ 12)
 - **ไม่มี backend server ของเราเอง** — แอป static คุยตรงกับ Firebase + Longdo/Google API จากเบราว์เซอร์
 
 ### โหลดที่คาดไว้ (งานจริง)
@@ -25,14 +26,16 @@
 {Roadside,Home}/js/place-service.js   ← เหมือนกันเป๊ะทั้ง 2 (cp ไป Home) · search + auto-learn + config + cache
 {Roadside,Home}/js/map-leaflet.js     ← MapPicker · ต่างกันแค่ธีม (ACCENT/HOVER/comment บรรทัด 1)
 {Roadside,Home}/js/app.js             ← แอปหลัก · _reverseGeocode/_useGPS/_openIvMap/_openHhMap/ฟอร์ม
-{Roadside,Home}/js/firebase.js        ← FB sync (syncAll/pull)
-{Roadside,Home}/js/data.js            ← OPT (ประเภท/วัตถุประสงค์ ฯลฯ)
+{Roadside,Home}/js/firebase.js        ← FB sync + auth · schema NESTED · Home มี login admin/surveyor (ดูข้อ 12)
+{Roadside,Home}/js/data.js            ← OPT (ประเภท/วัตถุประสงค์ ฯลฯ) · local DB (members/trips เป็น array ฝังใน household)
 {Roadside,Home}/{index.html,sw.js,manifest.json,css/}
-index.html (root)                     ← เมนู + ไอคอน ⚙ มุมล่างขวา → tools/
-tools/index.html                      ← รายการเครื่องมือ (gate รหัส adminbanphai)
+index.html (root)                     ← เมนู (Home/Roadside/Dashboard) + ไอคอน ⚙ มุมล่างขวา → tools/
+Dashboard/{index.html,js/dashboard.js,js/mapDashboard.js,js/zones.js}  ← analytics · login admin · อ่าน Firestore ตรง
+tools/auth-gate.js                    ← gate กลางทุกหน้า tools = บังคับ login Firebase admin (แทนรหัสฝัง client เดิม)
+tools/index.html                      ← รายการเครื่องมือ (gate = auth-gate.js)
 tools/config.html                     ← admin แก้ API key (login) → Firestore config/app
 tools/seed-places.html                ← pre-seed สถานที่ (Excel import)
-tools/seed-roadside.html, seed-home.html, cleanup-seed.html
+tools/seed-roadside.html, seed-home.html, cleanup-seed.html  ← สร้าง/ลบ test data (เขียน Firestore แบบ nested)
 ```
 **แก้ไฟล์คู่:** place-service → `cp Roadside/js/place-service.js Home/js/place-service.js`
 map-leaflet → แก้ Roadside แล้ว:
@@ -41,7 +44,7 @@ sed -e 's/Roadside theme ส้ม/Home theme น้ำเงิน/' -e "s/ACCE
     -e "s/HOVER:  '#fef3c7'/HOVER:  '#dbeafe'/" -e 's/ธีมส้ม/ธีมน้ำเงิน/' \
     Roadside/js/map-leaflet.js > Home/js/map-leaflet.js
 ```
-**ทุกครั้งที่แก้ JS แอป → bump `CACHE_VERSION` ใน sw.js ทั้ง 2** (ปัจจุบัน `ri-v13-delta` / `hi-v13-delta`)
+**ทุกครั้งที่แก้ JS แอป → bump `CACHE_VERSION` ใน sw.js ทั้ง 2** (ปัจจุบัน `ri-v14-delta` / `hi-v15-delta`)
 
 ---
 
@@ -130,7 +133,9 @@ service cloud.firestore { match /databases/{database}/documents {
 
 ---
 
-## 8. Tools (gate รหัส: `adminbanphai`)
+## 8. Tools (gate = Firebase admin login · `auth-gate.js`)
+- **auth-gate.js** — ทุกหน้าใน tools/ include ไฟล์นี้ → บังคับ login ด้วยบัญชี Firebase admin จริง (เลิกใช้รหัสฝัง `adminbanphai` แล้ว เพราะใครเปิด source ก็เห็น) · login ค้างทั้ง browser (เข้าหน้าอื่นไม่ถามซ้ำ) · poll รอ firebase พร้อม + init เอง
+  - หมายเหตุ: gate ป้องกันระดับ **UI** · การเขียน Firestore ของ seed ยังเปิด (rule `create:if true`) เพราะแอป surveyor เขียนโดยไม่ login — ถ้าจะล็อกระดับ data ต้องแก้ rules (กระทบแอปสำรวจ)
 - **config.html** — admin login แก้ Longdo/Google key (เก็บ config/app = มีผลทั้งระบบ ตอนเปิดแอปใหม่)
 - **seed-places.html** — pre-seed สถานที่ก่อนสำรวจ:
   - นำเข้า .xlsx/.csv (SheetJS) · 4 คอลัมน์ (header row): `place_name, latitude, longitude, keywords`(optional) · map ตามชื่อหัว สลับลำดับได้
@@ -165,3 +170,18 @@ service cloud.firestore { match /databases/{database}/documents {
 - places: delta-sync (ผู้ใช้กังวลซับซ้อน → ทำ safety net: full read ตอนเปิดแอป + error คง cache)
 - lazy-load tiles (เก็บ OSM แยกจาก Longdo ไม่แย่ง rate limit)
 - hosting: คง GitHub Pages (ไม่ย้าย Firebase Hosting)
+
+---
+
+## 12. อัปเดตล่าสุด (เซสชัน 2026-06-16)
+> งานที่ทำเพิ่ม/แก้ในรอบนี้ (commit ดูได้ใน `git log` · ผู้แก้ ITSMINIMIZE)
+
+- **Dashboard analytics (ใหม่ทั้งแอป · งานเพื่อนร่วมทีม)** — `Dashboard/` login admin → KPI, OD matrix, desire lines, choropleth, peak hour + แผนที่ · อ่าน Firestore ตรง (`db.collection('households').get()` + subcollections, `roadside_stations/interviews`)
+- **กู้ระบบ login + schema ของ Home** — ระหว่างทางมี commit เพื่อนร่วมทีมเขียน Home ใหม่เป็น **flat schema** (members/trips ฝังใน doc) + **ลบ login ทิ้ง** · รอบนี้ **กู้กลับเป็นเวอร์ชันเดิม**: login gate (admin/surveyor) + **nested schema** (`households/{}/members/{}/trips/{}`) + delete-confirm guard
+  - และแก้ `Dashboard/js/dashboard.js` `pullHouseholds()` ให้อ่าน **nested** (ดึง members+trips subcollection มาประกอบ `hh.members[].trips[]`)
+- **tools = Firebase admin login จริง** — เลิก gate รหัสฝัง client · ทุกหน้า tools include `auth-gate.js` (ดูข้อ 8)
+- **ปุ่มนำทาง** — Dashboard (header + หน้า login) และ tools/index มีปุ่มกลับเมนูหลัก · หน้า tool ย่อยมีปุ่ม "← กลับไปหน้าเครื่องมือ"
+- **seed/mock ตรง OPT** — แก้ `tools/seed-roadside.html` (LOC_TYPES/PURPOSES/CARGO) + `tools/seed-home.html` ให้ค่าตรง `OPT` ใน data.js · กระจายพื้นที่ (Home=ในพื้นที่บ้านไผ่, Roadside=เข้า-ออกหลายจังหวัด) · ลบ `{Roadside,Home}/tools/generate-mock.js` (console snippet ที่ไม่ใช้) ทิ้ง — เหลือ seed-*.html เป็น seed tool เดียว
+- **delete-confirm** — ปุ่มล้างข้อมูล local ต้องพิมพ์ "delete" ก่อนกดได้ (ทั้ง Roadside + Home)
+
+**Schema สำคัญ (ปัจจุบัน):** Home = **nested** · Roadside = nested (stations/interviews) · places = flat · local DB (data.js) เก็บ members/trips เป็น array ฝังใน household เสมอ (ต่างกันแค่ตอน sync ขึ้น/ลง Firestore)
