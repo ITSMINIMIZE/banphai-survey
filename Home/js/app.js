@@ -93,7 +93,7 @@ const App = {
           </div>
         </div>` :
         `<div class="hh-list">${hhs.map(hh => {
-          const trips  = hh.members.reduce((s, m) => s + m.trips.length, 0);
+          const trips  = (hh.members || []).reduce((s, m) => s + (m.trips || []).length, 0);
           const totalM = Object.values(hh.memberGrid || {}).reduce((s, v) => s + (+v || 0), 0);
           const addr   = [hh.houseNo ? 'บ้านเลขที่ ' + hh.houseNo : '', hh.moo ? 'ม.' + hh.moo : '', hh.road].filter(Boolean).join(' ');
           return `<div class="hh-card" onclick="App.navigate('household','${hh.id}')">
@@ -128,7 +128,7 @@ const App = {
 
     const totalM        = Object.values(hh.memberGrid || {}).reduce((s, v) => s + (+v || 0), 0);
     // คำนวณอัตโนมัติ: สมาชิกที่มีข้อมูลส่วนที่ 2 และ 3 ครบ
-    const surveyableCnt = hh.members.filter(m => m.gender && m.trips.length > 0).length;
+    const surveyableCnt = (hh.members || []).filter(m => m.gender && (m.trips || []).length > 0).length;
 
     // vehicle summary
     let vehicleSummary = '';
@@ -191,23 +191,23 @@ const App = {
         </div>
         <button class="btn btn-primary" onclick="App.addMember()">+ เพิ่มสมาชิก</button>
       </div>
-      ${hh.members.length > 0 ? `
+      ${(hh.members || []).length > 0 ? `
       <div style="background:#f0fdf4;border:1.5px solid #16a34a;border-radius:10px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
-        <div style="font-size:13px;color:#15803d;font-weight:600;">✅ บันทึกสมาชิก ${hh.members.length} คนแล้ว</div>
+        <div style="font-size:13px;color:#15803d;font-weight:600;">✅ บันทึกสมาชิก ${(hh.members||[]).length} คนแล้ว</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn btn-primary btn-sm" onclick="App.addMember()" style="background:#16a34a;border-color:#16a34a;white-space:nowrap;">+ เพิ่มสมาชิกคนต่อไป</button>
           <button class="btn btn-primary btn-sm" onclick="App.nextHousehold()" style="white-space:nowrap;">➡️ บ้านถัดไป</button>
         </div>
       </div>` : ''}
 
-      ${hh.members.length === 0 ? `
+      ${(hh.members||[]).length === 0 ? `
         <div class="empty">
           <span class="empty-icon">👤</span>
           <h3>ยังไม่มีสมาชิก</h3>
           <p>เพิ่มสมาชิกแต่ละคนเพื่อบันทึกข้อมูลส่วนที่ 2 และ 3</p>
           <button class="btn btn-primary" onclick="App.addMember()">+ เพิ่มสมาชิก</button>
         </div>` :
-        `<div class="member-list">${hh.members.map(m => {
+        `<div class="member-list">${(hh.members||[]).map(m => {
           const avCls  = m.gender === 'ชาย' ? 'av-m' : m.gender === 'หญิง' ? 'av-f' : 'av-o';
           const avIcon = m.gender === 'ชาย' ? '👨'   : m.gender === 'หญิง' ? '👩'   : '👤';
           const hasInfo = m.gender && m.occupation;

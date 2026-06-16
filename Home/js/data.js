@@ -168,8 +168,8 @@ const DB = {
   stats(surveyorName) {
     let hhs = this.getHouseholds();
     if (surveyorName) hhs = hhs.filter(h => h.surveyorName === surveyorName);
-    const members = hhs.flatMap(h => h.members);
-    const trips = members.flatMap(m => m.trips);
+    const members = hhs.flatMap(h => h.members || []);
+    const trips = members.flatMap(m => m.trips || []);
     return { households: hhs.length, members: members.length, trips: trips.length };
   },
 
