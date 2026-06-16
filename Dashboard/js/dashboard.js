@@ -107,11 +107,44 @@ async function loginAdmin(username, password) {
 }
 
 // ── DATA PULL ─────────────────────────────────────────────────────────────────
+// nested schema: households/{}/members/{}/trips/{} → ประกอบเป็น hh.members[].trips[]
 async function pullHouseholds() {
   const snap = await db.collection('households').get({ source: 'server' });
-  return snap.docs.map(d => {
-    const x = d.data(); delete x._device; delete x._syncedAt; return x;
+  const households = snap.docs.map(d => {
+    const x = d.data(); delete x._device; delete x._syncedAt;
+    x.members = []; return x;
   });
+
+  // members ของแต่ละ household (parallel)
+  const memSnaps = await Promise.all(
+    snap.docs.map(d => d.ref.collection('members').get({ source: 'server' }))
+  );
+  const memberRefs = [];
+  memSnaps.forEach((mSnap, i) => {
+    mSnap.docs.forEach(md => {
+      const m = md.data(); delete m._device; delete m._syncedAt;
+      m.trips = [];
+      households[i].members.push(m);
+      memberRefs.push({ ref: md.ref, member: m });
+    });
+  });
+
+  // trips ของแต่ละ member (parallel)
+  const tripSnaps = await Promise.all(
+    memberRefs.map(mr => mr.ref.collection('trips').get({ source: 'server' }))
+  );
+  tripSnaps.forEach((tSnap, i) => {
+    tSnap.docs.forEach(td => {
+      const t = td.data(); delete t._device; delete t._syncedAt;
+      memberRefs[i].member.trips.push(t);
+    });
+  });
+
+  households.forEach(hh => {
+    hh.members.sort((a, b) => (a.seq || 0) - (b.seq || 0));
+    hh.members.forEach(m => m.trips.sort((a, b) => (a.seq || 0) - (b.seq || 0)));
+  });
+  return households;
 }
 
 async function pullRoadside() {
