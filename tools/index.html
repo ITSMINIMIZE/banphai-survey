@@ -18,29 +18,9 @@
   a.tool .badge{display:inline-block;background:rgba(239,68,68,.15);color:#fca5a5;border:1px solid rgba(252,165,165,.3);padding:2px 10px;border-radius:99px;font-size:11px;font-weight:600;margin-top:8px}
   a.tool .badge.safe{background:rgba(16,185,129,.15);color:#6ee7b7;border-color:rgba(110,231,183,.3)}
 </style>
-<script>
-/* 🔒 Tools gate — client-side deterrence เท่านั้น (กัน abuse public URL · ไม่ใช่ security จริง)
-   ความปลอดภัยจริงอยู่ที่ Firestore rules · เปลี่ยนรหัสที่ TOOLS_PW */
-(function(){
-  var TOOLS_PW = 'adminbanphai';
-  if (sessionStorage.getItem('tools_ok') === '1') return;
-  function gate(){
-    var ov = document.createElement('div');
-    ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#0f172a;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;font-family:Sarabun,sans-serif;padding:24px;';
-    ov.innerHTML = '<div style="font-size:40px">🔒</div>'+
-      '<div style="color:#f1f5f9;font-size:18px;font-weight:700">เครื่องมือสำหรับผู้ดูแล</div>'+
-      '<div style="color:#94a3b8;font-size:13px">ใส่รหัสผ่านเพื่อเข้าใช้งาน</div>'+
-      '<input id="_gpw" type="password" placeholder="รหัสผ่าน" style="padding:12px 16px;border-radius:10px;border:1px solid #334155;background:#1e293b;color:#f1f5f9;font-size:15px;width:240px;outline:none" />'+
-      '<button id="_gbtn" style="padding:12px 28px;border:none;border-radius:10px;background:#2563eb;color:#fff;font-weight:600;font-size:15px;cursor:pointer">เข้าใช้งาน</button>'+
-      '<div id="_gerr" style="color:#f87171;font-size:13px;height:16px"></div>';
-    document.body.appendChild(ov);
-    var inp=ov.querySelector('#_gpw'), btn=ov.querySelector('#_gbtn'), err=ov.querySelector('#_gerr');
-    function go(){ if(inp.value===TOOLS_PW){ sessionStorage.setItem('tools_ok','1'); ov.remove(); } else { err.textContent='รหัสผ่านไม่ถูกต้อง'; inp.value=''; inp.focus(); } }
-    btn.onclick=go; inp.onkeydown=function(e){ if(e.key==='Enter') go(); }; inp.focus();
-  }
-  if (document.readyState==='loading') document.addEventListener('DOMContentLoaded', gate); else gate();
-})();
-</script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="auth-gate.js"></script>
 </head>
 <body>
 <div class="wrap">
