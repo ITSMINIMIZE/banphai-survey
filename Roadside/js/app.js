@@ -787,10 +787,7 @@ const App = {
             value="${iv?.originCoords||''}" />
           <button type="button" onclick="App._openIvMap('iv_originCoords','iv_origin')"
             style="padding:9px 12px;background:#fef3c7;color:#92400e;border:1.5px solid #d97706;
-                   border-radius:var(--radius-sm);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">🗺</button>
-          <button type="button" id="gpsBtn_iv_originCoords" onclick="App._useGPS('iv_originCoords')"
-            style="padding:9px 10px;background:#fef3c7;color:#92400e;border:1.5px solid #d97706;
-                   border-radius:var(--radius-sm);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">📍</button>
+                   border-radius:var(--radius-sm);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">🗺 แผนที่</button>
         </div>
       </div>
 
@@ -814,10 +811,7 @@ const App = {
             value="${iv?.destinationCoords||''}" />
           <button type="button" onclick="App._openIvMap('iv_destCoords','iv_dest')"
             style="padding:9px 12px;background:#fef3c7;color:#92400e;border:1.5px solid #d97706;
-                   border-radius:var(--radius-sm);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">🗺</button>
-          <button type="button" id="gpsBtn_iv_destCoords" onclick="App._useGPS('iv_destCoords')"
-            style="padding:9px 10px;background:#fef3c7;color:#92400e;border:1.5px solid #d97706;
-                   border-radius:var(--radius-sm);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">📍</button>
+                   border-radius:var(--radius-sm);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">🗺 แผนที่</button>
         </div>
       </div>
 

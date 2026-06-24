@@ -356,6 +356,7 @@ const App = {
             ${hh.surveyorName  ? `<span class="tag tag-gray">🧑‍💼 ${this.esc(hh.surveyorName)}</span>`  : ''}
             ${hh.supervisorName? `<span class="tag tag-gray">👔 ${this.esc(hh.supervisorName)}</span>`  : ''}
             ${hh.coordinates   ? `<span class="tag tag-blue">📍 ${hh.coordinates}</span>`     : ''}
+            ${hh.coordsSource === 'manual' ? `<span class="tag" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;" title="พิกัดมาจากแผนที่/พิมพ์เอง ไม่ใช่ GPS ที่จุดจริง — ควรสุ่มตรวจ">⚠️ พิกัดจากแผนที่</span>` : ''}
             ${hh.deviceId      ? `<span class="tag tag-gray" title="Device ID: ${hh.deviceId}">💻 ${hh.deviceId.slice(0,8)}…</span>` : ''}
             ${hh.clientIp      ? `<span class="tag tag-gray">🌐 ${hh.clientIp}</span>`          : ''}
           </div>
@@ -437,6 +438,9 @@ const App = {
     const hh = DB.getHousehold(this.hhId);
     const m  = DB.getMember(this.hhId, this.memberId);
     if (!m) return '<div class="container"><p>ไม่พบข้อมูล</p></div>';
+    const infoDone = this._memberInfoComplete(m);
+    // ยังกรอกข้อมูลบุคคลไม่ครบ → บังคับอยู่แท็บข้อมูลบุคคล (กันข้ามไปกรอกการเดินทาง)
+    const tab = (this.memberTab === 'trips' && !infoDone) ? 'info' : this.memberTab;
     const avCls  = m.gender === 'ชาย' ? 'av-m' : m.gender === 'หญิง' ? 'av-f' : 'av-o';
     const avIcon = m.gender === 'ชาย' ? '👨'   : m.gender === 'หญิง' ? '👩'   : '👤';
     return `<div class="page container">
@@ -450,17 +454,30 @@ const App = {
       </div>
 
       <div class="tabs">
-        <button class="tab-btn ${this.memberTab === 'info'  ? 'active' : ''}" onclick="App.switchTab('info')">👤 ส่วนที่ 2 — ข้อมูลบุคคล</button>
-        <button class="tab-btn ${this.memberTab === 'trips' ? 'active' : ''}" onclick="App.switchTab('trips')">
-          🚗 ส่วนที่ 3 — การเดินทาง
+        <button class="tab-btn ${tab === 'info'  ? 'active' : ''}" onclick="App.switchTab('info')">👤 ส่วนที่ 2 — ข้อมูลบุคคล</button>
+        <button class="tab-btn ${tab === 'trips' ? 'active' : ''} ${infoDone ? '' : 'tab-locked'}" onclick="App.switchTab('trips')">
+          ${infoDone ? '🚗' : '🔒'} ส่วนที่ 3 — การเดินทาง
           ${m.trips.length > 0 ? `<span style="background:var(--primary);color:#fff;font-size:11px;padding:1px 7px;border-radius:999px;margin-left:4px;">${m.trips.length}</span>` : ''}
         </button>
       </div>
-      ${this.memberTab === 'info' ? this.tabPersonalInfo(m) : this.tabTrips(m, hh)}
+      ${tab === 'info' ? this.tabPersonalInfo(m) : this.tabTrips(m, hh)}
     </div>`;
   },
 
-  switchTab(tab) { this.memberTab = tab; this.render(); },
+  // ข้อมูลบุคคล (ส่วนที่ 2) ครบหรือยัง — ต้องมี เพศ + สถานะการทำงาน (เงื่อนไขเดียวกับ savePersonalInfo)
+  _memberInfoComplete(m) {
+    const mem = m || DB.getMember(this.hhId, this.memberId);
+    return !!(mem && mem.gender && mem.workStatus);
+  },
+
+  switchTab(tab) {
+    if (tab === 'trips' && !this._memberInfoComplete()) {
+      this.toast('กรอกข้อมูลบุคคล (ส่วนที่ 2) ให้ครบและกดบันทึกก่อน', 'error');
+      return;
+    }
+    this.memberTab = tab;
+    this.render();
+  },
 
   // ===================== TAB: PERSONAL INFO =====================
   tabPersonalInfo(m) {
@@ -699,15 +716,23 @@ const App = {
   },
 
   // ===== SURVEYOR NAME MEMORY =====
+  // identity ของบัญชีที่ login (ใช้ key ค่า default แยกตามคน)
+  _identity() {
+    return this._role === 'admin' ? (this._adminUsername || 'admin') : (this._surveyorName || 'unknown');
+  },
   _loadSurveyorNames() {
+    const id = this._identity();
     return {
-      surveyor:   localStorage.getItem('_surveyor_name')   || '',
-      supervisor: localStorage.getItem('_supervisor_name') || ''
+      surveyor:   localStorage.getItem('_surveyor_name') || '',
+      // ชื่อผู้ควบคุม: จำแยกตามบัญชี (fallback ค่ารวมเดิมเพื่อ migrate)
+      supervisor: localStorage.getItem('_supervisor_name__' + id)
+                  || localStorage.getItem('_supervisor_name') || ''
     };
   },
   _saveSurveyorNames(surveyor, supervisor) {
-    if (surveyor)   localStorage.setItem('_surveyor_name',   surveyor);
-    if (supervisor) localStorage.setItem('_supervisor_name', supervisor);
+    const id = this._identity();
+    if (surveyor)   localStorage.setItem('_surveyor_name', surveyor);
+    if (supervisor) localStorage.setItem('_supervisor_name__' + id, supervisor);
   },
 
   // ===== SHARED: HOUSEHOLD FORM HTML =====
@@ -751,7 +776,9 @@ const App = {
         <div class="form-row">
           <label class="form-label req">ชื่อ–สกุลผู้สำรวจ</label>
           <input id="m_sname" class="form-input" autocomplete="off" placeholder="ชื่อ นามสกุล"
-            value="${hh ? (hh.surveyorName||'') : defaultSurveyor}" />
+            value="${this._role === 'surveyor' ? this._surveyorName : (hh ? (hh.surveyorName||'') : defaultSurveyor)}"
+            ${this._role === 'surveyor' ? 'readonly title="ดึงจากบัญชีที่เข้าสู่ระบบ" style="background:var(--gray-100);color:var(--gray-500);cursor:not-allowed;"' : ''} />
+          ${this._role === 'surveyor' ? '<div style="font-size:11px;color:var(--gray-400);margin-top:3px;">🔒 จากบัญชีที่เข้าสู่ระบบ</div>' : ''}
         </div>
         <div class="form-row">
           <label class="form-label req">ชื่อผู้ควบคุม</label>
@@ -769,15 +796,18 @@ const App = {
       <div class="form-row">
         <label class="form-label req">พิกัด GPS</label>
         <div style="display:flex;gap:6px;">
-          <input id="m_coords" class="form-input" autocomplete="off" placeholder="เช่น 16.0590, 102.7313"
-            style="flex:1;min-width:0;" value="${hh?.coordinates||''}" />
-          <button type="button" onclick="App._openHhMap()"
-            style="padding:9px 12px;background:#eff6ff;color:#2563eb;border:1.5px solid #2563eb;
-                   border-radius:var(--radius-sm);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">🗺</button>
+          <input id="m_coords" class="form-input" autocomplete="off" placeholder="กด 📍 GPS ที่จุดบ้านจริง"
+            style="flex:1;min-width:0;" value="${hh?.coordinates||''}"
+            oninput="App._setHhCoordsSource('manual')" />
           <button type="button" id="gpsBtn_m_coords" onclick="App._useGPS('m_coords')"
-            style="padding:9px 12px;background:#f0fdf4;color:#16a34a;border:1.5px solid #16a34a;
-                   border-radius:var(--radius-sm);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">📍 GPS</button>
+            style="padding:9px 12px;background:#16a34a;color:#fff;border:1.5px solid #16a34a;
+                   border-radius:var(--radius-sm);font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;">📍 GPS</button>
+          <button type="button" onclick="App._openHhMap()"
+            style="padding:9px 10px;background:#eff6ff;color:#2563eb;border:1.5px solid #93c5fd;
+                   border-radius:var(--radius-sm);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">🗺 สำรอง</button>
         </div>
+        <input type="hidden" id="m_coordsSource" value="${hh?.coordsSource||''}" />
+        <div style="font-size:11px;color:var(--gray-400);margin-top:3px;">แนะนำกด 📍 GPS ที่จุดบ้านจริง · ใช้ 🗺 แผนที่เฉพาะเครื่องที่ไม่มี GPS</div>
       </div>
       <div class="form-grid">
         <div class="form-row">
@@ -889,6 +919,7 @@ const App = {
       supervisorName:  document.getElementById('m_supervisor')?.value.trim()  || '',
       travelDate:      document.getElementById('m_travelDate')?.value         || '',
       coordinates:     document.getElementById('m_coords')?.value.trim()      || '',
+      coordsSource:    document.getElementById('m_coordsSource')?.value       || '',
       houseNo:         document.getElementById('m_houseNo')?.value.trim()     || '',
       moo:             document.getElementById('m_moo')?.value.trim()         || '',
       alley:           document.getElementById('m_alley')?.value.trim()       || '',
@@ -1169,13 +1200,10 @@ const App = {
         <div style="display:flex;gap:8px;">
           <input id="t_destination" class="form-input" autocomplete="off"
             placeholder="เช่น ตลาด, โรงเรียน" value="${t?.destination || ''}" style="flex:1;min-width:0;" />
-          <button type="button" id="gpsBtn_t_destinationCoords" onclick="App._useGPS('t_destinationCoords')"
-            style="padding:9px 10px;background:#f0fdf4;color:#16a34a;border:1.5px solid #16a34a;
-                   border-radius:var(--radius-sm);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">📍</button>
           <button type="button" onclick="App._openMap('t_destinationCoords')"
-            style="padding:9px 10px;background:var(--primary-light);color:var(--primary);
+            style="padding:9px 12px;background:var(--primary-light);color:var(--primary);
                    border:1.5px solid var(--primary);border-radius:var(--radius-sm);
-                   font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">🗺</button>
+                   font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">🗺 แผนที่</button>
         </div>
         <input type="hidden" id="t_destinationCoords" value="${t?.destinationCoords || ''}" />
         ${t?.destinationCoords ? `<div style="font-size:11px;color:var(--gray-400);margin-top:3px;">📍 ${t.destinationCoords}</div>` : ''}
@@ -1282,7 +1310,7 @@ const App = {
       if (btn) { btn.textContent = orig || '📍'; btn.disabled = false; }
       this.toast(`รับพิกัด GPS: ${coords}`, 'success');
       // ถ้าเป็นฟอร์มครัวเรือน ดึงชื่ออำเภอ/จังหวัดอัตโนมัติ
-      if (coordsId === 'm_coords') this._reverseGeocode(lat, lon);
+      if (coordsId === 'm_coords') { this._reverseGeocode(lat, lon); this._setHhCoordsSource('gps'); }
     };
     const onErr = (err, isRetry) => {
       // timeout(3)/หาไม่เจอ(2) → ลองใหม่แบบผ่อนปรน (ไม่เน้นแม่น · ใช้ค่าล่าสุดได้ · รอนานขึ้น)
@@ -1309,9 +1337,16 @@ const App = {
     const coordsEl = document.getElementById('m_coords');
     MapPicker.open(coordsEl?.value || '', coords => {
       if (coordsEl) coordsEl.value = coords;
+      this._setHhCoordsSource('manual');   // ปักจากแผนที่ = ติดธงให้ admin ตรวจ
       const p = coords.split(',');
       this._reverseGeocode(parseFloat(p[0]), parseFloat(p[1]));  // เติม อำเภอ/จังหวัด
     });
+  },
+
+  // ที่มาพิกัดบ้าน: 'gps' = กดจากเครื่องที่จุดจริง · 'manual' = ปักแผนที่/พิมพ์เอง (admin ควรสุ่มตรวจ)
+  _setHhCoordsSource(src) {
+    const el = document.getElementById('m_coordsSource');
+    if (el) el.value = src;
   },
 
   _openMap(coordsId) {

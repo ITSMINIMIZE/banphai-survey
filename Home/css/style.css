@@ -445,6 +445,7 @@ html, body { overflow-x: hidden; max-width: 100vw; }
 }
 .tab-btn:hover { color: var(--gray-800); }
 .tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
+.tab-btn.tab-locked { opacity: .55; }
 
 /* ===== INFO DISPLAY ===== */
 .info-grid {
