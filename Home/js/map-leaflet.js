@@ -94,7 +94,7 @@ const MapPicker = {
               ค้นหา
             </button>
           </div>
-          <div id="mapSearchResults" style="margin-top:6px;max-height:${isMobile?'120px':'180px'};overflow-y:auto;"></div>
+          <div id="mapSearchResults" style="margin-top:6px;max-height:${isMobile?'45vh':'50vh'};overflow-y:auto;"></div>
         </div>
 
         <div id="mapZone" style="flex:1;position:relative;overflow:hidden;background:#eef2f6;display:flex;align-items:center;justify-content:center;">
