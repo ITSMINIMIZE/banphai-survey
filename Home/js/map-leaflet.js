@@ -84,7 +84,7 @@ const MapPicker = {
         <div style="padding:${isMobile?'10px 16px':'12px 20px'};border-bottom:1px solid #f1f5f9;flex-shrink:0;">
           <div style="display:flex;gap:8px;">
             <input id="mapSearchInput" placeholder="ค้นหาสถานที่... เช่น โรงพยาบาลบ้านไผ่"
-              style="flex:1;padding:9px 13px;border:1.5px solid #e2e8f0;border-radius:8px;font-family:inherit;font-size:14px;color:#1e293b;outline:none;"
+              style="flex:1;padding:9px 13px;border:1.5px solid #e2e8f0;border-radius:8px;font-family:inherit;font-size:16px;color:#1e293b;outline:none;"
               oninput="MapPicker._onSearchInput(this.value)"
               onkeydown="if(event.key==='Enter')MapPicker._search(this.value, 'longdo')"
               onfocus="this.style.borderColor='${accent}'"
