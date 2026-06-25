@@ -229,7 +229,7 @@ const OPT = {
   // icon + label สำหรับยานพาหนะ
   vehicleTypes: [
     { key: 'bicycle2',   label: 'รถจักรยานสองล้อ',       icon: '🚲' },
-    { key: 'bicycle3',   label: 'รถจักรยานสามล้อ',       icon: '🛵' },
+    { key: 'bicycle3',   label: 'รถจักรยานสามล้อ',       icon: '🚲' },
     { key: 'motorcycle', label: 'รถจักรยานยนต์',          icon: '🏍️' },
     { key: 'tuk3',       label: 'รถสามล้อเครื่อง',        icon: '🛺' },
     { key: 'car',        label: 'รถยนต์นั่งส่วนบุคคล',     icon: '🚗' },

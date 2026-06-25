@@ -150,7 +150,7 @@ const OPT = {
   vehicleTypes: [
     // กลุ่มรถส่วนบุคคล (1–5)
     { key: 'bicycle2',   label: 'จักรยาน 2 ล้อ',                          icon: '🚲', group: 'personal' },
-    { key: 'bicycle3',   label: 'จักรยาน 3 ล้อ',                          icon: '🛵', group: 'personal' },
+    { key: 'bicycle3',   label: 'จักรยาน 3 ล้อ',                          icon: '🚲', group: 'personal' },
     { key: 'motorcycle', label: 'รถจักรยานยนต์',                          icon: '🏍️', group: 'personal' },
     { key: 'tuk3',       label: 'รถสามล้อเครื่อง',                        icon: '🛺', group: 'personal' },
     { key: 'car',        label: 'รถยนต์นั่งส่วนบุคคล',                    icon: '🚗', group: 'personal' },
