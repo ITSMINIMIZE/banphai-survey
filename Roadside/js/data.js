@@ -80,10 +80,12 @@ const DB = {
       travelDirection:      data.travelDirection    || '',
       // origin (clean schema)
       originType:           data.originType         || '',
+      originTypeOther:      data.originTypeOther     || '',  // ระบุ เมื่อ originType = 'อื่น ๆ'
       originName:           data.originName         || '',
       originCoords:         data.originCoords       || '',
       // destination
       destinationType:      data.destinationType    || '',
+      destinationTypeOther: data.destinationTypeOther || '', // ระบุ เมื่อ destinationType = 'อื่น ๆ'
       destinationName:      data.destinationName    || '',
       destinationCoords:    data.destinationCoords  || '',
       // purpose
@@ -192,49 +194,7 @@ const OPT = {
     'อื่น ๆ'
   ],
 
-  tripFrequency: [
-    'ทุกวัน',
-    '5–6 วัน/สัปดาห์',
-    '3–4 วัน/สัปดาห์',
-    '1–2 วัน/สัปดาห์',
-    '1–2 ครั้ง/เดือน',
-    'ไม่บ่อย / ครั้งแรก'
-  ],
-
-  occupation: [
-    'นักเรียน / นักศึกษา',
-    'ครู / อาจารย์',
-    'ข้าราชการ / รัฐวิสาหกิจ',
-    'เจ้าของกิจการ / บริษัท',
-    'พนักงานบริษัท / ห้างร้าน / ธนาคาร',
-    'ลูกจ้าง / คนงาน / พนักงานโรงงาน',
-    'พนักงานขับรถ / ขนส่ง',
-    'เกษตรกร / ประมง / เลี้ยงสัตว์',
-    'ช่างฝีมือ / ช่างผลิต',
-    'ผู้ปฏิบัติงานวิชาชีพ',
-    'แม่บ้าน / พ่อบ้าน',
-    'ข้าราชการบำนาญ',
-    'อยู่บ้านเฉย ๆ',
-    'อื่น ๆ'
-  ],
-
-  income: [
-    'ไม่มีรายได้',
-    'น้อยกว่า 2,000 บาท',
-    '2,000–2,999 บาท',
-    '3,000–4,999 บาท',
-    '5,000–7,499 บาท',
-    '7,500–9,999 บาท',
-    '10,000–12,499 บาท',
-    '12,500–14,999 บาท',
-    '15,000–17,499 บาท',
-    '17,500–19,999 บาท',
-    '20,000–24,999 บาท',
-    '25,000–29,999 บาท',
-    '30,000–49,999 บาท',
-    '50,000–70,000 บาท',
-    'มากกว่า 70,000 บาท'
-  ],
+  // (เลิกใช้ในฟอร์ม RS แล้ว: occupation/tripFrequency/income แบบชั้น — รายได้ผู้ขับเป็นช่องกรอกตัวเลข)
 
   // ตรงตามแบบฟอร์ม RS — 34 ชนิดสินค้า
   cargoTypes: [

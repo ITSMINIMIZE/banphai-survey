@@ -489,13 +489,13 @@ const App = {
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:14px;">
           <div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius-sm);padding:12px 14px;">
             <div style="font-size:11px;font-weight:700;color:var(--primary-dark);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">▶ ต้นทาง</div>
-            <div class="info-label">ประเภทสถานที่</div><div class="info-value ${iv.originType?'':'info-empty'}" style="margin-bottom:6px;">${iv.originType||'—'}</div>
+            <div class="info-label">ประเภทสถานที่</div><div class="info-value ${iv.originType?'':'info-empty'}" style="margin-bottom:6px;">${iv.originType === 'อื่น ๆ' && iv.originTypeOther ? 'อื่น ๆ: ' + this.esc(iv.originTypeOther) : (iv.originType||'—')}</div>
             <div class="info-label">ชื่อสถานที่</div><div class="info-value ${iv.originName?'':'info-empty'}" style="margin-bottom:6px;">${this.esc(iv.originName)||'—'}</div>
             ${iv.originCoords ? `<div style="font-size:11px;color:var(--gray-400);">📍 ${iv.originCoords}</div>` : ''}
           </div>
           <div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius-sm);padding:12px 14px;">
             <div style="font-size:11px;font-weight:700;color:var(--primary-dark);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">▶ ปลายทาง</div>
-            <div class="info-label">ประเภทสถานที่</div><div class="info-value ${iv.destinationType?'':'info-empty'}" style="margin-bottom:6px;">${iv.destinationType||'—'}</div>
+            <div class="info-label">ประเภทสถานที่</div><div class="info-value ${iv.destinationType?'':'info-empty'}" style="margin-bottom:6px;">${iv.destinationType === 'อื่น ๆ' && iv.destinationTypeOther ? 'อื่น ๆ: ' + this.esc(iv.destinationTypeOther) : (iv.destinationType||'—')}</div>
             <div class="info-label">ชื่อสถานที่</div><div class="info-value ${iv.destinationName?'':'info-empty'}" style="margin-bottom:6px;">${this.esc(iv.destinationName)||'—'}</div>
             ${iv.destinationCoords ? `<div style="font-size:11px;color:var(--gray-400);">📍 ${iv.destinationCoords}</div>` : ''}
           </div>
@@ -607,6 +607,16 @@ const App = {
         parseFloat(coords.split(',')[1])
       );
     });
+  },
+
+  // เลือกประเภทสถานที่ = 'อื่น ๆ' → โชว์ช่อง "ระบุ" (ฟอร์ม interview)
+  _onIvTypeOther(which) {
+    const sel   = document.getElementById(which === 'origin' ? 'iv_originType' : 'iv_destType');
+    const other = document.getElementById(which === 'origin' ? 'iv_originTypeOther' : 'iv_destTypeOther');
+    if (!sel || !other) return;
+    const show = sel.value === 'อื่น ๆ';
+    other.style.display = show ? 'block' : 'none';
+    if (show) other.focus(); else other.value = '';
   },
 
   // เปิดแผนที่สำหรับช่องพิกัดต้นทาง/ปลายทาง (ฟอร์ม interview — ทั้งบันทึกและแก้ไข)
@@ -770,9 +780,11 @@ const App = {
       <div class="section-label">จุดต้นทาง</div>
       <div class="form-row">
         <label class="form-label req">ประเภทสถานที่ต้นทาง</label>
-        <select id="iv_originType" class="form-select">
+        <select id="iv_originType" class="form-select" onchange="App._onIvTypeOther('origin')">
           <option value="">— เลือก —</option>${selOpt(OPT.locationType, iv?.originType||'')}
         </select>
+        <input id="iv_originTypeOther" class="form-input" autocomplete="off" placeholder="ระบุประเภทสถานที่ต้นทาง"
+          style="margin-top:6px;display:${iv?.originType==='อื่น ๆ'?'block':'none'};" value="${iv?.originTypeOther||''}" />
       </div>
       <div class="form-row">
         <label class="form-label req">ชื่อสถานที่ต้นทาง</label>
@@ -794,9 +806,11 @@ const App = {
       <div class="section-label">จุดปลายทาง</div>
       <div class="form-row">
         <label class="form-label req">ประเภทสถานที่ปลายทาง</label>
-        <select id="iv_destType" class="form-select">
+        <select id="iv_destType" class="form-select" onchange="App._onIvTypeOther('dest')">
           <option value="">— เลือก —</option>${selOpt(OPT.locationType, iv?.destinationType||'')}
         </select>
+        <input id="iv_destTypeOther" class="form-input" autocomplete="off" placeholder="ระบุประเภทสถานที่ปลายทาง"
+          style="margin-top:6px;display:${iv?.destinationType==='อื่น ๆ'?'block':'none'};" value="${iv?.destinationTypeOther||''}" />
       </div>
       <div class="form-row">
         <label class="form-label req">ชื่อสถานที่ปลายทาง</label>
@@ -885,9 +899,11 @@ const App = {
       passengerCount:       +(document.getElementById('iv_pax')?.value)        || '',
       travelDirection:      document.getElementById('iv_travelDir')?.value     || '',
       originType:           document.getElementById('iv_originType')?.value    || '',
+      originTypeOther:      document.getElementById('iv_originTypeOther')?.value.trim() || '',
       originName:           document.getElementById('iv_origin')?.value.trim() || '',
       originCoords:         document.getElementById('iv_originCoords')?.value.trim() || '',
       destinationType:      document.getElementById('iv_destType')?.value      || '',
+      destinationTypeOther: document.getElementById('iv_destTypeOther')?.value.trim() || '',
       destinationName:      document.getElementById('iv_dest')?.value.trim()   || '',
       destinationCoords:    document.getElementById('iv_destCoords')?.value.trim() || '',
       purpose:              document.getElementById('iv_purpose')?.value       || '',
@@ -901,8 +917,10 @@ const App = {
     if (!data.vehicleType)     errs.push('ประเภทยานพาหนะ');
     if (!data.passengerCount)  errs.push('ผู้โดยสาร');
     if (!data.originType)      errs.push('ประเภทต้นทาง');
+    if (data.originType === 'อื่น ๆ' && !data.originTypeOther) errs.push('ระบุประเภทต้นทาง (อื่น ๆ)');
     if (!data.originName)      errs.push('ชื่อต้นทาง');
     if (!data.destinationType) errs.push('ประเภทปลายทาง');
+    if (data.destinationType === 'อื่น ๆ' && !data.destinationTypeOther) errs.push('ระบุประเภทปลายทาง (อื่น ๆ)');
     if (!data.destinationName) errs.push('ชื่อปลายทาง');
     if (!data.purpose)         errs.push('วัตถุประสงค์');
     if (errs.length) { this.toast('กรอกข้อมูลให้ครบ: ' + errs.join(', '), 'error'); return; }
@@ -937,7 +955,7 @@ const App = {
     // กดเพิ่มจากหน้าจุดสำรวจ → ถามทิศใหม่เสมอ
     // (เฉพาะปุ่ม "รถคันถัดไป" บน done screen ที่จะใช้ทิศเดิมผ่าน _wizardNextCar)
     this._wizardDirection = null;
-    this.wizardData = { originType:'', originCoords:'', originLandmark:'', destType:'', destCoords:'', destLandmark:'', vehicleType:'', passengerCount:'', purpose:'', hasCargo:'', cargoType:'', cargoWeight:'', driverIncome:'' };
+    this.wizardData = { originType:'', originTypeOther:'', originCoords:'', originLandmark:'', destType:'', destTypeOther:'', destCoords:'', destLandmark:'', vehicleType:'', passengerCount:'', purpose:'', hasCargo:'', cargoType:'', cargoWeight:'', driverIncome:'' };
     this.wizardStep = 1;
     this.page = 'wizard'; this.render(); window.scrollTo(0, 0);
   },
@@ -1111,6 +1129,9 @@ const App = {
         oninput="App.wizardData.originLandmark=this.value" />
       <div style="font-size:13px;font-weight:600;color:var(--gray-600);margin:16px 0 8px;">ประเภทสถานที่ต้นทาง</div>
       <div class="wiz-grid wiz-grid-3" style="margin-bottom:14px;">${cards}</div>
+      ${wd.originType === 'อื่น ๆ' ? `<input id="wiz_originTypeOther" class="form-input" style="margin-bottom:14px;"
+        placeholder="ระบุประเภทสถานที่ต้นทาง" value="${wd.originTypeOther||''}"
+        oninput="App.wizardData.originTypeOther=this.value" />` : ''}
       <div class="wiz-bottom"><div class="wiz-bottom-row">
         <button class="btn btn-primary btn-block" onclick="App._wOriginNext()">ถัดไป → ปลายทาง</button>
       </div></div>` + this._wFooter();
@@ -1118,8 +1139,11 @@ const App = {
   _wOriginNext() {
     const inp = document.getElementById('wiz_originLandmark');
     if (inp) this.wizardData.originLandmark = inp.value;
+    const oth = document.getElementById('wiz_originTypeOther');
+    if (oth) this.wizardData.originTypeOther = oth.value;
     const wd = this.wizardData;
     if (!wd.originType) { this.toast('กรุณาเลือกประเภทสถานที่ต้นทาง', 'error'); return; }
+    if (wd.originType === 'อื่น ๆ' && !(wd.originTypeOther||'').trim()) { this.toast('กรุณาระบุประเภทสถานที่ต้นทาง (อื่น ๆ)', 'error'); return; }
     if (!wd.originLandmark && !wd.originCoords) { this.toast('กรุณาระบุชื่อสถานที่หรือเลือกจากแผนที่', 'error'); return; }
     this._wizardNext();
   },
@@ -1146,6 +1170,9 @@ const App = {
         oninput="App.wizardData.destLandmark=this.value" />
       <div style="font-size:13px;font-weight:600;color:var(--gray-600);margin:16px 0 8px;">ประเภทสถานที่ปลายทาง</div>
       <div class="wiz-grid wiz-grid-3" style="margin-bottom:14px;">${cards}</div>
+      ${wd.destType === 'อื่น ๆ' ? `<input id="wiz_destTypeOther" class="form-input" style="margin-bottom:14px;"
+        placeholder="ระบุประเภทสถานที่ปลายทาง" value="${wd.destTypeOther||''}"
+        oninput="App.wizardData.destTypeOther=this.value" />` : ''}
       <div class="wiz-bottom"><div class="wiz-bottom-row">
         <button class="btn btn-primary btn-block" onclick="App._wDestNext()">ถัดไป →</button>
       </div></div>` + this._wFooter();
@@ -1153,8 +1180,11 @@ const App = {
   _wDestNext() {
     const inp = document.getElementById('wiz_destLandmark');
     if (inp) this.wizardData.destLandmark = inp.value;
+    const oth = document.getElementById('wiz_destTypeOther');
+    if (oth) this.wizardData.destTypeOther = oth.value;
     const wd = this.wizardData;
     if (!wd.destType) { this.toast('กรุณาเลือกประเภทสถานที่ปลายทาง', 'error'); return; }
+    if (wd.destType === 'อื่น ๆ' && !(wd.destTypeOther||'').trim()) { this.toast('กรุณาระบุประเภทสถานที่ปลายทาง (อื่น ๆ)', 'error'); return; }
     if (!wd.destLandmark && !wd.destCoords) { this.toast('กรุณาระบุชื่อสถานที่หรือเลือกจากแผนที่', 'error'); return; }
     this._wizardNext();
   },
@@ -1268,9 +1298,11 @@ const App = {
       passengerCount:    wd.passengerCount,
       travelDirection:   this._wizardDirection || '',
       originType:        wd.originType,
+      originTypeOther:   wd.originType === 'อื่น ๆ' ? (wd.originTypeOther || '') : '',
       originName:        wd.originLandmark || '',
       originCoords:      wd.originCoords || '',
       destinationType:   wd.destType,
+      destinationTypeOther: wd.destType === 'อื่น ๆ' ? (wd.destTypeOther || '') : '',
       destinationName:   wd.destLandmark || '',
       destinationCoords: wd.destCoords || '',
       purpose:           wd.purpose,
@@ -1306,7 +1338,7 @@ const App = {
   _wizardNextCar() {
     this._wizardDone = false;
     this._paxCustom = false;
-    this.wizardData = { originType:'', originCoords:'', originLandmark:'', destType:'', destCoords:'', destLandmark:'', vehicleType:'', passengerCount:'', purpose:'', hasCargo:'', cargoType:'', cargoWeight:'', driverIncome:'' };
+    this.wizardData = { originType:'', originTypeOther:'', originCoords:'', originLandmark:'', destType:'', destTypeOther:'', destCoords:'', destLandmark:'', vehicleType:'', passengerCount:'', purpose:'', hasCargo:'', cargoType:'', cargoWeight:'', driverIncome:'' };
     this.wizardStep = 2; // ข้ามทิศ เริ่มที่รถ
     this.page = 'wizard'; this.render(); window.scrollTo(0,0);
   },
@@ -1314,7 +1346,7 @@ const App = {
     this._wizardDirection = null;
     this._wizardDone = false;
     this._paxCustom = false;
-    this.wizardData = { originType:'', originCoords:'', originLandmark:'', destType:'', destCoords:'', destLandmark:'', vehicleType:'', passengerCount:'', purpose:'', hasCargo:'', cargoType:'', cargoWeight:'', driverIncome:'' };
+    this.wizardData = { originType:'', originTypeOther:'', originCoords:'', originLandmark:'', destType:'', destTypeOther:'', destCoords:'', destLandmark:'', vehicleType:'', passengerCount:'', purpose:'', hasCargo:'', cargoType:'', cargoWeight:'', driverIncome:'' };
     this.wizardStep = 1; // ถามทิศใหม่
     this.page = 'wizard'; this.render(); window.scrollTo(0,0);
   },
@@ -1583,13 +1615,13 @@ const App = {
           'กลุ่มยานพาหนะ':        v.group,
           'จำนวนผู้โดยสาร':       iv.passengerCount || '',
           // ต้นทาง
-          'ประเภทสถานที่ต้นทาง':  iv.originType || '',
+          'ประเภทสถานที่ต้นทาง':  iv.originType === 'อื่น ๆ' && iv.originTypeOther ? 'อื่น ๆ: ' + iv.originTypeOther : (iv.originType || ''),
           'ชื่อสถานที่ต้นทาง':    iv.originName || '',
           'พิกัดต้นทาง':          iv.originCoords || '',
           'Lat ต้นทาง':           coordsLat(iv.originCoords),
           'Lon ต้นทาง':           coordsLon(iv.originCoords),
           // ปลายทาง
-          'ประเภทสถานที่ปลายทาง': iv.destinationType || '',
+          'ประเภทสถานที่ปลายทาง': iv.destinationType === 'อื่น ๆ' && iv.destinationTypeOther ? 'อื่น ๆ: ' + iv.destinationTypeOther : (iv.destinationType || ''),
           'ชื่อสถานที่ปลายทาง':   iv.destinationName || '',
           'พิกัดปลายทาง':         iv.destinationCoords || '',
           'Lat ปลายทาง':          coordsLat(iv.destinationCoords),
