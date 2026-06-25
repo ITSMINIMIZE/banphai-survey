@@ -23,6 +23,10 @@ const MapPicker = {
   DEFAULT_LON: 100.9,
   DEFAULT_ZOOM: 5,
   MARKER_ZOOM: 16,    // ซูมเมื่อมีพิกัด (เดิม / GPS / เลือกผลค้นหา)
+  // จุดอ้างอิงเรียงผลค้นหาตามระยะทาง — fallback = ศูนย์พื้นที่ศึกษา (บ้านไผ่) · อัปเดตเป็นพิกัดเดิม/GPS เมื่อมี
+  REF_CENTER: [16.06, 102.73],
+  _refLat: 16.06,
+  _refLon: 102.73,
   // ธีมน้ำเงิน
   ACCENT: '#2563eb',
   HOVER:  '#dbeafe',
@@ -40,12 +44,17 @@ const MapPicker = {
     this._googleTried = false;
     this._pendingQuery = null;
     this._mapShown = false;
+    // จุดอ้างอิงเรียงระยะทาง: พิกัดเดิม > ศูนย์พื้นที่ (จะอัปเดตเป็น GPS เมื่อได้)
+    this._refLat = this.REF_CENTER[0];
+    this._refLon = this.REF_CENTER[1];
     if (currentCoords) {
       const p = currentCoords.split(',').map(s => parseFloat(s.trim()));
       if (p.length === 2 && !isNaN(p[0]) && !isNaN(p[1])) {
         this.selectedLat = p[0]; this.selectedLon = p[1];
+        this._refLat = p[0]; this._refLon = p[1];
       }
     }
+    this._refGeolocate();   // ลอง GPS เงียบๆ → ใช้เป็นจุดอ้างอิง "ใกล้ตัว"
     this._renderModal();   // ยังไม่ render แผนที่ — โหลด tiles เฉพาะตอนกดเปิดแผนที่ (_openMapView)
     // อุ่น cache places + config (key) ไว้ล่วงหน้า (ลด latency ตอนค้นครั้งแรก)
     if (typeof PlaceService !== 'undefined') {
@@ -223,6 +232,35 @@ const MapPicker = {
   },
 
   // mode: 'local' (พิมพ์สด) | 'longdo' (กดค้นหา) | 'google' (กดค้นเพิ่ม)
+  // GPS เงียบๆ สำหรับจุดอ้างอิงเรียงระยะทาง (cache 10 นาที · ไม่เลื่อนแผนที่)
+  _refGeolocate() {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        this._refLat = pos.coords.latitude;
+        this._refLon = pos.coords.longitude;
+        if (this._lastResults && this._lastResults.length) {
+          this._sortByDistance(this._lastResults);
+          this._renderResults(this._googleTried);
+        }
+      },
+      () => {},
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 600000 }
+    );
+  },
+
+  // เรียงผลค้นหา ใกล้ → ไกล (เทียบจุดอ้างอิง) · ไม่มีพิกัด = ไปท้าย
+  _sortByDistance(list) {
+    if (!Array.isArray(list)) return list;
+    const rl = this._refLat, ro = this._refLon;
+    list.forEach(r => {
+      r._dist = (r.latitude != null && r.longitude != null && !isNaN(+r.latitude) && !isNaN(+r.longitude))
+        ? PlaceService._distM(rl, ro, +r.latitude, +r.longitude) : Infinity;
+    });
+    list.sort((a, b) => a._dist - b._dist);
+    return list;
+  },
+
   async _search(query, mode) {
     mode = mode || 'local';
     const q = (query || '').trim();
@@ -237,6 +275,7 @@ const MapPicker = {
       this._lastQuery = q;
       this._googleTried = false;
       this._lastResults = PlaceService.searchLocal(q);
+      this._sortByDistance(this._lastResults);
       this._renderResults(false);
       return;
     }
@@ -247,6 +286,7 @@ const MapPicker = {
       this._googleTried = false;
       try { this._lastResults = await PlaceService.searchLongdo(q); }
       catch (e) { this._lastResults = []; }
+      this._sortByDistance(this._lastResults);
       this._renderResults(true);
       return;
     }
@@ -257,6 +297,7 @@ const MapPicker = {
       let g = [];
       try { g = await PlaceService.searchGoogle(q); } catch (e) {}
       this._lastResults = PlaceService._dedupeResults([...(this._lastResults || []), ...g]);
+      this._sortByDistance(this._lastResults);
       this._renderResults(true);
     }
   },
@@ -270,11 +311,12 @@ const MapPicker = {
 
     let html = list.map((r, i) => {
       const cnt  = (r.source === 'local' && r.use_count) ? `<span style="font-size:10px;color:#94a3b8;margin-left:6px;">${r.use_count}× ใช้</span>` : '';
+      const dist = (r._dist != null && isFinite(r._dist)) ? `<span style="font-size:11px;color:#0ea5e9;font-weight:600;margin-left:6px;">📍 ${r._dist < 1000 ? Math.round(r._dist) + ' ม.' : (r._dist/1000).toFixed(1) + ' กม.'}</span>` : '';
       const addr = r.address ? `<div style="font-size:11px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${this._esc(r.address)}</div>` : '';
       return `<div onclick="MapPicker._pickResult(${i})"
           style="padding:8px 10px;border-bottom:1px solid #f1f5f9;cursor:pointer;font-size:13px;color:#1e293b;line-height:1.4;"
           onmouseover="this.style.background='${this.HOVER}'" onmouseout="this.style.background='transparent'">
-          <div style="margin-bottom:2px;">${this._badge(r.source)}${cnt}</div>
+          <div style="margin-bottom:2px;">${this._badge(r.source)}${cnt}${dist}</div>
           <div style="font-weight:600;">${this._esc(r.place_name)}</div>
           ${addr}
         </div>`;
