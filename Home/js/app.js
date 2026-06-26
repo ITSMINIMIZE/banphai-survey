@@ -1834,3 +1834,17 @@ const App = {
 };
 
 document.addEventListener('DOMContentLoaded', () => App.init());
+
+// ป้ายเวอร์ชันมุมล่างซ้าย (บางๆ ไม่รบกวน) — อ่านจาก Service Worker ไว้เช็ค cache freshness
+document.addEventListener('DOMContentLoaded', () => {
+  const b = document.createElement('div');
+  b.style.cssText = 'position:fixed;left:5px;bottom:3px;z-index:99999;font-size:10px;line-height:1;color:#94a3b8;opacity:.35;pointer-events:none;font-family:monospace;letter-spacing:.02em;';
+  document.body.appendChild(b);
+  const swc = navigator.serviceWorker;
+  if (swc) {
+    swc.addEventListener('message', (e) => {
+      if (e.data && e.data.type === 'version') b.textContent = e.data.version;
+    });
+    swc.ready.then(reg => { if (reg.active) reg.active.postMessage('getVersion'); }).catch(() => {});
+  }
+});

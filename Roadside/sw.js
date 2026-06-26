@@ -1,7 +1,7 @@
 // Service Worker — Roadside Interview
 // กลยุทธ์: network-first สำหรับทุกอย่าง, fall back cache เมื่อ offline
 // ทุก deploy ใหม่ขึ้น CACHE_VERSION → cache เก่าโดนล้างอัตโนมัติ
-const CACHE_VERSION = 'ri-v23-delta';
+const CACHE_VERSION = 'ri-v24-delta';
 const CORE_ASSETS = [
   './',
   './index.html',
@@ -47,4 +47,9 @@ self.addEventListener('fetch', e => {
       })
       .catch(() => caches.match(req).then(r => r || caches.match('./index.html')))
   );
+});
+
+// ตอบเวอร์ชัน cache ให้หน้าเว็บ (ใช้แสดงป้ายเวอร์ชันมุมจอ — เช็ค cache freshness)
+self.addEventListener('message', (e) => {
+  if (e.data === 'getVersion' && e.source) e.source.postMessage({ type: 'version', version: CACHE_VERSION });
 });

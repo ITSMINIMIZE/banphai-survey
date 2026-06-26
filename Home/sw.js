@@ -1,5 +1,5 @@
 // Service Worker — Home Interview
-const CACHE_VERSION = 'hi-v23-delta';
+const CACHE_VERSION = 'hi-v24-delta';
 const CORE_ASSETS = [
   './',
   './index.html',
@@ -41,4 +41,9 @@ self.addEventListener('fetch', e => {
       })
       .catch(() => caches.match(req).then(r => r || caches.match('./index.html')))
   );
+});
+
+// ตอบเวอร์ชัน cache ให้หน้าเว็บ (ใช้แสดงป้ายเวอร์ชันมุมจอ — เช็ค cache freshness)
+self.addEventListener('message', (e) => {
+  if (e.data === 'getVersion' && e.source) e.source.postMessage({ type: 'version', version: CACHE_VERSION });
 });
