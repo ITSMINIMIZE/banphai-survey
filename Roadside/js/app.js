@@ -1247,10 +1247,20 @@ const App = {
   // Step 6: สินค้า (รถบรรทุกเท่านั้น)
   _wStep7Cargo() {
     const wd = this.wizardData;
-    const cargoCards = OPT.cargoTypes.map(c => `
-      <div class="wiz-card wiz-cargo-item ${wd.cargoType === c ? 'sel' : ''}"
-        data-label="${c}" onclick="App._wPickCargoType('${c.replace(/'/g,"\\'")}')">
-        <div class="wiz-card-label" style="font-size:12px;">${c}</div>
+    // จัดกลุ่ม + สีพื้นต่อกลุ่ม (กวาดตาหาเร็ว)
+    const cargoCards = OPT.cargoGroups.map(g => `
+      <div class="wiz-cargo-group" data-cgroup="${g.name}">
+        <div style="font-size:11px;font-weight:700;color:var(--gray-600);margin:12px 2px 6px;display:flex;align-items:center;gap:6px;">
+          <span style="width:12px;height:12px;border-radius:3px;background:${g.bg};border:1px solid rgba(0,0,0,.12);flex-shrink:0;"></span>${g.name}
+        </div>
+        <div class="wiz-grid wiz-grid-3">
+          ${g.items.map(c => `
+            <div class="wiz-card wiz-cargo-item ${wd.cargoType === c ? 'sel' : ''}"
+              data-label="${c}" data-cgroup="${g.name}" style="background:${g.bg};"
+              onclick="App._wPickCargoType('${c.replace(/'/g,"\\'")}')">
+              <div class="wiz-card-label" style="font-size:12px;">${c}</div>
+            </div>`).join('')}
+        </div>
       </div>`).join('');
     return this._wHeader('สินค้าที่บรรทุก') + `
       <div class="wiz-grid wiz-grid-2" style="margin-bottom:16px;">
@@ -1263,10 +1273,7 @@ const App = {
       </div>
       ${wd.hasCargo === 'ไม่มีสินค้า' ? `<div class="wiz-bottom"><div class="wiz-bottom-row"><button class="btn btn-primary btn-block" onclick="App._wizardNext()">ถัดไป →</button></div></div>` : ''}
       ${wd.hasCargo === 'มีสินค้า' ? `
-        <input class="wiz-search" placeholder="🔍 ค้นหาชนิดสินค้า..." oninput="App._wFilterCargo(this.value)" />
-        <div style="border:1px solid var(--gray-200);border-radius:var(--radius);padding:8px;margin-top:6px;">
-          <div class="wiz-grid wiz-grid-3">${cargoCards}</div>
-        </div>
+        <div style="margin-top:6px;">${cargoCards}</div>
         ${wd.cargoType === 'อื่น ๆ (ระบุ)' ? `
           <input id="wiz_cargoTypeOther" class="form-input" style="margin-top:10px;"
             placeholder="ระบุชนิดสินค้า" value="${wd.cargoTypeOther||''}"
@@ -1292,7 +1299,6 @@ const App = {
     if (!wd.cargoWeight) { this.toast('กรุณากรอกน้ำหนักสินค้า', 'error'); return; }
     this._wizardNext();
   },
-  _wFilterCargo(q) { document.querySelectorAll('.wiz-cargo-item').forEach(el => { el.style.display = el.dataset.label.toLowerCase().includes(q.toLowerCase()) ? '' : 'none'; }); },
 
   // Step 7: รายได้
   _wStep8Income() {
