@@ -93,6 +93,7 @@ const DB = {
       // cargo
       hasCargo:             data.hasCargo           || '',
       cargoType:            data.cargoType          || '',
+      cargoTypeOther:       data.cargoTypeOther     || '',  // ระบุ เมื่อ cargoType = 'อื่น ๆ (ระบุ)'
       cargoWeight:          data.cargoWeight        || '',
       // income
       driverIncome:         data.driverIncome       || '',

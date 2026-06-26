@@ -510,7 +510,7 @@ const App = {
         <div class="card-box-title">📦 สินค้าที่บรรทุก</div>
         <div class="info-grid">
           ${row('มีสินค้า', iv.hasCargo)}
-          ${iv.hasCargo === 'มีสินค้า' ? row('ชนิดสินค้า', iv.cargoType) : ''}
+          ${iv.hasCargo === 'มีสินค้า' ? row('ชนิดสินค้า', iv.cargoType === 'อื่น ๆ (ระบุ)' && iv.cargoTypeOther ? 'อื่น ๆ: ' + iv.cargoTypeOther : iv.cargoType) : ''}
           ${iv.hasCargo === 'มีสินค้า' && iv.cargoWeight ? row('น้ำหนัก', iv.cargoWeight + ' กก.') : ''}
         </div>
       </div>` : ''}
@@ -615,6 +615,16 @@ const App = {
     const other = document.getElementById(which === 'origin' ? 'iv_originTypeOther' : 'iv_destTypeOther');
     if (!sel || !other) return;
     const show = sel.value === 'อื่น ๆ';
+    other.style.display = show ? 'block' : 'none';
+    if (show) other.focus(); else other.value = '';
+  },
+
+  // เลือกชนิดสินค้า = 'อื่น ๆ (ระบุ)' → โชว์ช่อง "ระบุ" (ฟอร์ม interview)
+  _onIvCargoOther() {
+    const sel   = document.getElementById('iv_cargoType');
+    const other = document.getElementById('iv_cargoTypeOther');
+    if (!sel || !other) return;
+    const show = sel.value === 'อื่น ๆ (ระบุ)';
     other.style.display = show ? 'block' : 'none';
     if (show) other.focus(); else other.value = '';
   },
@@ -851,9 +861,11 @@ const App = {
         <div class="form-grid">
           <div class="form-row">
             <label class="form-label">ชนิดสินค้า</label>
-            <select id="iv_cargoType" class="form-select">
+            <select id="iv_cargoType" class="form-select" onchange="App._onIvCargoOther()">
               <option value="">— เลือก —</option>${selOpt(OPT.cargoTypes, iv?.cargoType||'')}
             </select>
+            <input id="iv_cargoTypeOther" class="form-input" autocomplete="off" placeholder="ระบุชนิดสินค้า"
+              style="margin-top:6px;display:${iv?.cargoType==='อื่น ๆ (ระบุ)'?'block':'none'};" value="${iv?.cargoTypeOther||''}" />
           </div>
           <div class="form-row">
             <label class="form-label">น้ำหนัก (กก.)</label>
@@ -909,6 +921,7 @@ const App = {
       purpose:              document.getElementById('iv_purpose')?.value       || '',
       hasCargo:             document.getElementById('iv_hasCargo')?.value      || '',
       cargoType:            document.getElementById('iv_cargoType')?.value     || '',
+      cargoTypeOther:       document.getElementById('iv_cargoTypeOther')?.value.trim() || '',
       cargoWeight:          document.getElementById('iv_cargoWeight')?.value   || '',
       driverIncome:         document.getElementById('iv_income')?.value        || ''
     };
@@ -923,6 +936,7 @@ const App = {
     if (data.destinationType === 'อื่น ๆ' && !data.destinationTypeOther) errs.push('ระบุประเภทปลายทาง (อื่น ๆ)');
     if (!data.destinationName) errs.push('ชื่อปลายทาง');
     if (!data.purpose)         errs.push('วัตถุประสงค์');
+    if (data.hasCargo === 'มีสินค้า' && data.cargoType === 'อื่น ๆ (ระบุ)' && !data.cargoTypeOther) errs.push('ระบุชนิดสินค้า (อื่น ๆ)');
     if (errs.length) { this.toast('กรอกข้อมูลให้ครบ: ' + errs.join(', '), 'error'); return; }
 
     DB.updateInterview(this.stId, ivId, data);
@@ -955,7 +969,7 @@ const App = {
     // กดเพิ่มจากหน้าจุดสำรวจ → ถามทิศใหม่เสมอ
     // (เฉพาะปุ่ม "รถคันถัดไป" บน done screen ที่จะใช้ทิศเดิมผ่าน _wizardNextCar)
     this._wizardDirection = null;
-    this.wizardData = { originType:'', originTypeOther:'', originCoords:'', originLandmark:'', destType:'', destTypeOther:'', destCoords:'', destLandmark:'', vehicleType:'', passengerCount:'', purpose:'', hasCargo:'', cargoType:'', cargoWeight:'', driverIncome:'' };
+    this.wizardData = { originType:'', originTypeOther:'', originCoords:'', originLandmark:'', destType:'', destTypeOther:'', destCoords:'', destLandmark:'', vehicleType:'', passengerCount:'', purpose:'', hasCargo:'', cargoType:'', cargoTypeOther:'', cargoWeight:'', driverIncome:'' };
     this.wizardStep = 1;
     this.page = 'wizard'; this.render(); window.scrollTo(0, 0);
   },
@@ -1250,9 +1264,13 @@ const App = {
       ${wd.hasCargo === 'ไม่มีสินค้า' ? `<div class="wiz-bottom"><div class="wiz-bottom-row"><button class="btn btn-primary btn-block" onclick="App._wizardNext()">ถัดไป →</button></div></div>` : ''}
       ${wd.hasCargo === 'มีสินค้า' ? `
         <input class="wiz-search" placeholder="🔍 ค้นหาชนิดสินค้า..." oninput="App._wFilterCargo(this.value)" />
-        <div style="max-height:280px;overflow-y:auto;border:1px solid var(--gray-200);border-radius:var(--radius);padding:8px;">
-          <div class="wiz-grid wiz-grid-2">${cargoCards}</div>
+        <div style="border:1px solid var(--gray-200);border-radius:var(--radius);padding:8px;margin-top:6px;">
+          <div class="wiz-grid wiz-grid-3">${cargoCards}</div>
         </div>
+        ${wd.cargoType === 'อื่น ๆ (ระบุ)' ? `
+          <input id="wiz_cargoTypeOther" class="form-input" style="margin-top:10px;"
+            placeholder="ระบุชนิดสินค้า" value="${wd.cargoTypeOther||''}"
+            oninput="App.wizardData.cargoTypeOther=this.value" />` : ''}
         ${wd.cargoType ? `
           <div style="margin-top:14px;">
             <label class="form-label">น้ำหนักสินค้า (กก.)</label>
@@ -1263,12 +1281,14 @@ const App = {
         ` : ''}
       ` : ''}` + this._wFooter();
   },
-  _wPickHasCargo(val) { this.wizardData.hasCargo = val; this.wizardData.cargoType = ''; this.wizardData.cargoWeight = ''; this.page='wizard'; this.render(); window.scrollTo(0,0); },
+  _wPickHasCargo(val) { this.wizardData.hasCargo = val; this.wizardData.cargoType = ''; this.wizardData.cargoTypeOther = ''; this.wizardData.cargoWeight = ''; this.page='wizard'; this.render(); window.scrollTo(0,0); },
   _wPickCargoType(val) { this.wizardData.cargoType = val; this.page='wizard'; this.render(); },
   _wCargoNext() {
     const w = document.getElementById('wiz_cargoWeight'); if (w) this.wizardData.cargoWeight = w.value;
+    const oth = document.getElementById('wiz_cargoTypeOther'); if (oth) this.wizardData.cargoTypeOther = oth.value;
     const wd = this.wizardData;
     if (!wd.cargoType)   { this.toast('กรุณาเลือกชนิดสินค้า', 'error'); return; }
+    if (wd.cargoType === 'อื่น ๆ (ระบุ)' && !(wd.cargoTypeOther||'').trim()) { this.toast('กรุณาระบุชนิดสินค้า (อื่น ๆ)', 'error'); return; }
     if (!wd.cargoWeight) { this.toast('กรุณากรอกน้ำหนักสินค้า', 'error'); return; }
     this._wizardNext();
   },
@@ -1308,6 +1328,7 @@ const App = {
       purpose:           wd.purpose,
       hasCargo:          wd.hasCargo,
       cargoType:         wd.cargoType,
+      cargoTypeOther:    wd.cargoType === 'อื่น ๆ (ระบุ)' ? (wd.cargoTypeOther || '') : '',
       cargoWeight:       wd.cargoWeight,
       driverIncome:      wd.driverIncome
     });
@@ -1338,7 +1359,7 @@ const App = {
   _wizardNextCar() {
     this._wizardDone = false;
     this._paxCustom = false;
-    this.wizardData = { originType:'', originTypeOther:'', originCoords:'', originLandmark:'', destType:'', destTypeOther:'', destCoords:'', destLandmark:'', vehicleType:'', passengerCount:'', purpose:'', hasCargo:'', cargoType:'', cargoWeight:'', driverIncome:'' };
+    this.wizardData = { originType:'', originTypeOther:'', originCoords:'', originLandmark:'', destType:'', destTypeOther:'', destCoords:'', destLandmark:'', vehicleType:'', passengerCount:'', purpose:'', hasCargo:'', cargoType:'', cargoTypeOther:'', cargoWeight:'', driverIncome:'' };
     this.wizardStep = 2; // ข้ามทิศ เริ่มที่รถ
     this.page = 'wizard'; this.render(); window.scrollTo(0,0);
   },
@@ -1346,7 +1367,7 @@ const App = {
     this._wizardDirection = null;
     this._wizardDone = false;
     this._paxCustom = false;
-    this.wizardData = { originType:'', originTypeOther:'', originCoords:'', originLandmark:'', destType:'', destTypeOther:'', destCoords:'', destLandmark:'', vehicleType:'', passengerCount:'', purpose:'', hasCargo:'', cargoType:'', cargoWeight:'', driverIncome:'' };
+    this.wizardData = { originType:'', originTypeOther:'', originCoords:'', originLandmark:'', destType:'', destTypeOther:'', destCoords:'', destLandmark:'', vehicleType:'', passengerCount:'', purpose:'', hasCargo:'', cargoType:'', cargoTypeOther:'', cargoWeight:'', driverIncome:'' };
     this.wizardStep = 1; // ถามทิศใหม่
     this.page = 'wizard'; this.render(); window.scrollTo(0,0);
   },
@@ -1630,7 +1651,7 @@ const App = {
           'วัตถุประสงค์':         iv.purpose || '',
           // สินค้า
           'มีสินค้า':             iv.hasCargo || '',
-          'ชนิดสินค้า':           iv.cargoType || '',
+          'ชนิดสินค้า':           iv.cargoType === 'อื่น ๆ (ระบุ)' && iv.cargoTypeOther ? 'อื่น ๆ: ' + iv.cargoTypeOther : (iv.cargoType || ''),
           'น้ำหนักสินค้า (กก.)':  iv.cargoWeight || '',
           // รายได้
           'รายได้ผู้ขับ (บาท/เดือน)': iv.driverIncome || '',
