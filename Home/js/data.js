@@ -87,6 +87,7 @@ const DB = {
       occupation:           data.occupation           || '',
       education:            data.education            || '',
       workplaceName:        data.workplaceName        || '',
+      workplaceCoords:      data.workplaceCoords      || '',
       workplaceAlley:       data.workplaceAlley       || '',
       workplaceRoad:        data.workplaceRoad        || '',
       workplaceSubdistrict: data.workplaceSubdistrict || '',
@@ -225,7 +226,7 @@ const OPT = {
   ],
 
   homeStatus: [
-    'พ่อบ้าน', 'แม่บ้าน', 'ลูก', 'ญาติ', 'ผู้อยู่อาศัย / ลูกจ้าง', 'อื่น ๆ'
+    'เจ้าบ้านผู้ชาย', 'เจ้าบ้านผู้หญิง', 'ลูก', 'ญาติ', 'ผู้อยู่อาศัย / ลูกจ้าง', 'อื่น ๆ'
   ],
 
   workStatus: [

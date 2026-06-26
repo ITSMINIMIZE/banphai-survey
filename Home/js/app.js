@@ -486,6 +486,9 @@ const App = {
         <option value="">— เลือก —</option>
         ${list.map(o => `<option value="${o}" ${o === val ? 'selected' : ''}>${o}</option>`).join('')}
       </select>`;
+    // ไม่ทำงาน/ว่างงาน → อาชีพ = อยู่บ้านเฉย ๆ (auto) + ซ่อนสถานที่ทำงาน
+    const nw = this._isNotWorking(m.workStatus);
+    const occVal = nw ? 'อยู่บ้านเฉย ๆ' : (m.occupation || '');
 
     return `<div class="card-box">
       <div class="card-box-title">👤 ข้อมูลบุคคล (ส่วนที่ 2)</div>
@@ -514,14 +517,20 @@ const App = {
         </div>
         <div class="form-row">
           <label class="form-label req">สถานะการทำงาน / เรียน</label>
-          ${sel(OPT.workStatus, m.workStatus, 'f_workStatus')}
+          <select id="f_workStatus" class="form-select" autocomplete="off" onchange="App._onWorkStatusChange(this.value)">
+            <option value="">— เลือก —</option>
+            ${OPT.workStatus.map(o => `<option value="${o}" ${o === m.workStatus ? 'selected' : ''}>${o}</option>`).join('')}
+          </select>
         </div>
       </div>
 
       <div class="form-grid">
         <div class="form-row">
           <label class="form-label">อาชีพ</label>
-          ${sel(OPT.occupation, m.occupation, 'f_occupation')}
+          <select id="f_occupation" class="form-select" autocomplete="off" ${nw ? 'disabled' : ''}>
+            <option value="">— เลือก —</option>
+            ${OPT.occupation.map(o => `<option value="${o}" ${o === occVal ? 'selected' : ''}>${o}</option>`).join('')}
+          </select>
         </div>
         <div class="form-row">
           <label class="form-label">ระดับการศึกษา</label>
@@ -545,35 +554,21 @@ const App = {
         </div>
       </div>
 
-      <hr class="divider" />
-      <div class="section-label">ชื่อ / ที่อยู่สถานที่ทำงาน หรือ สถานศึกษา</div>
-
-      <div class="form-row">
-        <label class="form-label">ชื่อสถานที่ทำงาน / สถานศึกษา</label>
-        <input id="f_wpName" class="form-input" autocomplete="off" value="${m.workplaceName || ''}" placeholder="เช่น โรงเรียนบ้านไผ่, บริษัท ABC" />
-      </div>
-      <div class="form-grid">
+      <div id="wpSection" style="display:${nw ? 'none' : 'block'};">
+        <hr class="divider" />
+        <div class="section-label">ชื่อ / สถานที่ทำงาน หรือ สถานศึกษา</div>
         <div class="form-row">
-          <label class="form-label">ตรอก / ซอย</label>
-          <input id="f_wpAlley" class="form-input" autocomplete="off" value="${m.workplaceAlley || ''}" />
-        </div>
-        <div class="form-row">
-          <label class="form-label">ถนน</label>
-          <input id="f_wpRoad" class="form-input" autocomplete="off" value="${m.workplaceRoad || ''}" />
-        </div>
-      </div>
-      <div class="form-grid">
-        <div class="form-row">
-          <label class="form-label">ตำบล</label>
-          <input id="f_wpSub" class="form-input" autocomplete="off" value="${m.workplaceSubdistrict || ''}" />
-        </div>
-        <div class="form-row">
-          <label class="form-label">อำเภอ</label>
-          <input id="f_wpDist" class="form-input" autocomplete="off" value="${m.workplaceDistrict || ''}" />
-        </div>
-        <div class="form-row">
-          <label class="form-label">จังหวัด</label>
-          <input id="f_wpProv" class="form-input" autocomplete="off" value="${m.workplaceProvince || ''}" placeholder="ขอนแก่น" />
+          <label class="form-label">ชื่อสถานที่ทำงาน / สถานศึกษา</label>
+          <div style="display:flex;gap:8px;">
+            <input id="f_wpName" class="form-input" autocomplete="off" value="${m.workplaceName || ''}"
+              placeholder="ค้นหา / ปักหมุดจากแผนที่" style="flex:1;min-width:0;" />
+            <button type="button" onclick="App._openMap('f_wpCoords','f_wpName')"
+              style="padding:9px 12px;background:var(--primary-light);color:var(--primary);
+                     border:1.5px solid var(--primary);border-radius:var(--radius-sm);
+                     font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">🗺 แผนที่</button>
+          </div>
+          <input type="hidden" id="f_wpCoords" value="${m.workplaceCoords || ''}" />
+          ${m.workplaceCoords ? `<div style="font-size:11px;color:var(--gray-400);margin-top:3px;" data-coordshint="f_wpCoords">📍 ${m.workplaceCoords}</div>` : ''}
         </div>
       </div>
 
@@ -589,6 +584,21 @@ const App = {
     el.classList.add('sel');
     const h = document.getElementById('f_gender');
     if (h) h.value = val;
+  },
+
+  // ว่างงาน / ไม่ทำงาน → ไม่มีอาชีพ/สถานที่ทำงาน
+  _isNotWorking(ws) {
+    return ws === 'ว่างงาน (ยังหางานทำไม่ได้)' || ws === 'ไม่ทำงาน (อยู่บ้านเฉย ๆ)';
+  },
+  _onWorkStatusChange(val) {
+    const nw  = this._isNotWorking(val);
+    const occ = document.getElementById('f_occupation');
+    const wp  = document.getElementById('wpSection');
+    if (occ) {
+      if (nw) { occ.value = 'อยู่บ้านเฉย ๆ'; occ.disabled = true; }
+      else    { occ.disabled = false; }
+    }
+    if (wp) wp.style.display = nw ? 'none' : 'block';
   },
 
   savePersonalInfo() {
@@ -626,12 +636,8 @@ const App = {
       occupation:           document.getElementById('f_occupation')?.value || '',
       education:            document.getElementById('f_education')?.value || '',
       income,
-      workplaceName:        document.getElementById('f_wpName')?.value.trim()  || '',
-      workplaceAlley:       document.getElementById('f_wpAlley')?.value.trim() || '',
-      workplaceRoad:        document.getElementById('f_wpRoad')?.value.trim()  || '',
-      workplaceSubdistrict: document.getElementById('f_wpSub')?.value.trim()   || '',
-      workplaceDistrict:    document.getElementById('f_wpDist')?.value.trim()  || '',
-      workplaceProvince:    document.getElementById('f_wpProv')?.value.trim()  || ''
+      workplaceName:        document.getElementById('f_wpName')?.value.trim()   || '',
+      workplaceCoords:      document.getElementById('f_wpCoords')?.value.trim()  || ''
     });
 
     // --- auto-update household income if sum > current ---
@@ -1141,7 +1147,7 @@ const App = {
         <div class="form-grid">
           <div class="form-row">
             <label class="form-label">ประเภทยานพาหนะ</label>
-            <select class="form-select seg-mode" autocomplete="off" onchange="App._calcArrival()">
+            <select class="form-select seg-mode" autocomplete="off" onchange="App._onSegMode(this)">
               <option value="">— เลือก —</option>${selOpt(availModes, s.mode)}
             </select>
           </div>
@@ -1150,7 +1156,7 @@ const App = {
             <input class="form-input seg-dur" type="number" min="0" inputmode="numeric" autocomplete="off"
               value="${s.duration || ''}" placeholder="นาที" oninput="App._calcArrival()" />
           </div>
-          <div class="form-row">
+          <div class="form-row seg-fare-row" style="display:${this._FARE_MODES.includes(s.mode) ? '' : 'none'};">
             <label class="form-label">ค่าโดยสาร (บาท)</label>
             <input class="form-input seg-fare" type="number" min="0" inputmode="numeric" autocomplete="off" value="${s.fare || ''}" placeholder="บาท" />
           </div>
@@ -1200,7 +1206,7 @@ const App = {
         <div style="display:flex;gap:8px;">
           <input id="t_destination" class="form-input" autocomplete="off"
             placeholder="เช่น ตลาด, โรงเรียน" value="${t?.destination || ''}" style="flex:1;min-width:0;" />
-          <button type="button" onclick="App._openMap('t_destinationCoords')"
+          <button type="button" onclick="App._openMap('t_destinationCoords','t_destination')"
             style="padding:9px 12px;background:var(--primary-light);color:var(--primary);
                    border:1.5px solid var(--primary);border-radius:var(--radius-sm);
                    font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">🗺 แผนที่</button>
@@ -1349,9 +1355,10 @@ const App = {
     if (el) el.value = src;
   },
 
-  _openMap(coordsId) {
+  _openMap(coordsId, nameId) {
     const coordsEl = document.getElementById(coordsId);
-    MapPicker.open(coordsEl?.value || '', coords => {
+    const nameEl   = nameId ? document.getElementById(nameId) : null;
+    MapPicker.open(coordsEl?.value || '', (coords, name) => {
       if (coordsEl) {
         coordsEl.value = coords;
         // อัพเดตแสดงพิกัดใต้ input
@@ -1365,6 +1372,8 @@ const App = {
           coordsEl.insertAdjacentElement('afterend', d);
         }
       }
+      // เลือกผลค้นหา/ปักหมุดที่มีชื่อ → ดึงชื่อมาใส่
+      if (nameEl && name) nameEl.value = name;
     });
   },
 
@@ -1398,6 +1407,19 @@ const App = {
         coordsEl.insertAdjacentElement('afterend', d);
       }
     }
+  },
+
+  // โหมดที่มีค่าโดยสาร (รถโดยสาร/รับจ้าง) → ช่องค่าโดยสารโผล่เฉพาะตอนเลือกโหมดเหล่านี้
+  _FARE_MODES: ['รถจักรยานยนต์รับจ้าง','รถสามล้อเครื่อง / แท็กซี่','รถสองแถว / รถประจำทาง','รถส่วนบุคคลรับจ้าง','รถไฟ'],
+  _onSegMode(selectEl) {
+    const row = selectEl.closest('.seg-row');
+    const fareRow = row && row.querySelector('.seg-fare-row');
+    if (fareRow) {
+      const show = this._FARE_MODES.includes(selectEl.value);
+      fareRow.style.display = show ? '' : 'none';
+      if (!show) { const f = fareRow.querySelector('.seg-fare'); if (f) f.value = ''; }
+    }
+    this._calcArrival();
   },
 
   _calcArrival() {
@@ -1442,7 +1464,7 @@ const App = {
       <div class="form-grid">
         <div class="form-row">
           <label class="form-label">ประเภทยานพาหนะ</label>
-          <select class="form-select seg-mode" autocomplete="off" onchange="App._calcArrival()">
+          <select class="form-select seg-mode" autocomplete="off" onchange="App._onSegMode(this)">
             ${modeOpts}
           </select>
         </div>
@@ -1450,7 +1472,7 @@ const App = {
           <label class="form-label">เวลาที่ใช้ (นาที)</label>
           <input class="form-input seg-dur" type="number" min="0" inputmode="numeric" autocomplete="off" placeholder="นาที" oninput="App._calcArrival()" />
         </div>
-        <div class="form-row">
+        <div class="form-row seg-fare-row" style="display:none;">
           <label class="form-label">ค่าโดยสาร (บาท)</label>
           <input class="form-input seg-fare" type="number" min="0" inputmode="numeric" autocomplete="off" placeholder="บาท" />
         </div>
@@ -1492,7 +1514,7 @@ const App = {
       this.toast('กรุณาระบุวิธีเดินทางอย่างน้อย 1 ช่วง', 'error'); return;
     }
     // modes ที่บังคับกรอกค่าโดยสาร
-    const fareRequired = ['รถจักรยานยนต์รับจ้าง','รถสามล้อเครื่อง / แท็กซี่','รถสองแถว / รถประจำทาง','รถส่วนบุคคลรับจ้าง'];
+    const fareRequired = this._FARE_MODES;
     for (let i = 0; i < segments.length; i++) {
       if (fareRequired.includes(segments[i].mode) && !segments[i].fare) {
         this.toast(`ช่วงที่ ${i+1} (${segments[i].mode}): กรุณากรอกค่าโดยสาร`, 'error'); return;
@@ -1701,11 +1723,7 @@ const App = {
         'อาชีพ':              m.occupation,
         'การศึกษา':           m.education,
         'ชื่อสถานที่ทำงาน':   m.workplaceName,
-        'ซอย(ที่ทำงาน)':      m.workplaceAlley,
-        'ถนน(ที่ทำงาน)':      m.workplaceRoad,
-        'ตำบล(ที่ทำงาน)':     m.workplaceSubdistrict,
-        'อำเภอ(ที่ทำงาน)':    m.workplaceDistrict,
-        'จังหวัด(ที่ทำงาน)':  m.workplaceProvince,
+        'พิกัดที่ทำงาน':      m.workplaceCoords || '',
         'รายได้':             m.income,
       }))
     );
