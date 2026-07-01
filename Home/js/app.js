@@ -1298,14 +1298,17 @@ const App = {
   },
 
   // ใช้ GPS เครื่องอ่านพิกัดปัจจุบัน
+  // ใช้ watchPosition เก็บพิกัดที่แม่นขึ้นเรื่อยๆ + นาฬิกากันค้าง (ปุ่มกลับมากดได้เสมอ แม้เบราว์เซอร์เงียบ)
   _useGPS(coordsId) {
     if (!navigator.geolocation) { this.toast('เบราว์เซอร์นี้ไม่รองรับ GPS', 'error'); return; }
     if (!window.isSecureContext) { this.toast('GPS ใช้ได้เฉพาะผ่าน https', 'error'); return; }
     const btn = document.getElementById('gpsBtn_' + coordsId);
-    const orig = btn ? btn.textContent : '';
-    if (btn) { btn.textContent = '⌛'; btn.disabled = true; }
+    const orig = (btn && btn.dataset.orig) || (btn ? btn.textContent : '') || '📍';
+    if (btn) { btn.dataset.orig = orig; btn.textContent = '⌛'; btn.disabled = true; }
 
-    const onOk = pos => {
+    let watchId = null, best = null, done = false;
+
+    const apply = pos => {
       const lat = pos.coords.latitude.toFixed(6);
       const lon = pos.coords.longitude.toFixed(6);
       const coords = `${lat}, ${lon}`;
@@ -1313,28 +1316,42 @@ const App = {
       if (el) el.value = coords;
       const hintEl = document.querySelector(`[data-coordshint="${coordsId}"]`);
       if (hintEl) hintEl.textContent = '📍 ' + coords;
-      if (btn) { btn.textContent = orig || '📍'; btn.disabled = false; }
-      this.toast(`รับพิกัด GPS: ${coords}`, 'success');
+      const acc = pos.coords.accuracy ? ` (±${Math.round(pos.coords.accuracy)} ม.)` : '';
+      this.toast(`รับพิกัด GPS: ${coords}${acc}`, 'success');
       // ถ้าเป็นฟอร์มครัวเรือน ดึงชื่ออำเภอ/จังหวัดอัตโนมัติ
       if (coordsId === 'm_coords') { this._reverseGeocode(lat, lon); this._setHhCoordsSource('gps'); }
     };
-    const onErr = (err, isRetry) => {
-      // timeout(3)/หาไม่เจอ(2) → ลองใหม่แบบผ่อนปรน (ไม่เน้นแม่น · ใช้ค่าล่าสุดได้ · รอนานขึ้น)
-      if (!isRetry && (err.code === 2 || err.code === 3)) {
-        navigator.geolocation.getCurrentPosition(onOk, e => onErr(e, true),
-          { enableHighAccuracy: false, timeout: 20000, maximumAge: 120000 });
-        return;
-      }
-      if (btn) { btn.textContent = orig || '📍'; btn.disabled = false; }
+    const cleanup = () => {
+      if (watchId != null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+      clearTimeout(hardTimer);
+      if (btn) { btn.textContent = orig; btn.disabled = false; }
+    };
+    const finish = ok => {
+      if (done) return; done = true;
+      cleanup();
+      if (ok && best) apply(best);
+    };
+    const fail = err => {
+      if (done) return; done = true;
+      cleanup();
       let msg;
-      if (err.code === 1)      msg = 'เบราว์เซอร์บล็อกตำแหน่ง — เปิดสิทธิ์ Location ของเว็บนี้ในตั้งค่าเบราว์เซอร์';
-      else if (err.code === 2) msg = 'หาตำแหน่งไม่ได้ — เปิด Location/GPS ของเครื่อง หรือกดปุ่มแผนที่ปักหมุดแทน';
-      else if (err.code === 3) msg = 'หาตำแหน่งนานเกินไป — ลองใหม่ที่โล่ง หรือกดปุ่มแผนที่ปักหมุดแทน';
-      else                     msg = 'อ่าน GPS ไม่สำเร็จ — กดปุ่มแผนที่ปักหมุดแทนได้';
+      if (err && err.code === 1)      msg = 'เบราว์เซอร์บล็อกตำแหน่ง — เปิดสิทธิ์ Location ของเว็บนี้ในตั้งค่าเบราว์เซอร์';
+      else if (err && err.code === 2) msg = 'หาตำแหน่งไม่ได้ — เปิด Location/GPS ของเครื่อง หรือกดปุ่มแผนที่ปักหมุดแทน';
+      else                            msg = 'หาตำแหน่งนานเกินไป — ลองใหม่ที่โล่ง หรือกดปุ่มแผนที่ปักหมุดแทน';
       this.toast(msg, 'error');
     };
-    navigator.geolocation.getCurrentPosition(onOk, e => onErr(e, false),
-      { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 });
+
+    watchId = navigator.geolocation.watchPosition(
+      pos => {
+        if (!best || (pos.coords.accuracy || 9999) < (best.coords.accuracy || 9999)) best = pos;
+        if ((pos.coords.accuracy || 9999) <= 30) finish(true);   // แม่นพอ → จบเลย
+      },
+      err => { if (err.code === 1) fail(err); },   // permission ถูกบล็อก → เลิกทันที · อื่นๆ รอ hard timeout
+      { enableHighAccuracy: true, timeout: 27000, maximumAge: 0 }
+    );
+
+    // นาฬิกากันค้าง: 15 วิ เอาพิกัดที่ดีที่สุดที่ได้ · ถ้ายังไม่ได้อะไรเลย = แจ้ง error (ปุ่มกลับมากดได้เสมอ)
+    var hardTimer = setTimeout(() => { best ? finish(true) : fail({ code: 3 }); }, 15000);
   },
 
   // เปิด map picker สำหรับ trip (รับ coordsInputId)
