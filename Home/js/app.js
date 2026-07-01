@@ -219,8 +219,48 @@ const App = {
   },
 
   goBack() {
-    if (this.page === 'member') this.navigate('household');
-    else this.navigate('home');
+    if (this.page === 'member') { this.navigate('household'); return; }
+    this.exitToHome();
+  },
+
+  // ออกจากหน้าบ้านกลับหน้ารวม — ถ้าเป็นบ้านร่าง (ยังไม่กดบันทึก) ให้ถือว่ายกเลิก
+  exitToHome() {
+    if (this._draftHhId && this.hhId === this._draftHhId) {
+      const hh = DB.getHousehold(this.hhId);
+      const hasData = hh && hh.members.some(m => m.gender || m.trips.length > 0);
+      if (hasData) { this._confirmDiscardDraft(); return; }
+      // ร่างเปล่า ไม่มีข้อมูล → ลบทิ้งเงียบ ๆ
+      if (hh) DB.deleteHousehold(this.hhId);
+      this._draftHhId = null;
+    }
+    this.navigate('home');
+  },
+
+  _confirmDiscardDraft() {
+    this.showModal('❌ ยกเลิกการเพิ่มบ้าน',
+      `<p style="color:var(--gray-600)">บ้านนี้ยังไม่ได้กด <b>บันทึก</b> — ถ้าย้อนกลับตอนนี้ ข้อมูลบ้านและสมาชิกทั้งหมดจะถูกลบทิ้ง</p>`,
+      `<button class="btn btn-ghost" onclick="App.closeModal()">กรอกต่อ</button>
+       <button class="btn btn-danger" onclick="App.discardDraft()">ยกเลิก &amp; ลบทิ้ง</button>`
+    );
+  },
+
+  discardDraft() {
+    const id = this._draftHhId;
+    this._draftHhId = null;
+    this.closeModal();
+    if (id) DB.deleteHousehold(id);
+    this.toast('ยกเลิกการเพิ่มบ้านแล้ว', 'success');
+    this.navigate('home');
+  },
+
+  // กดบันทึก = ยืนยันเก็บบ้านนี้ กลับหน้ารวม (ยังไม่สมบูรณ์ก็เก็บไว้ แต่ขึ้นแดง)
+  saveHouseholdDone() {
+    this._draftHhId = null;
+    const hh = DB.getHousehold(this.hhId);
+    const complete = hh && hh.members.some(m => m.trips.length > 0);
+    if (complete) this.toast('บันทึกบ้านเรียบร้อย', 'success');
+    else this.toast('บันทึกแล้ว — ยังไม่มีคนเดินทาง จะขึ้นสีแดงว่ายังไม่สมบูรณ์', 'error');
+    this.navigate('home');
   },
 
   render() {
@@ -235,13 +275,13 @@ const App = {
     } else if (this.page === 'household') {
       const hh = DB.getHousehold(this.hhId);
       bc.className = 'breadcrumb visible';
-      bc.innerHTML = `<a onclick="App.navigate('home')">หน้าหลัก</a> <span>›</span> ${hh ? (hh.houseNo ? 'บ้านเลขที่ ' + this.esc(hh.houseNo) : hh.id) : ''}`;
+      bc.innerHTML = `<a onclick="App.exitToHome()">หน้าหลัก</a> <span>›</span> ${hh ? (hh.houseNo ? 'บ้านเลขที่ ' + this.esc(hh.houseNo) : hh.id) : ''}`;
       app.innerHTML = this.pageHousehold();
     } else if (this.page === 'member') {
       const hh = DB.getHousehold(this.hhId);
       const m  = DB.getMember(this.hhId, this.memberId);
       bc.className = 'breadcrumb visible';
-      bc.innerHTML = `<a onclick="App.navigate('home')">หน้าหลัก</a> <span>›</span>
+      bc.innerHTML = `<a onclick="App.exitToHome()">หน้าหลัก</a> <span>›</span>
         <a onclick="App.navigate('household','${this.hhId}')">${hh ? (hh.houseNo ? 'บ้านเลขที่ ' + this.esc(hh.houseNo) : hh.id) : ''}</a>
         <span>›</span> สมาชิกที่ ${m ? m.seq : ''}`;
       app.innerHTML = this.pageMember();
@@ -297,12 +337,15 @@ const App = {
           const t    = hh.members.reduce((s, m) => s + m.trips.length, 0);
           const totM = Object.values(hh.memberGrid || {}).reduce((s, v) => s + (+v || 0), 0);
           const addr = [hh.houseNo ? 'บ้านเลขที่ ' + hh.houseNo : '', hh.moo ? 'ม.' + hh.moo : '', hh.road].filter(Boolean).join(' ');
-          return `<div class="hh-card" onclick="App.navigate('household','${hh.id}')">
+          // บ้านสมบูรณ์ = มีสมาชิกที่มีข้อมูลการเดินทางอย่างน้อย 1 คน ไม่งั้นขึ้นพื้นหลังแดง
+          const complete = hh.members.some(m => m.trips.length > 0);
+          return `<div class="hh-card${complete ? '' : ' hh-card-incomplete'}" onclick="App.navigate('household','${hh.id}')">
             <div class="hh-card-icon">🏠</div>
             <div class="hh-card-body">
               <div class="hh-card-id">${this.esc(addr) || 'ไม่ระบุที่อยู่'}</div>
               <div class="hh-card-addr">${hh.surveyorName ? 'ผู้สำรวจ: ' + this.esc(hh.surveyorName) : ''}</div>
               <div class="hh-card-tags">
+                ${complete ? '' : '<span class="tag" style="background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;">⚠️ ยังไม่สมบูรณ์</span>'}
                 <span class="tag tag-blue">👥 ${totM} คน</span>
                 <span class="tag tag-green">🚗 ${t} เที่ยว</span>
                 <span class="tag tag-gray">📅 ${hh.surveyDate}</span>
@@ -393,16 +436,11 @@ const App = {
           <div class="sec-title">สมาชิก (ส่วนที่ 2 & 3)</div>
           <div class="sec-sub">กดที่สมาชิกเพื่อกรอกข้อมูล</div>
         </div>
-        <button class="btn btn-primary" onclick="App.addMember()">+ เพิ่มสมาชิก</button>
-      </div>
-      ${hh.members.length > 0 ? `
-      <div style="background:#f0fdf4;border:1.5px solid #16a34a;border-radius:10px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
-        <div style="font-size:13px;color:#15803d;font-weight:600;">✅ บันทึกสมาชิก ${hh.members.length} คนแล้ว</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn btn-primary btn-sm" onclick="App.addMember()" style="background:#16a34a;border-color:#16a34a;white-space:nowrap;">+ เพิ่มสมาชิกคนต่อไป</button>
-          <button class="btn btn-primary btn-sm" onclick="App.nextHousehold()" style="white-space:nowrap;">➡️ บ้านถัดไป</button>
+          <button class="btn btn-primary btn-sm" onclick="App.saveHouseholdDone()" style="background:#16a34a;border-color:#16a34a;white-space:nowrap;">💾 บันทึก</button>
+          <button class="btn btn-primary btn-sm" onclick="App.addMember()" style="white-space:nowrap;">+ เพิ่มสมาชิก</button>
         </div>
-      </div>` : ''}
+      </div>
 
       ${hh.members.length === 0 ? `
         <div class="empty">
@@ -652,9 +690,11 @@ const App = {
     } else {
       this.toast('บันทึกข้อมูลบุคคลแล้ว', 'success');
     }
-    // ไปหน้าการเดินทางต่อเลย
+    // ไปหน้าการเดินทางต่อเลย + เปิดฟอร์มการเดินทางครั้งแรกให้อัตโนมัติ
     this.memberTab = 'trips';
     this.render();
+    const mem = DB.getMember(this.hhId, this.memberId);
+    if (mem && mem.trips.length === 0) this.openTripForm(null);
   },
 
   // ===================== TAB: TRIPS =====================
@@ -992,7 +1032,9 @@ const App = {
       clientIp:   this._clientIp || ''
     });
     this.closeModal();
-    this.toast('เพิ่มครัวเรือนแล้ว', 'success');
+    this.toast('เพิ่มครัวเรือนแล้ว — กรอกสมาชิกอย่างน้อย 1 คนแล้วกดบันทึก', 'success');
+    // บ้านที่เพิ่งเพิ่ม = "ร่าง" ยังไม่กดบันทึก ถ้าย้อนกลับก่อนกดบันทึกจะถือว่ายกเลิก
+    this._draftHhId = hh.id;
     this.navigate('household', hh.id);
   },
 
@@ -1047,11 +1089,6 @@ const App = {
     }
     this.toast(`บันทึกสมาชิกที่ ${m.seq} เสร็จสิ้น`, 'success');
     this.navigate('household', this.hhId);
-  },
-
-  nextHousehold() {
-    this.navigate('home');
-    setTimeout(() => this.openAddHousehold(), 150);
   },
 
   addMember() {
