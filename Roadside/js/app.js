@@ -1401,7 +1401,7 @@ const App = {
     };
     const cleanup = () => {
       if (watchId != null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
-      clearTimeout(hardTimer);
+      clearTimeout(hardTimer); clearTimeout(settleTimer);
       if (btn) { btn.textContent = orig; btn.disabled = false; }
     };
     const finish = ok => {
@@ -1419,13 +1419,16 @@ const App = {
       this.toast(msg, 'error');
     };
 
+    var settleTimer = null;
     watchId = navigator.geolocation.watchPosition(
       pos => {
         if (!best || (pos.coords.accuracy || 9999) < (best.coords.accuracy || 9999)) best = pos;
-        if ((pos.coords.accuracy || 9999) <= 30) finish(true);   // แม่นพอ → จบเลย
+        if ((pos.coords.accuracy || 9999) <= 30) { finish(true); return; }   // แม่นระดับ GPS มือถือ → จบทันที
+        // ได้พิกัดแล้วแต่ยังไม่แม่นสุด (เช่นคอมพ์ผ่าน WiFi ~50-500 ม.) → รออีก 3 วิเผื่อแม่นขึ้น แล้วจบ ไม่รอครบ 15 วิ
+        if (settleTimer == null) settleTimer = setTimeout(() => finish(true), 3000);
       },
       err => { if (err.code === 1) fail(err); },   // permission ถูกบล็อก → เลิกทันที · อื่นๆ รอ hard timeout
-      { enableHighAccuracy: true, timeout: 27000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 27000, maximumAge: 60000 }   // ยอมใช้พิกัดที่ OS เพิ่งหาไว้ ≤60 วิ → กดแล้วเด้งเร็ว
     );
 
     // นาฬิกากันค้าง: 15 วิ เอาพิกัดที่ดีที่สุดที่ได้ · ถ้ายังไม่ได้อะไรเลย = แจ้ง error (ปุ่มกลับมากดได้เสมอ)
