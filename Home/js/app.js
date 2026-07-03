@@ -220,47 +220,16 @@ const App = {
 
   goBack() {
     if (this.page === 'member') { this.navigate('household'); return; }
-    this.exitToHome();
-  },
-
-  // ออกจากหน้าบ้านกลับหน้ารวม — ถ้าเป็นบ้านร่าง (ยังไม่กดบันทึก) ให้ถือว่ายกเลิก
-  exitToHome() {
-    if (this._draftHhId && this.hhId === this._draftHhId) {
-      const hh = DB.getHousehold(this.hhId);
-      const hasData = hh && hh.members.some(m => m.gender || m.trips.length > 0);
-      if (hasData) { this._confirmDiscardDraft(); return; }
-      // ร่างเปล่า ไม่มีข้อมูล → ลบทิ้งเงียบ ๆ
-      if (hh) DB.deleteHousehold(this.hhId);
-      this._draftHhId = null;
-    }
     this.navigate('home');
   },
 
-  _confirmDiscardDraft() {
-    this.showModal('❌ ยกเลิกการเพิ่มบ้าน',
-      `<p style="color:var(--gray-600)">บ้านนี้ยังไม่ได้กด <b>บันทึก</b> — ถ้าย้อนกลับตอนนี้ ข้อมูลบ้านและสมาชิกทั้งหมดจะถูกลบทิ้ง</p>`,
-      `<button class="btn btn-ghost" onclick="App.closeModal()">กรอกต่อ</button>
-       <button class="btn btn-danger" onclick="App.discardDraft()">ยกเลิก &amp; ลบทิ้ง</button>`
-    );
-  },
-
-  discardDraft() {
-    const id = this._draftHhId;
-    this._draftHhId = null;
-    this.closeModal();
-    if (id) DB.deleteHousehold(id);
-    this.toast('ยกเลิกการเพิ่มบ้านแล้ว', 'success');
-    this.navigate('home');
-  },
-
-  // กดบันทึก = ยืนยันเก็บบ้านนี้ กลับหน้ารวม (ยังไม่สมบูรณ์ก็เก็บไว้ แต่ขึ้นแดง)
-  saveHouseholdDone() {
-    this._draftHhId = null;
+  // บันทึกบ้านปัจจุบัน (บันทึกอัตโนมัติอยู่แล้ว) แล้วเปิดฟอร์มเพิ่มบ้านหลังถัดไป
+  saveAndNextHousehold() {
     const hh = DB.getHousehold(this.hhId);
     const complete = hh && hh.members.some(m => m.trips.length > 0);
-    if (complete) this.toast('บันทึกบ้านเรียบร้อย', 'success');
-    else this.toast('บันทึกแล้ว — ยังไม่มีคนเดินทาง จะขึ้นสีแดงว่ายังไม่สมบูรณ์', 'error');
+    this.toast(complete ? 'บันทึกบ้านแล้ว — เพิ่มบ้านหลังถัดไป' : 'บันทึกบ้านแล้ว (ยังไม่มีคนเดินทาง จะขึ้นสีแดง) — เพิ่มบ้านหลังถัดไป', complete ? 'success' : 'error');
     this.navigate('home');
+    setTimeout(() => this.openAddHousehold(), 150);
   },
 
   render() {
@@ -275,13 +244,13 @@ const App = {
     } else if (this.page === 'household') {
       const hh = DB.getHousehold(this.hhId);
       bc.className = 'breadcrumb visible';
-      bc.innerHTML = `<a onclick="App.exitToHome()">หน้าหลัก</a> <span>›</span> ${hh ? (hh.houseNo ? 'บ้านเลขที่ ' + this.esc(hh.houseNo) : hh.id) : ''}`;
+      bc.innerHTML = `<a onclick="App.navigate('home')">หน้าหลัก</a> <span>›</span> ${hh ? (hh.houseNo ? 'บ้านเลขที่ ' + this.esc(hh.houseNo) : hh.id) : ''}`;
       app.innerHTML = this.pageHousehold();
     } else if (this.page === 'member') {
       const hh = DB.getHousehold(this.hhId);
       const m  = DB.getMember(this.hhId, this.memberId);
       bc.className = 'breadcrumb visible';
-      bc.innerHTML = `<a onclick="App.exitToHome()">หน้าหลัก</a> <span>›</span>
+      bc.innerHTML = `<a onclick="App.navigate('home')">หน้าหลัก</a> <span>›</span>
         <a onclick="App.navigate('household','${this.hhId}')">${hh ? (hh.houseNo ? 'บ้านเลขที่ ' + this.esc(hh.houseNo) : hh.id) : ''}</a>
         <span>›</span> สมาชิกที่ ${m ? m.seq : ''}`;
       app.innerHTML = this.pageMember();
@@ -436,10 +405,7 @@ const App = {
           <div class="sec-title">สมาชิก (ส่วนที่ 2 & 3)</div>
           <div class="sec-sub">กดที่สมาชิกเพื่อกรอกข้อมูล</div>
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn btn-primary btn-sm" onclick="App.saveHouseholdDone()" style="background:#16a34a;border-color:#16a34a;white-space:nowrap;">💾 บันทึก</button>
-          <button class="btn btn-primary btn-sm" onclick="App.addMember()" style="white-space:nowrap;">+ เพิ่มสมาชิก</button>
-        </div>
+        <button class="btn btn-primary btn-sm" onclick="App.addMember()" style="white-space:nowrap;">+ เพิ่มสมาชิก</button>
       </div>
 
       ${hh.members.length === 0 ? `
@@ -467,6 +433,10 @@ const App = {
             </div>
           </div>`;
         }).join('')}</div>`}
+
+      <div style="margin-top:24px;display:flex;justify-content:center;">
+        <button class="btn btn-primary" onclick="App.saveAndNextHousehold()" style="min-width:260px;">💾 บันทึก & เพิ่มบ้านหลังถัดไป</button>
+      </div>
     </div>`;
   },
 
@@ -1032,9 +1002,7 @@ const App = {
       clientIp:   this._clientIp || ''
     });
     this.closeModal();
-    this.toast('เพิ่มครัวเรือนแล้ว — กรอกสมาชิกอย่างน้อย 1 คนแล้วกดบันทึก', 'success');
-    // บ้านที่เพิ่งเพิ่ม = "ร่าง" ยังไม่กดบันทึก ถ้าย้อนกลับก่อนกดบันทึกจะถือว่ายกเลิก
-    this._draftHhId = hh.id;
+    this.toast('บันทึกครัวเรือนแล้ว — กรอกสมาชิกอย่างน้อย 1 คน (ถ้าไม่มีคนเดินทางจะขึ้นสีแดง)', 'success');
     this.navigate('household', hh.id);
   },
 
