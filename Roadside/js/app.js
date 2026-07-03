@@ -271,6 +271,14 @@ const App = {
             </span>`;
   },
 
+  // interview นี้พิมพ์ชื่อสถานที่เองโดยไม่มีพิกัด (ไม่ได้เลือกหมุด/ค้นหาจนพบ) หรือไม่
+  _ivPlaceManual(iv) {
+    if (!iv) return false;
+    const originManual = !!iv.originName      && !iv.originCoords;
+    const destManual   = !!iv.destinationName && !iv.destinationCoords;
+    return originManual || destManual;
+  },
+
   // ===================== PAGE: HOME =====================
   pageHome() {
     const isAdmin  = this._role === 'admin';
@@ -284,16 +292,18 @@ const App = {
     const stationCard = (st, isMine) => {
       const dirTag  = st.direction ? `<span class="tag tag-orange">↔ ${st.direction}</span>` : '';
       // นับเฉพาะ interview ของตัวเอง (ไม่นับของคนอื่น)
-      const myCount = isAdmin
-        ? st.interviews.length
-        : st.interviews.filter(iv => iv.surveyorName === this._surveyorName).length;
+      const relIvs  = isAdmin ? st.interviews : st.interviews.filter(iv => iv.surveyorName === this._surveyorName);
+      const myCount = relIvs.length;
+      // มี interview ที่พิมพ์ชื่อสถานที่เอง (ไม่ได้เลือกหมุด/ค้นหาจนพบ → ไม่มีพิกัด) → การ์ดขึ้นสีแดง
+      const manualPlace = relIvs.some(iv => this._ivPlaceManual(iv));
       if (isMine) {
-        return `<div class="hh-card" onclick="App.navigate('station','${st.id}')">
+        return `<div class="hh-card${manualPlace ? ' hh-card-incomplete' : ''}" onclick="App.navigate('station','${st.id}')">
           <div class="hh-card-icon">🚦</div>
           <div class="hh-card-body">
             <div class="hh-card-id">${this.esc(st.stationName) || 'ไม่ระบุชื่อจุด'}</div>
             <div class="hh-card-addr">${this.esc([st.road, st.district, st.province].filter(Boolean).join(' · ')) || 'ไม่ระบุสถานที่'}</div>
             <div class="hh-card-tags">
+              ${manualPlace ? '<span class="tag" style="background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;">⚠️ พิกัดไม่ครบ (พิมพ์เอง)</span>' : ''}
               <span class="tag tag-green">📋 ${myCount} ราย</span>
               ${dirTag}
               <span class="tag tag-gray">📅 ${st.surveyDate}</span>

@@ -281,6 +281,9 @@ body {
   box-shadow: var(--shadow-md);
   transform: translateX(3px);
 }
+/* จุดสำรวจที่มีการพิมพ์ชื่อสถานที่เอง (ไม่มีพิกัดจากหมุด/ค้นหา) — พื้นหลังแดงเตือน */
+.hh-card-incomplete { background: #fef2f2; border-color: #fca5a5; border-left: 4px solid #ef4444; }
+.hh-card-incomplete:hover { border-color: #ef4444; border-left-color: #ef4444; }
 .hh-card-icon {
   width: 46px;
   height: 46px;

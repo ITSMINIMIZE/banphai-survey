@@ -1104,10 +1104,10 @@ const App = {
 
     if (!isEdit) {
       if (!m || m.trips.length === 0) {
-        // การเดินทางแรก: ต้นทาง = บ้าน
+        // การเดินทางแรก: ต้นทาง = บ้าน + ลักษณะสถานที่เป็นบ้าน
         defOrigin       = homeAddr;
         defOriginCoords = hh?.coordinates || '';
-        defOriginType   = 'ที่พักอาศัย / บ้าน';
+        defOriginType   = 'ที่พัก / บ้านของตัวเอง';
       } else {
         // การเดินทางถัดไป: ต้นทาง = ปลายทางของครั้งก่อน
         const last      = m.trips[m.trips.length - 1];
@@ -1418,7 +1418,7 @@ const App = {
 
     if (destEl)   destEl.value   = homeAddr;
     if (coordsEl) coordsEl.value = hh.coordinates || '';
-    if (typeEl)   typeEl.value   = 'ที่พักอาศัย / บ้าน';
+    if (typeEl)   typeEl.value   = 'ที่พัก / บ้านของตัวเอง';
 
     // แสดงพิกัดใต้ input
     if (hh.coordinates) {
