@@ -26,7 +26,8 @@ const App = {
     if (typeof firebase !== 'undefined' && firebase.apps?.length) {
       FB.onAuthStateChanged(user => {
         if (this._role) return;
-        if (user) {
+        // user แบบ anonymous = ผู้สำรวจ/ยังไม่ login → ไปหน้าเลือกบทบาท (ไม่ใช่ admin)
+        if (user && !user.isAnonymous) {
           this._adminUsername = user.email.replace(FB.EMAIL_DOMAIN, '');
           this._role = 'admin';
           this._enterApp();

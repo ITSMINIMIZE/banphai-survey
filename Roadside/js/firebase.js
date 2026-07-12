@@ -27,6 +27,11 @@ const FB = {
       this.auth = firebase.auth();
       // เปิด offline persistence — Firebase จัด queue offline writes ให้
       this.db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
+      // ทุกเครื่องได้ token อัตโนมัติแบบ anonymous (ผู้สำรวจไม่ต้องสมัคร/ไม่รู้สึกอะไร)
+      // ถ้ายังไม่มีใคร login → เซ็นชื่อ anonymous ไว้เขียน Firestore (curl ภายนอกไม่มี token → เขียนไม่ได้)
+      this.auth.onAuthStateChanged(u => {
+        if (!u) this.auth.signInAnonymously().catch(e => console.warn('[FB] anon signin:', e.code || e));
+      });
     } catch (e) {
       console.error('[FB] init error:', e);
     }
