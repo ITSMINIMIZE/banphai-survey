@@ -176,8 +176,7 @@ const FB = {
     if (snap.empty) throw new Error('ไม่มีข้อมูลใน Firestore');
     const households = await this._loadNested(snap.docs);
     const newData = { households };
-    localStorage.setItem(DB.KEY, JSON.stringify(newData));
-    DB._data = newData;
+    await DB.replaceAll(newData);
     return households.length;
   },
 
@@ -216,8 +215,7 @@ const FB = {
 
     const households = Object.values(remoteMap);
     const newData = { households };
-    localStorage.setItem(DB.KEY, JSON.stringify(newData));
-    DB._data = newData;
+    await DB.replaceAll(newData);
     return households.length;
   }
 };

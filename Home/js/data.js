@@ -1,10 +1,81 @@
 // ===== DATA LAYER ===== (v2)
+
+// ---- IndexedDB store: ที่เก็บหลักแทน localStorage (รับข้อมูลได้ระดับ GB) ----
+// เก็บ _data ทั้งก้อนเป็น record เดียว ใน object store 'kv' คีย์ 'data'
+const IDBStore = {
+  DB_NAME: 'hi_survey_idb',
+  STORE:   'kv',
+  _dbp:    null,
+  open() {
+    if (this._dbp) return this._dbp;
+    this._dbp = new Promise((resolve, reject) => {
+      const req = indexedDB.open(this.DB_NAME, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(this.STORE)) db.createObjectStore(this.STORE);
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror   = () => reject(req.error);
+    });
+    return this._dbp;
+  },
+  async get(key) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const req = db.transaction(this.STORE, 'readonly').objectStore(this.STORE).get(key);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror   = () => reject(req.error);
+    });
+  },
+  async set(key, val) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(this.STORE, 'readwrite');
+      tx.objectStore(this.STORE).put(val, key);
+      tx.oncomplete = () => resolve();
+      tx.onerror    = () => reject(tx.error);
+    });
+  },
+  async del(key) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(this.STORE, 'readwrite');
+      tx.objectStore(this.STORE).delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onerror    = () => reject(tx.error);
+    });
+  }
+};
+
 const DB = {
-  KEY: 'hi_survey_v2',
-  _data: null,
+  KEY:     'hi_survey_v2',   // localStorage เดิม (ใช้ migrate ครั้งแรก + สำรอง sync ข้อมูลเล็ก)
+  IDB_KEY: 'data',
+  _data:   null,
+  _ready:  false,
+
+  // เรียกครั้งเดียวตอนเปิดแอป (async) — โหลดจาก IndexedDB; ครั้งแรก migrate จาก localStorage
+  async init() {
+    if (this._ready) return this._data;
+    try {
+      let data = await IDBStore.get(this.IDB_KEY);
+      if (!data) {
+        // ครั้งแรกหลังอัปเดต: ย้ายข้อมูลเดิม localStorage → IndexedDB (ไม่ลบ localStorage ทิ้ง เผื่อ rollback)
+        const raw = localStorage.getItem(this.KEY);
+        if (raw) { data = JSON.parse(raw); await IDBStore.set(this.IDB_KEY, data); }
+      }
+      this._data = data || { households: [] };
+    } catch (e) {
+      console.warn('[DB] IndexedDB init ล้มเหลว ใช้ localStorage แทน:', e);
+      try { const raw = localStorage.getItem(this.KEY); this._data = raw ? JSON.parse(raw) : { households: [] }; }
+      catch { this._data = { households: [] }; }
+    }
+    this._ready = true;
+    return this._data;
+  },
 
   load() {
     if (this._data) return this._data;
+    // fallback (เผื่อ getter ถูกเรียกก่อน init เสร็จ) — อ่าน localStorage แบบ sync
     try {
       const raw = localStorage.getItem(this.KEY);
       this._data = raw ? JSON.parse(raw) : { households: [] };
@@ -13,7 +84,25 @@ const DB = {
   },
 
   save() {
+    // ที่เก็บหลัก = IndexedDB (async, background) — ไม่มีเพดาน 5MB
+    IDBStore.set(this.IDB_KEY, this._data).catch(e => console.warn('[DB] IndexedDB save ล้มเหลว:', e));
+    // สำรอง sync ลง localStorage เฉพาะข้อมูลไม่ใหญ่ (เครื่องผู้สำรวจ) — เต็มก็ข้าม IDB คือหลัก
     try { localStorage.setItem(this.KEY, JSON.stringify(this._data)); } catch {}
+  },
+
+  // แทนที่ข้อมูลทั้งก้อน (ใช้ตอน pull จาก cloud) — persist ลง IndexedDB
+  async replaceAll(newData) {
+    this._data = newData;
+    this._ready = true;
+    await IDBStore.set(this.IDB_KEY, newData);
+    try { localStorage.setItem(this.KEY, JSON.stringify(newData)); } catch {}
+  },
+
+  // ล้างข้อมูลในเครื่อง (IndexedDB + localStorage เดิม)
+  async clearAll() {
+    this._data = { households: [] };
+    try { await IDBStore.del(this.IDB_KEY); } catch {}
+    try { localStorage.removeItem(this.KEY); } catch {}
   },
 
   // ===== HOUSEHOLDS =====
