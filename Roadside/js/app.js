@@ -12,16 +12,19 @@ const App = {
   _wizardDone: false,
   _paxCustom: false,
 
-  init() {
-    DB.load();
+  async init() {
+    // แสดง loading ก่อน
+    document.querySelector('.topbar').style.display = 'none';
+    document.getElementById('app').innerHTML =
+      '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;color:#94a3b8;font-size:14px;">กำลังโหลด...</div>';
+
+    // โหลดข้อมูลจาก IndexedDB ก่อน render (+ migrate ครั้งแรกจาก localStorage) — ต้องเสร็จก่อน getter ทำงาน
+    await DB.init();
+
     fetch('https://api.ipify.org?format=json')
       .then(r => r.json())
       .then(d => { this._clientIp = d.ip || ''; })
       .catch(() => {});
-
-    document.querySelector('.topbar').style.display = 'none';
-    document.getElementById('app').innerHTML =
-      '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;color:#94a3b8;font-size:14px;">กำลังโหลด...</div>';
 
     if (typeof firebase !== 'undefined' && firebase.apps?.length) {
       FB.onAuthStateChanged(user => {
@@ -1798,9 +1801,8 @@ const App = {
     }
   },
 
-  clearAll() {
-    localStorage.removeItem(DB.KEY);
-    DB._data = null;
+  async clearAll() {
+    await DB.clearAll();   // ล้างทั้ง IndexedDB + localStorage (ไม่งั้นข้อมูลกลับมาตอน reload)
     this.closeModal();
     this.toast('ล้างข้อมูลทั้งหมดแล้ว', 'danger');
     this.navigate('home');

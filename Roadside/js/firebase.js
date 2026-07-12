@@ -171,8 +171,7 @@ const FB = {
 
     const stations = Object.values(stationMap);
     const newData  = { stations };
-    localStorage.setItem(DB.KEY, JSON.stringify(newData));
-    DB._data = newData;
+    await DB.replaceAll(newData);
     return stations.length;
   },
 
@@ -230,8 +229,7 @@ const FB = {
 
     const stations = Object.values(stationMap);
     const newData  = { stations };
-    localStorage.setItem(DB.KEY, JSON.stringify(newData));
-    DB._data = newData;
+    await DB.replaceAll(newData);
     return stations.length;
   }
 };
