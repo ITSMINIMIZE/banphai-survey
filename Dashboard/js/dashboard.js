@@ -235,14 +235,16 @@ function renderKPIs() {
   const members = allMembers();
   const trips   = allTrips();
   const ivs     = allInterviews();
-  const rate    = members.length > 0 ? (trips.length / members.length).toFixed(2) : '—';
+  const pax     = ivs.reduce((s, iv) => s + (+iv.passengerCount || 0), 0);
 
+  // Home
   set('kpiHH',       households.length.toLocaleString());
   set('kpiMembers',  members.length.toLocaleString());
-  set('kpiTrips',    trips.length.toLocaleString());
-  set('kpiStations', stations.length.toLocaleString());
+  set('kpiTripRate', members.length ? (trips.length / members.length).toFixed(2) : '—');
+  // Road
   set('kpiIV',       ivs.length.toLocaleString());
-  set('kpiTripRate', rate);
+  set('kpiRoadPax',  pax.toLocaleString());
+  set('kpiRoadOcc',  ivs.length ? (pax / ivs.length).toFixed(2) : '—');
 }
 
 function set(id, val) {
@@ -251,58 +253,76 @@ function set(id, val) {
 }
 
 // ── TAB: ติดตามงาน ─────────────────────────────────────────────────────────────
+// ขั้นต่ำ/คน — 100% = QUOTA × จำนวนผู้สำรวจในทีม/จุด
+const HOME_QUOTA_PER_PERSON = 12;  // บ้าน/คน
+const ROAD_QUOTA_PER_PERSON = 80;  // คัน/คน
+
+function statusChip(pct, actual, target) {
+  const cls = pct >= 100 ? 'chip-ok' : pct >= 50 ? 'chip-warn' : 'chip-err';
+  return `<span class="chip ${cls}">${pct}%</span>`
+       + ` <span style="color:var(--muted);font-size:11px">${actual}/${target}</span>`;
+}
+
 function renderProgress() {
-  // Home surveyor stats
-  const bySurveyor = {};
+  // ═══ HOME: จัดกลุ่มตามผู้ควบคุม (= ทีม) ═══
+  const teams = {};
   households.forEach(hh => {
-    const s = hh.surveyorName || '(ไม่ระบุ)';
-    if (!bySurveyor[s]) bySurveyor[s] = { hhs: 0, members: 0, trips: 0 };
-    bySurveyor[s].hhs++;
-    (hh.members || []).forEach(m => {
-      bySurveyor[s].members++;
-      bySurveyor[s].trips += (m.trips || []).length;
-    });
+    const sup = hh.supervisorName || '(ไม่ระบุผู้ควบคุม)';
+    const t = teams[sup] || (teams[sup] = { hhs: 0, members: 0, trips: 0, people: new Set() });
+    t.hhs++;
+    if (hh.surveyorName) t.people.add(hh.surveyorName);
+    (hh.members || []).forEach(m => { t.members++; t.trips += (m.trips || []).length; });
   });
-  const sRows = Object.entries(bySurveyor).sort((a, b) => b[1].hhs - a[1].hhs);
-  set('badgeHomeSurveyor', sRows.length + ' คน');
+  const teamRows = Object.entries(teams).sort((a, b) => b[1].hhs - a[1].hhs);
+  set('badgeHomeSurveyor', teamRows.length + ' ทีม');
   set('homeSurveyorTable', `
     <table class="data-table">
-      <thead><tr><th>ผู้สำรวจ</th><th>ครัวเรือน</th><th>สมาชิก</th><th>เที่ยว</th><th>สถานะ</th></tr></thead>
-      <tbody>${sRows.map(([name, d]) => `
-        <tr>
-          <td>${esc(name)}</td><td>${d.hhs}</td><td>${d.members}</td><td>${d.trips}</td>
-          <td><span class="chip ${d.hhs >= 10 ? 'chip-ok' : d.hhs >= 5 ? 'chip-warn' : 'chip-err'}">
-            ${d.hhs >= 10 ? 'ดี' : d.hhs >= 5 ? 'กำลังดำเนินการ' : 'น้อย'}</span></td>
-        </tr>`).join('')}</tbody>
+      <thead><tr><th>ผู้ควบคุม</th><th>บ้าน</th><th>คน</th><th>เที่ยว</th><th>สถานะ</th></tr></thead>
+      <tbody>${teamRows.map(([name, d]) => {
+        const people = Math.max(d.people.size, 1);
+        const target = HOME_QUOTA_PER_PERSON * people;
+        const pct = Math.round(d.hhs / target * 100);
+        return `<tr>
+          <td>${esc(name)} <span style="color:var(--muted);font-size:11px">(${d.people.size} คน)</span></td>
+          <td style="font-weight:700">${d.hhs}</td><td>${d.members}</td><td>${d.trips}</td>
+          <td>${statusChip(pct, d.hhs, target)}</td>
+        </tr>`;
+      }).join('')}</tbody>
     </table>`);
 
-  // Roadside station stats
+  // ═══ ROAD: จัดกลุ่มตามจุดสำรวจ ═══
   set('badgeRoadsideStation', stations.length + ' จุด');
+  const stRows = stations.map(st => {
+    const ivs = st.interviews || [];
+    const people = new Set(ivs.map(iv => iv.surveyorName).filter(Boolean));
+    const pax = ivs.reduce((s, iv) => s + (+iv.passengerCount || 0), 0);
+    const target = ROAD_QUOTA_PER_PERSON * Math.max(people.size, 1);
+    const pct = Math.round(ivs.length / target * 100);
+    return { st, count: ivs.length, pax, people: people.size, target, pct };
+  }).sort((a, b) => b.count - a.count);
   set('roadsideStationTable', `
     <table class="data-table">
-      <thead><tr><th>จุดสำรวจ</th><th>ทิศ</th><th>สัมภาษณ์</th><th>วันที่</th></tr></thead>
-      <tbody>${stations.map(st => `
+      <thead><tr><th>จุดสำรวจ</th><th>ผู้ควบคุม</th><th>สำรวจ</th><th>คนในรถ</th><th>สถานะ</th></tr></thead>
+      <tbody>${stRows.map(r => `
         <tr>
-          <td>${esc(st.stationName || st.stationCode || st.id)}</td>
-          <td>${esc(st.direction || '—')}</td>
-          <td style="font-weight:700">${(st.interviews || []).length}</td>
-          <td>${esc(st.surveyDate || '—')}</td>
+          <td>${esc(r.st.stationName || r.st.stationCode || r.st.id)} <span style="color:var(--muted);font-size:11px">(${r.people} คน)</span></td>
+          <td>${esc(r.st.supervisorName || '—')}</td>
+          <td style="font-weight:700">${r.count}</td>
+          <td>${r.pax}</td>
+          <td>${statusChip(r.pct, r.count, r.target)}</td>
         </tr>`).join('')}</tbody>
     </table>`);
 
-  // Daily charts
-  const hhByDate = countBy(households, hh => hh.surveyDate || (hh.createdAt || '').split('T')[0]);
-  const hdDates = Object.keys(hhByDate).sort().filter(Boolean);
-  makeChart('chartHomeDaily', 'bar', {
-    labels: hdDates,
-    datasets: [{ label: 'ครัวเรือน', data: hdDates.map(d => hhByDate[d]), backgroundColor: '#3b82f6' }]
+  // ═══ กราฟ Home: บ้านแยกตามผู้ควบคุม ═══
+  makeChart('chartHomeBySupervisor', 'bar', {
+    labels: teamRows.map(([n]) => n),
+    datasets: [{ label: 'บ้าน', data: teamRows.map(([, d]) => d.hhs), backgroundColor: '#3b82f6' }]
   }, { plugins: { legend: { display: false } } });
 
-  const ivByDate = countBy(allInterviews(), iv => iv.interviewDate || (iv._station && iv._station.surveyDate) || '');
-  const ivDates = Object.keys(ivByDate).sort().filter(Boolean);
-  makeChart('chartRoadsideDaily', 'bar', {
-    labels: ivDates,
-    datasets: [{ label: 'สัมภาษณ์', data: ivDates.map(d => ivByDate[d]), backgroundColor: '#22c55e' }]
+  // ═══ กราฟ Road: รถแยกตามจุดสำรวจ ═══
+  makeChart('chartRoadByStation', 'bar', {
+    labels: stRows.map(r => r.st.stationName || r.st.stationCode || r.st.id),
+    datasets: [{ label: 'คัน', data: stRows.map(r => r.count), backgroundColor: '#22c55e' }]
   }, { plugins: { legend: { display: false } } });
 
   // Incomplete records

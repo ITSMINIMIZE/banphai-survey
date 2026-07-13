@@ -561,6 +561,7 @@ const App = {
   _stationFormHTML(st) {
     const dirOpts = OPT.roadAxis.map(d =>
       `<option value="${d}" ${d === st?.direction ? 'selected' : ''}>${d}</option>`).join('');
+    const names = this._loadSurveyorNames();
 
     return `
       <div class="section-label">ข้อมูลจุดสำรวจ</div>
@@ -568,6 +569,11 @@ const App = {
         <label class="form-label req">รหัส / ชื่อจุดสำรวจ</label>
         <input id="s_stName" class="form-input" autocomplete="off" placeholder="เช่น MB01, MB02..."
           value="${st?.stationName||''}" />
+      </div>
+      <div class="form-row">
+        <label class="form-label req">ผู้ควบคุม</label>
+        <input id="s_supervisor" class="form-input" autocomplete="off" placeholder="ชื่อผู้ควบคุมทีม"
+          value="${st?.supervisorName || names.supervisor || ''}" />
       </div>
       <div class="form-grid">
         <div class="form-row">
@@ -663,6 +669,7 @@ const App = {
       surveyDate:     (existing && existing.surveyDate) || this._today(),
       stationName:    document.getElementById('s_stName')?.value.trim()      || '',
       stationCode:    document.getElementById('s_stName')?.value.trim()      || '',
+      supervisorName: document.getElementById('s_supervisor')?.value.trim()  || '',
       road:           document.getElementById('s_road')?.value.trim()        || '',
       direction:      document.getElementById('s_direction')?.value          || '',
       coordinates:    document.getElementById('s_coords')?.value.trim()      || '',
@@ -675,6 +682,7 @@ const App = {
   _validateStationForm(data) {
     const errs = [];
     if (!data.stationName) errs.push('รหัส/ชื่อจุดสำรวจ');
+    if (!data.supervisorName) errs.push('ผู้ควบคุม');
     if (!data.road)        errs.push('ถนน/ทางหลวง');
     if (!data.direction)   errs.push('แกนถนน');
     if (!data.coordinates) errs.push('พิกัด GPS');
@@ -696,6 +704,7 @@ const App = {
     const data = this._readStationForm();
     const errs = this._validateStationForm(data);
     if (errs.length) { this.toast('กรอกข้อมูลให้ครบ: ' + errs.join(', '), 'error'); return; }
+    this._saveSurveyorNames(null, data.supervisorName);
     const st = DB.addStation({
       ...data,
       deviceId: (typeof FB !== 'undefined' ? FB.deviceId() : null) || localStorage.getItem('_device_id') || '',
@@ -720,6 +729,7 @@ const App = {
     const data = this._readStationForm(old);
     const errs = this._validateStationForm(data);
     if (errs.length) { this.toast('กรอกข้อมูลให้ครบ: ' + errs.join(', '), 'error'); return; }
+    this._saveSurveyorNames(null, data.supervisorName);
     DB.updateStation(id, data);
     this.closeModal();
     this.toast('บันทึกข้อมูลจุดสำรวจแล้ว', 'success');
