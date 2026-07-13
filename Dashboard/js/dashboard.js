@@ -59,11 +59,11 @@ function zName(f) {
 }
 
 function assignZone(coords) {
-  if (!coords) return '(นอกพื้นที่)';
+  if (!coords) return '(ไม่มีพิกัด)';            // ข้อมูลไม่มีพิกัด — แยกจาก "นอกพื้นที่" จริง
   for (const f of zFeatures()) {
     if (ptInFeature(coords.lat, coords.lon, f)) return zName(f);
   }
-  return '(นอกพื้นที่)';
+  return '(นอกพื้นที่)';                          // มีพิกัดแต่อยู่นอกโซนที่กำหนด
 }
 
 function zCentroid(f) {
@@ -381,7 +381,7 @@ function buildODPairs(source) {
 function renderODMatrix(source) {
   const features = zFeatures();
   const zNames   = features.map(f => zName(f));
-  const allZones = ['(นอกพื้นที่)', ...zNames];
+  const allZones = ['(ไม่มีพิกัด)', '(นอกพื้นที่)', ...zNames];
 
   const pairs = buildODPairs(source);
 
@@ -394,23 +394,28 @@ function renderODMatrix(source) {
     matrix[oz][dz]++;
   });
 
-  // Summary
-  let internal = 0, incoming = 0, outgoing = 0, passthrough = 0;
+  // Summary — แยก "ไม่มีพิกัด" (ข้อมูลไม่ครบ) ออกจากการจัดประเภท in/out
+  let internal = 0, incoming = 0, outgoing = 0, passthrough = 0, noCoord = 0;
+  const inArea = z => z !== '(นอกพื้นที่)' && z !== '(ไม่มีพิกัด)';
   pairs.forEach(({ o, d }) => {
-    const oi = o !== '(นอกพื้นที่)', di = d !== '(นอกพื้นที่)';
+    if (o === '(ไม่มีพิกัด)' || d === '(ไม่มีพิกัด)') { noCoord++; return; }
+    const oi = inArea(o), di = inArea(d);
     if (oi && di) internal++;
     else if (!oi && di) incoming++;
     else if (oi && !di) outgoing++;
     else passthrough++;
   });
+  const withCoord = pairs.length - noCoord;
+  const pctNo = pairs.length ? Math.round(noCoord / pairs.length * 100) : 0;
 
   set('odSummary', `
     <table class="data-table">
       <tr><td>ในพื้นที่ (Internal)</td><td style="text-align:right;font-weight:700;color:#3b82f6">${internal}</td></tr>
       <tr><td>เข้าพื้นที่ (Incoming)</td><td style="text-align:right;font-weight:700;color:#22c55e">${incoming}</td></tr>
       <tr><td>ออกพื้นที่ (Outgoing)</td><td style="text-align:right;font-weight:700;color:#f59e0b">${outgoing}</td></tr>
-      <tr><td>ผ่านพื้นที่ (Passthrough)</td><td style="text-align:right;font-weight:700;color:#64748b">${passthrough}</td></tr>
-      <tr><td><strong>รวมทั้งหมด</strong></td><td style="text-align:right;font-weight:700">${pairs.length}</td></tr>
+      <tr><td>นอกพื้นที่ล้วน (External)</td><td style="text-align:right;font-weight:700;color:#64748b">${passthrough}</td></tr>
+      <tr><td>⚠️ ไม่มีพิกัด (ข้อมูลไม่ครบ)</td><td style="text-align:right;font-weight:700;color:#ef4444">${noCoord} <span style="color:var(--muted);font-weight:400;font-size:11px">(${pctNo}%)</span></td></tr>
+      <tr><td><strong>รวมทั้งหมด</strong></td><td style="text-align:right;font-weight:700">${pairs.length} <span style="color:var(--muted);font-weight:400;font-size:11px">(มีพิกัด ${withCoord})</span></td></tr>
     </table>`);
 
   // Top 10 pairs
