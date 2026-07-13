@@ -85,14 +85,21 @@
     }
     .btn-sm:hover { color: var(--text); border-color: var(--muted); }
 
-    /* KPI Bar */
+    /* KPI Bar — แยก 2 ฝั่ง (ซ้าย Road / ขวา Home) */
     .kpi-bar { display: flex; background: var(--surface); border-bottom: 1px solid var(--border); }
-    .kpi-card { flex: 1; padding: 14px 20px; border-right: 1px solid var(--border); }
-    .kpi-card:last-child { border-right: none; }
+    .kpi-side { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+    .kpi-side + .kpi-side { border-left: 3px solid var(--border); }
+    .kpi-side-label { font-size: 11px; font-weight: 800; letter-spacing: .05em; color: var(--muted); padding: 8px 20px 0; }
+    .kpi-side-cards { display: flex; }
+    .kpi-card { flex: 1; padding: 10px 20px 14px; border-right: 1px solid var(--border); min-width: 0; }
+    .kpi-side-cards .kpi-card:last-child { border-right: none; }
     .kpi-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
     .kpi-value { font-size: 26px; font-weight: 700; margin-top: 2px; line-height: 1.1; }
     .kpi-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
-    @media (max-width: 900px) { .kpi-bar { flex-wrap: wrap; } .kpi-card { min-width: 50%; border-bottom: 1px solid var(--border); } }
+    @media (max-width: 900px) {
+      .kpi-bar { flex-direction: column; }
+      .kpi-side + .kpi-side { border-left: none; border-top: 3px solid var(--border); }
+    }
 
     /* Tab bar */
     .tab-bar {
@@ -242,37 +249,47 @@
     </div>
   </div>
 
-  <!-- KPI Bar — ซ้าย: Road (เขียว) · ขวา: Home (น้ำเงิน) -->
+  <!-- KPI Bar — แยก 2 ฝั่ง: ซ้าย Road · ขวา Home -->
   <div class="kpi-bar">
-    <div class="kpi-card" style="border-top:3px solid #22c55e">
-      <div class="kpi-label">🚗 รถที่สำรวจได้</div>
-      <div class="kpi-value" id="kpiIV">—</div>
-      <div class="kpi-sub">Roadside · คัน</div>
+    <div class="kpi-side">
+      <div class="kpi-side-label">🚗 ฝั่ง Road</div>
+      <div class="kpi-side-cards">
+        <div class="kpi-card">
+          <div class="kpi-label">รถที่สำรวจได้</div>
+          <div class="kpi-value" id="kpiIV">—</div>
+          <div class="kpi-sub">Roadside · คัน</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">คนในรถรวม</div>
+          <div class="kpi-value" id="kpiRoadPax">—</div>
+          <div class="kpi-sub">ผู้โดยสารรวม (รวมคนขับ)</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">คนต่อคัน</div>
+          <div class="kpi-value" id="kpiRoadOcc">—</div>
+          <div class="kpi-sub">occupancy · คน/คัน</div>
+        </div>
+      </div>
     </div>
-    <div class="kpi-card" style="border-top:3px solid #22c55e">
-      <div class="kpi-label">คนในรถรวม</div>
-      <div class="kpi-value" id="kpiRoadPax">—</div>
-      <div class="kpi-sub">ผู้โดยสารรวม (รวมคนขับ)</div>
-    </div>
-    <div class="kpi-card" style="border-top:3px solid #22c55e">
-      <div class="kpi-label">คนต่อคัน</div>
-      <div class="kpi-value" id="kpiRoadOcc">—</div>
-      <div class="kpi-sub">occupancy · คน/คัน</div>
-    </div>
-    <div class="kpi-card" style="border-top:3px solid #3b82f6">
-      <div class="kpi-label">🏠 บ้านที่สำรวจได้</div>
-      <div class="kpi-value" id="kpiHH">—</div>
-      <div class="kpi-sub">Home · หลัง</div>
-    </div>
-    <div class="kpi-card" style="border-top:3px solid #3b82f6">
-      <div class="kpi-label">คนที่สำรวจได้</div>
-      <div class="kpi-value" id="kpiMembers">—</div>
-      <div class="kpi-sub">สมาชิกรวม</div>
-    </div>
-    <div class="kpi-card" style="border-top:3px solid #3b82f6">
-      <div class="kpi-label">Trip rate</div>
-      <div class="kpi-value" id="kpiTripRate">—</div>
-      <div class="kpi-sub">เที่ยว/คน</div>
+    <div class="kpi-side">
+      <div class="kpi-side-label">🏠 ฝั่ง Home</div>
+      <div class="kpi-side-cards">
+        <div class="kpi-card">
+          <div class="kpi-label">บ้านที่สำรวจได้</div>
+          <div class="kpi-value" id="kpiHH">—</div>
+          <div class="kpi-sub">Home · หลัง</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">คนที่สำรวจได้</div>
+          <div class="kpi-value" id="kpiMembers">—</div>
+          <div class="kpi-sub">สมาชิกรวม</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Trip rate</div>
+          <div class="kpi-value" id="kpiTripRate">—</div>
+          <div class="kpi-sub">เที่ยว/คน</div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -290,22 +307,22 @@
     <div class="grid-2">
       <!-- ซ้าย: Roadside -->
       <div style="display:flex;flex-direction:column;gap:20px">
-        <div class="card" style="border-left:3px solid #22c55e">
+        <div class="card">
           <div class="card-title">🚗 Road — รถที่สำรวจแยกตามจุด <span class="badge" id="badgeRoadsideStation"></span></div>
           <div class="chart-wrap"><canvas id="chartRoadByStation"></canvas></div>
         </div>
-        <div class="card" style="border-left:3px solid #22c55e">
+        <div class="card">
           <div class="card-title">📋 สรุปตามจุดสำรวจ</div>
           <div id="roadsideStationTable"><p style="color:var(--muted)">กำลังโหลด...</p></div>
         </div>
       </div>
       <!-- ขวา: Home -->
       <div style="display:flex;flex-direction:column;gap:20px">
-        <div class="card" style="border-left:3px solid #3b82f6">
+        <div class="card">
           <div class="card-title">🏠 Home — บ้านที่สำรวจแยกตามผู้ควบคุม <span class="badge" id="badgeHomeSurveyor"></span></div>
           <div class="chart-wrap"><canvas id="chartHomeBySupervisor"></canvas></div>
         </div>
-        <div class="card" style="border-left:3px solid #3b82f6">
+        <div class="card">
           <div class="card-title">📋 สรุปตามผู้ควบคุม (ทีม)</div>
           <div id="homeSurveyorTable"><p style="color:var(--muted)">กำลังโหลด...</p></div>
         </div>
