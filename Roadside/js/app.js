@@ -445,6 +445,7 @@ const App = {
             <div class="member-info">
               <div class="member-name">รายที่ ${iv.seq} · ${vt.label}</div>
               <div class="member-detail">${iv.originName && iv.destinationName ? this.esc(iv.originName) + ' → ' + this.esc(iv.destinationName) : 'ยังไม่กรอกข้อมูล'}</div>
+              <div style="font-size:11px;color:var(--gray-400);margin-top:2px;">👤 ผู้สำรวจ: ${this.esc(iv.surveyorName) || 'ไม่ระบุ'}</div>
             </div>
             <div class="member-right">
               ${iv.interviewDate ? `<span class="tag tag-gray">📅 ${iv.interviewDate}</span>` : ''}
@@ -480,6 +481,7 @@ const App = {
             ${iv.interviewDate ? '📅 ' + iv.interviewDate : ''}
             ${iv.interviewTime ? ' · 🕐 ' + iv.interviewTime : ''}
             ${iv.travelDirection ? ' · ' + iv.travelDirection : ''}
+            ${iv.surveyorName ? ' · 👤 ' + this.esc(iv.surveyorName) : ''}
           </div>
         </div>
         ${canEdit ? `<div style="display:flex;gap:6px;flex-shrink:0;">
