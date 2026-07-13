@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Import Zones — Banphai Survey</title>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet" />
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;font-family:'Sarabun',sans-serif}
+  body{background:#0f172a;min-height:100vh;padding:24px;color:#e2e8f0}
+  .wrap{max-width:760px;margin:0 auto}
+  h1{font-size:22px;color:#f1f5f9;margin-bottom:4px}
+  .sub{color:#64748b;font-size:13px;margin-bottom:20px}
+  a.back{display:inline-block;margin-bottom:16px;padding:7px 14px;background:#1e293b;border:1px solid #334155;border-radius:10px;color:#94a3b8;text-decoration:none;font-size:13px;font-weight:600}
+  .card{background:#1e293b;border:1px solid #334155;border-radius:14px;padding:20px;margin-bottom:16px}
+  .card h2{font-size:15px;color:#f1f5f9;margin-bottom:12px}
+  .req{display:inline-block;background:#0f172a;border:1px solid #475569;border-radius:8px;padding:3px 10px;margin:0 6px 6px 0;font-size:13px;font-family:monospace;color:#93c5fd}
+  #drop{border:2px dashed #475569;border-radius:12px;padding:34px;text-align:center;color:#94a3b8;cursor:pointer;transition:all .15s}
+  #drop:hover,#drop.over{border-color:#3b82f6;background:rgba(59,130,246,.06);color:#cbd5e1}
+  #drop input{display:none}
+  .btn{padding:10px 18px;border:none;border-radius:10px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer}
+  .btn-primary{background:#3b82f6;color:#fff}
+  .btn-primary:disabled{background:#334155;color:#64748b;cursor:not-allowed}
+  .row{border-bottom:1px solid #33415580;padding:7px 0;font-size:13px;display:flex;justify-content:space-between;gap:12px}
+  .row:last-child{border:none}
+  .ok{color:#6ee7b7}.err{color:#fca5a5}.warn{color:#fcd34d}.muted{color:#64748b}
+  code{font-family:monospace;background:#0f172a;padding:1px 6px;border-radius:5px;font-size:12px}
+  .rep{max-height:280px;overflow:auto}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  td{padding:5px 8px;border-bottom:1px solid #33415560}
+</style>
+<script src="vendor/shp.min.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="index.html">← กลับ Tools</a>
+  <h1>🗺️ Import Zones → zones.js</h1>
+  <div class="sub">อัปโหลด shapefile (.zip) หรือ GeoJSON → ตรวจ field บังคับ → สร้าง <code>Dashboard/js/zones.js</code></div>
+
+  <div class="card">
+    <h2>Field ที่บังคับ (ทุก feature ต้องมี)</h2>
+    <div id="reqList"></div>
+    <div class="muted" style="font-size:12px;margin-top:8px">
+      • <b>N</b> = เลขโซนในพื้นที่ (ใช้เป็นชื่อโซน "โซน N") &nbsp;•&nbsp; <b>DISTRICT</b>/<b>D_NAME</b> = รหัส/ชื่ออำเภอ (ใช้ในตาราง OD Top-10)<br>
+      • shapefile ให้ zip รวม <code>.shp .shx .dbf .prj</code> แล้วอัปโหลด (reproject เป็น WGS84 ให้อัตโนมัติจาก .prj)
+    </div>
+  </div>
+
+  <div class="card">
+    <div id="drop">
+      <div style="font-size:34px">📂</div>
+      <div style="margin-top:8px">ลากไฟล์มาวาง หรือ <b style="color:#93c5fd">คลิกเลือก</b></div>
+      <div class="muted" style="font-size:12px;margin-top:4px">.zip (shapefile) / .geojson / .json</div>
+      <input type="file" id="file" accept=".zip,.geojson,.json" />
+    </div>
+    <div id="status" class="muted" style="margin-top:12px;font-size:13px"></div>
+  </div>
+
+  <div class="card" id="reportCard" style="display:none">
+    <h2>ผลตรวจสอบ</h2>
+    <div id="report"></div>
+    <div style="margin-top:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button class="btn btn-primary" id="dlBtn" disabled onclick="downloadZones()">⬇ ดาวน์โหลด zones.js</button>
+      <span id="dlNote" class="muted" style="font-size:12px"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+const REQUIRED = ['N', 'DISTRICT', 'D_NAME'];
+document.getElementById('reqList').innerHTML = REQUIRED.map(r => `<span class="req">${r}</span>`).join('');
+
+let _generated = null; // zones.js content string
+
+// ---- helpers ----
+function getProp(props, key) {
+  if (!props) return undefined;
+  const found = Object.keys(props).find(k => k.toLowerCase() === key.toLowerCase());
+  return found === undefined ? undefined : props[found];
+}
+const nonEmpty = v => v !== undefined && v !== null && String(v).trim() !== '';
+
+function roundCoords(g) {
+  const r = x => Array.isArray(x) ? x.map(r) : (typeof x === 'number' ? +x.toFixed(6) : x);
+  return { ...g, coordinates: r(g.coordinates) };
+}
+
+function bboxOf(features) {
+  let minLon = 1e9, maxLon = -1e9, minLat = 1e9, maxLat = -1e9;
+  const walk = c => { if (typeof c[0] === 'number') { minLon = Math.min(minLon, c[0]); maxLon = Math.max(maxLon, c[0]); minLat = Math.min(minLat, c[1]); maxLat = Math.max(maxLat, c[1]); } else c.forEach(walk); };
+  features.forEach(f => f.geometry && f.geometry.coordinates && walk(f.geometry.coordinates));
+  return { minLon, maxLon, minLat, maxLat };
+}
+
+// ---- core: validate (exposed for tests) ----
+function validateFeatures(features) {
+  const problems = [];   // {i, missing:[...]}
+  features.forEach((f, i) => {
+    const miss = REQUIRED.filter(r => !nonEmpty(getProp(f.properties, r)));
+    if (miss.length) problems.push({ i, missing: miss });
+  });
+  // duplicate N
+  const nCounts = {};
+  features.forEach(f => { const n = getProp(f.properties, 'N'); if (nonEmpty(n)) nCounts[n] = (nCounts[n] || 0) + 1; });
+  const dupN = Object.entries(nCounts).filter(([, c]) => c > 1).map(([n]) => n);
+  const foundKeys = features[0] ? Object.keys(features[0].properties || {}) : [];
+  return { problems, dupN, foundKeys };
+}
+
+// ---- core: build zones.js (exposed for tests) ----
+function buildZonesJs(features) {
+  const out = {
+    type: 'FeatureCollection', name: 'zones',
+    features: features.map(f => ({
+      type: 'Feature',
+      properties: {
+        name:     'โซน ' + getProp(f.properties, 'N'),
+        N:        getProp(f.properties, 'N'),
+        DISTRICT: getProp(f.properties, 'DISTRICT'),
+        D_NAME:   getProp(f.properties, 'D_NAME')
+      },
+      geometry: roundCoords(f.geometry)
+    }))
+  };
+  const banner = '// ===== ZONES GEOJSON =====\n' +
+                 '// Generated by tools/import-zones.html — fields: name(N), DISTRICT, D_NAME\n\n';
+  return banner + 'const ZONES_GEOJSON = ' + JSON.stringify(out) + ';\n';
+}
+window.validateFeatures = validateFeatures;
+window.buildZonesJs = buildZonesJs;
+
+// ---- UI flow ----
+const dropEl = document.getElementById('drop');
+const fileEl = document.getElementById('file');
+dropEl.onclick = () => fileEl.click();
+['dragover','dragenter'].forEach(e => dropEl.addEventListener(e, ev => { ev.preventDefault(); dropEl.classList.add('over'); }));
+['dragleave','drop'].forEach(e => dropEl.addEventListener(e, ev => { ev.preventDefault(); dropEl.classList.remove('over'); }));
+dropEl.addEventListener('drop', ev => { const f = ev.dataTransfer.files[0]; if (f) handleFile(f); });
+fileEl.addEventListener('change', () => { if (fileEl.files[0]) handleFile(fileEl.files[0]); });
+
+async function handleFile(file) {
+  const status = document.getElementById('status');
+  _generated = null;
+  document.getElementById('dlBtn').disabled = true;
+  status.innerHTML = `กำลังอ่าน <b>${file.name}</b> ...`;
+  try {
+    let features;
+    if (/\.zip$/i.test(file.name)) {
+      const buf = await file.arrayBuffer();
+      let gj = await shp(buf);              // อ่าน + reproject เป็น WGS84 (จาก .prj)
+      if (Array.isArray(gj)) gj = { features: gj.flatMap(g => g.features) };
+      features = gj.features || [];
+    } else {
+      const gj = JSON.parse(await file.text());
+      features = gj.features || (gj.type === 'Feature' ? [gj] : []);
+    }
+    if (!features.length) { status.innerHTML = '<span class="err">ไม่พบ feature ในไฟล์</span>'; return; }
+    status.innerHTML = `อ่านสำเร็จ — พบ <b>${features.length}</b> feature`;
+    runReport(features);
+  } catch (e) {
+    status.innerHTML = `<span class="err">อ่านไฟล์ไม่ได้: ${e.message}</span>`;
+  }
+}
+
+function runReport(features) {
+  const { problems, dupN, foundKeys } = validateFeatures(features);
+  const bb = bboxOf(features);
+  const inTH = bb.minLon > 96 && bb.maxLon < 106 && bb.minLat > 5 && bb.maxLat < 21;
+  const rows = [];
+
+  rows.push(row('จำนวนโซน (feature)', features.length, 'ok'));
+  rows.push(row('Field ที่พบในไฟล์', foundKeys.map(k => `<code>${k}</code>`).join(' ') || '—', 'muted'));
+
+  if (problems.length === 0) {
+    rows.push(row('✅ Field บังคับครบทุก feature', REQUIRED.join(', '), 'ok'));
+  } else {
+    rows.push(row(`❌ Field ไม่ครบ ${problems.length} feature`, 'ดูรายการด้านล่าง', 'err'));
+  }
+  rows.push(row(dupN.length ? '⚠️ N ซ้ำ' : '✅ N ไม่ซ้ำ', dupN.length ? dupN.join(', ') : 'ทุกค่าไม่ซ้ำ', dupN.length ? 'warn' : 'ok'));
+  rows.push(row(inTH ? '✅ พิกัดอยู่ในไทย' : '⚠️ พิกัดนอกช่วงไทย?', `lon ${bb.minLon.toFixed(3)}–${bb.maxLon.toFixed(3)} · lat ${bb.minLat.toFixed(3)}–${bb.maxLat.toFixed(3)}`, inTH ? 'ok' : 'warn'));
+
+  let detail = '';
+  if (problems.length) {
+    detail = `<div class="rep" style="margin-top:12px"><table>
+      <tr><td class="muted">feature #</td><td class="muted">field ที่ขาด</td></tr>
+      ${problems.slice(0, 50).map(p => `<tr><td>${p.i}</td><td class="err">${p.missing.join(', ')}</td></tr>`).join('')}
+    </table>${problems.length > 50 ? `<div class="muted" style="padding:6px">... และอีก ${problems.length - 50}</div>` : ''}</div>`;
+  }
+
+  document.getElementById('report').innerHTML = rows.join('') + detail;
+  document.getElementById('reportCard').style.display = 'block';
+
+  const dlBtn = document.getElementById('dlBtn');
+  const note = document.getElementById('dlNote');
+  if (problems.length === 0) {
+    _generated = buildZonesJs(features);
+    dlBtn.disabled = false;
+    note.innerHTML = `ขนาดไฟล์ ~${(new Blob([_generated]).size / 1024).toFixed(0)} KB`;
+  } else {
+    dlBtn.disabled = true;
+    note.innerHTML = '<span class="err">แก้ field ที่ขาดในไฟล์ก่อน แล้วอัปโหลดใหม่</span>';
+  }
+}
+
+function row(label, val, cls) {
+  return `<div class="row"><span>${label}</span><span class="${cls || ''}" style="text-align:right">${val}</span></div>`;
+}
+
+function downloadZones() {
+  if (!_generated) return;
+  const blob = new Blob([_generated], { type: 'text/javascript' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'zones.js';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+</script>
+</body>
+</html>
