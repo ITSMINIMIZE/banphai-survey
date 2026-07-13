@@ -293,6 +293,12 @@ const App = {
       ? allSts.reduce((s, st) => s + st.interviews.length, 0)
       : allSts.reduce((s, st) => s + st.interviews.filter(iv => iv.surveyorName === this._surveyorName).length, 0);
 
+    // กรอง "พิกัดไม่ครบ" — จุดที่มี interview ต้นทาง/ปลายทางไม่มีพิกัด (รอไปแก้)
+    const stNoCoord = st => (isAdmin ? st.interviews : st.interviews.filter(iv => iv.surveyorName === this._surveyorName))
+      .some(iv => !iv.originCoords || !iv.destinationCoords);
+    const noCoordSts = mySts.filter(stNoCoord);
+    const shownMy    = this._filterNoCoords ? noCoordSts : mySts;
+
     const stationCard = (st, isMine) => {
       const dirTag  = st.direction ? `<span class="tag tag-orange">↔ ${st.direction}</span>` : '';
       // นับเฉพาะ interview ของตัวเอง (ไม่นับของคนอื่น)
@@ -352,6 +358,7 @@ const App = {
           <div class="sec-sub">พบ ${allSts.length} จุดสำรวจ${!isAdmin ? ` · ของฉัน ${mySts.length} จุด` : ''} · ${this._syncBadge()}</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          ${noCoordSts.length > 0 ? `<button class="btn btn-sm ${this._filterNoCoords ? 'btn-danger' : 'btn-ghost'}" onclick="App.toggleNoCoords()">📍 พิกัดไม่ครบ ${noCoordSts.length}</button>` : ''}
           ${isAdmin && allSts.length > 0 ? `<button class="btn btn-ghost btn-sm" onclick="App.exportData()">⬇ Export Excel</button>` : ''}
           ${allSts.length > 0 ? `<button class="btn btn-ghost btn-sm" id="syncBtn" onclick="App.syncToCloud()">☁️ Sync</button>` : ''}
           ${isAdmin && allSts.length > 0 ? `<button class="btn btn-danger btn-sm" onclick="App.confirmClearAll()">🗑 ล้างข้อมูล</button>` : ''}
@@ -369,15 +376,24 @@ const App = {
             ${isAdmin ? `<button class="btn btn-primary" onclick="App.openAddStation()">+ เพิ่มจุดสำรวจแรก</button>` : ''}
             <button class="btn btn-ghost" id="pullBtn" onclick="App.pullFromCloud()">☁️ ดึงข้อมูลจาก Firebase</button>
           </div>
-        </div>` : `
+        </div>` :
+        (this._filterNoCoords && shownMy.length === 0 ? `
+        <div class="empty"><span class="empty-icon">✅</span><h3>พิกัดครบทุกจุดแล้ว</h3>
+          <p>ไม่มีจุดที่พิกัดไม่ครบ</p>
+          <button class="btn btn-ghost" onclick="App.toggleNoCoords()">← กลับไปดูทั้งหมด</button></div>` : `
         <div class="hh-list">
-          ${mySts.map(st => stationCard(st, true)).join('')}
-          ${otherSts.length > 0 ? `
+          ${shownMy.map(st => stationCard(st, true)).join('')}
+          ${!this._filterNoCoords && otherSts.length > 0 ? `
             <div class="section-label" style="margin-top:18px;">จุดสำรวจอื่น (ดูได้อย่างเดียว)</div>
             ${otherSts.map(st => stationCard(st, false)).join('')}
           ` : ''}
-        </div>`}
+        </div>`)}
     </div>`;
+  },
+
+  toggleNoCoords() {
+    this._filterNoCoords = !this._filterNoCoords;
+    this.render();
   },
 
   // ===================== PAGE: STATION =====================

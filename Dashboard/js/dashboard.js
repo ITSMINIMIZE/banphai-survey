@@ -66,6 +66,24 @@ function assignZone(coords) {
   return '(นอกพื้นที่)';                          // มีพิกัดแต่อยู่นอกโซนที่กำหนด
 }
 
+// ชื่อแสดงระดับอำเภอของโซน — ใช้ field DISTRICT/D_NAME ถ้ามีใน shp
+// ไม่งั้น fallback เป็นชื่อโซน (เช่น "โซน 5") ตามข้อมูลปัจจุบัน
+function zDistrict(zoneName) {
+  if (!zDistrict._map) {
+    const m = {};
+    zFeatures().forEach(f => {
+      const p  = f.properties || {};
+      const nm = p.D_NAME || p.d_name || p.DISTRICT_T || '';
+      const cd = (p.DISTRICT != null && p.DISTRICT !== '') ? p.DISTRICT
+               : (p.district != null && p.district !== '' ? p.district : '');
+      m[zName(f)] = nm ? (cd !== '' && String(cd) !== String(nm) ? `${nm} (${cd})` : nm)
+                       : (cd !== '' ? String(cd) : zName(f));
+    });
+    zDistrict._map = m;
+  }
+  return zDistrict._map[zoneName] || zoneName;  // (ไม่มีพิกัด)/(นอกพื้นที่) คืนค่าเดิม
+}
+
 function zCentroid(f) {
   const g = f.geometry;
   let ring = [];
@@ -418,16 +436,16 @@ function renderODMatrix(source) {
       <tr><td><strong>รวมทั้งหมด</strong></td><td style="text-align:right;font-weight:700">${pairs.length} <span style="color:var(--muted);font-weight:400;font-size:11px">(มีพิกัด ${withCoord})</span></td></tr>
     </table>`);
 
-  // Top 10 pairs
+  // Top 10 pairs — รวมระดับอำเภอ (DISTRICT/D_NAME) ถ้า shp มี field; ไม่งั้นใช้ชื่อโซน
   const pairCounts = {};
   pairs.forEach(({ o, d }) => {
-    const k = `${o} → ${d}`;
+    const k = `${zDistrict(o)} → ${zDistrict(d)}`;
     pairCounts[k] = (pairCounts[k] || 0) + 1;
   });
   const top10 = topN(pairCounts, 10);
   set('odTop10', `
     <table class="data-table">
-      <thead><tr><th>#</th><th>คู่ O-D</th><th>จำนวน</th></tr></thead>
+      <thead><tr><th>#</th><th>คู่ อำเภอ (O-D)</th><th>จำนวน</th></tr></thead>
       <tbody>${top10.map(([pair, cnt], i) => `
         <tr>
           <td style="color:var(--muted)">${i + 1}</td>

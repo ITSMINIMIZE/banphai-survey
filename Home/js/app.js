@@ -268,6 +268,9 @@ const App = {
     const hhs     = isAdmin ? allHhs : allHhs.filter(h => h.surveyorName === this._surveyorName);
     const members = hhs.reduce((s, h) => s + h.members.length, 0);
     const trips   = hhs.reduce((s, h) => h.members.reduce((s2, m) => s2 + m.trips.length, s), 0);
+    // กรอง "พิกัดไม่ครบ" — บ้านไม่มีพิกัด หรือมีเที่ยวที่ต้นทาง/ปลายทางไม่มีพิกัด
+    const noCoordList = hhs.filter(h => this._hhCoordsIncomplete(h));
+    const list = this._filterNoCoords ? noCoordList : hhs;
 
     return `<div class="page container">
       <div class="dash-hero">
@@ -288,6 +291,7 @@ const App = {
           <div class="sec-sub">พบ ${hhs.length} ครัวเรือน${!isAdmin ? ' (ของคุณ)' : ''} · ${this._syncBadge()}</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          ${noCoordList.length > 0 ? `<button class="btn btn-sm ${this._filterNoCoords ? 'btn-danger' : 'btn-ghost'}" onclick="App.toggleNoCoords()">📍 พิกัดไม่ครบ ${noCoordList.length}</button>` : ''}
           ${isAdmin && hhs.length > 0 ? `<button class="btn btn-ghost btn-sm" onclick="App.exportData()">⬇ Export Excel</button>` : ''}
           ${hhs.length > 0 ? `<button class="btn btn-ghost btn-sm" id="syncBtn" onclick="App.syncToCloud()">☁️ Sync</button>` : ''}
           <button class="btn btn-ghost btn-sm" id="pullBtn" onclick="App.pullFromCloud()">☁️ ดึงข้อมูล</button>
@@ -306,12 +310,17 @@ const App = {
             <button class="btn btn-ghost" id="pullBtn" onclick="App.pullFromCloud()">☁️ ดึงข้อมูลจาก Firebase</button>
           </div>
         </div>` :
-        `<div class="hh-list">${hhs.map(hh => {
+        (list.length === 0 ? `
+        <div class="empty"><span class="empty-icon">✅</span><h3>พิกัดครบทุกครัวเรือนแล้ว</h3>
+          <p>ไม่มีครัวเรือนที่พิกัดไม่ครบ</p>
+          <button class="btn btn-ghost" onclick="App.toggleNoCoords()">← กลับไปดูทั้งหมด</button></div>` :
+        `<div class="hh-list">${list.map(hh => {
           const t    = hh.members.reduce((s, m) => s + m.trips.length, 0);
           const totM = Object.values(hh.memberGrid || {}).reduce((s, v) => s + (+v || 0), 0);
           const addr = [hh.houseNo ? 'บ้านเลขที่ ' + hh.houseNo : '', hh.moo ? 'ม.' + hh.moo : '', hh.road].filter(Boolean).join(' ');
           // บ้านสมบูรณ์ = มีสมาชิกที่มีข้อมูลการเดินทางอย่างน้อย 1 คน ไม่งั้นขึ้นพื้นหลังแดง
           const complete = hh.members.some(m => m.trips.length > 0);
+          const noCoord  = this._hhCoordsIncomplete(hh);
           return `<div class="hh-card${complete ? '' : ' hh-card-incomplete'}" onclick="App.navigate('household','${hh.id}')">
             <div class="hh-card-icon">🏠</div>
             <div class="hh-card-body">
@@ -319,6 +328,7 @@ const App = {
               <div class="hh-card-addr">${hh.surveyorName ? 'ผู้สำรวจ: ' + this.esc(hh.surveyorName) : ''}</div>
               <div class="hh-card-tags">
                 ${complete ? '' : '<span class="tag" style="background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;">⚠️ ยังไม่สมบูรณ์</span>'}
+                ${noCoord ? '<span class="tag" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;">📍 พิกัดไม่ครบ</span>' : ''}
                 <span class="tag tag-blue">👥 ${totM} คน</span>
                 <span class="tag tag-green">🚗 ${t} เที่ยว</span>
                 <span class="tag tag-gray">📅 ${hh.surveyDate}</span>
@@ -327,8 +337,21 @@ const App = {
             </div>
             <div class="hh-card-arrow">›</div>
           </div>`;
-        }).join('')}</div>`}
+        }).join('')}</div>`)}
     </div>`;
+  },
+
+  // household พิกัดไม่ครบ = บ้านไม่มีพิกัด หรือมีเที่ยวที่ต้นทาง/ปลายทางไม่มีพิกัด
+  // (ที่ทำงาน/โรงเรียนไม่นับ)
+  _hhCoordsIncomplete(hh) {
+    if (!hh.coordinates) return true;
+    return (hh.members || []).some(m =>
+      (m.trips || []).some(t => !t.originCoords || !t.destinationCoords));
+  },
+
+  toggleNoCoords() {
+    this._filterNoCoords = !this._filterNoCoords;
+    this.render();
   },
 
   // ===================== PAGE: HOUSEHOLD =====================
