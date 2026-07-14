@@ -268,9 +268,15 @@ const App = {
     const hhs     = isAdmin ? allHhs : allHhs.filter(h => h.surveyorName === this._surveyorName);
     const members = hhs.reduce((s, h) => s + h.members.length, 0);
     const trips   = hhs.reduce((s, h) => h.members.reduce((s2, m) => s2 + m.trips.length, s), 0);
-    // กรอง "พิกัดไม่ครบ" — บ้านไม่มีพิกัด หรือมีเที่ยวที่ต้นทาง/ปลายทางไม่มีพิกัด
+    // ── ตัวกรอง: สถานะ (สมบูรณ์/ไม่สมบูรณ์) + ชื่อผู้สำรวจ + พิกัดไม่ครบ ──
+    const status = this._filterStatus || 'all';
+    const nameQ  = (this._filterName || '').trim().toLowerCase();
     const noCoordList = hhs.filter(h => this._hhCoordsIncomplete(h));
-    const list = this._filterNoCoords ? noCoordList : hhs;
+    let list = hhs;
+    if (status === 'complete')        list = list.filter(h => this._hhComplete(h));
+    else if (status === 'incomplete') list = list.filter(h => !this._hhComplete(h));
+    if (this._filterNoCoords)         list = list.filter(h => this._hhCoordsIncomplete(h));
+    if (nameQ)                        list = list.filter(h => (h.surveyorName || '').toLowerCase().includes(nameQ));
 
     return `<div class="page container">
       <div class="dash-hero">
@@ -291,7 +297,6 @@ const App = {
           <div class="sec-sub">พบ ${hhs.length} ครัวเรือน${!isAdmin ? ' (ของคุณ)' : ''} · ${this._syncBadge()}</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          ${noCoordList.length > 0 ? `<button class="btn btn-sm ${this._filterNoCoords ? 'btn-danger' : 'btn-ghost'}" onclick="App.toggleNoCoords()">📍 พิกัดไม่ครบ ${noCoordList.length}</button>` : ''}
           ${isAdmin && hhs.length > 0 ? `<button class="btn btn-ghost btn-sm" onclick="App.exportData()">⬇ Export Excel</button>` : ''}
           ${hhs.length > 0 ? `<button class="btn btn-ghost btn-sm" id="syncBtn" onclick="App.syncToCloud()">☁️ Sync</button>` : ''}
           <button class="btn btn-ghost btn-sm" id="pullBtn" onclick="App.pullFromCloud()">☁️ ดึงข้อมูล</button>
@@ -299,6 +304,17 @@ const App = {
           <button class="btn btn-primary" onclick="App.openAddHousehold()">+ เพิ่มครัวเรือน</button>
         </div>
       </div>
+
+      ${hhs.length > 0 ? `
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;">
+        <div style="display:inline-flex;gap:2px;background:var(--gray-100);padding:3px;border-radius:8px;flex-shrink:0;">
+          ${this._segBtn('ทั้งหมด','all')}${this._segBtn('✅ สมบูรณ์','complete')}${this._segBtn('⚠️ ไม่สมบูรณ์','incomplete')}
+        </div>
+        <input id="flt_name" value="${this.esc(this._filterName || '')}" oninput="App.setNameFilter(this.value)"
+          placeholder="🔍 ค้นหาชื่อผู้สำรวจ" autocomplete="off"
+          style="flex:1;min-width:150px;padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-family:inherit;font-size:14px;background:var(--white);color:var(--gray-800);" />
+        ${noCoordList.length > 0 ? `<button class="btn btn-sm ${this._filterNoCoords ? 'btn-danger' : 'btn-ghost'}" onclick="App.toggleNoCoords()">📍 พิกัดไม่ครบ ${noCoordList.length}</button>` : ''}
+      </div>` : ''}
 
       ${hhs.length === 0 ? `
         <div class="empty">
@@ -311,9 +327,9 @@ const App = {
           </div>
         </div>` :
         (list.length === 0 ? `
-        <div class="empty"><span class="empty-icon">✅</span><h3>พิกัดครบทุกครัวเรือนแล้ว</h3>
-          <p>ไม่มีครัวเรือนที่พิกัดไม่ครบ</p>
-          <button class="btn btn-ghost" onclick="App.toggleNoCoords()">← กลับไปดูทั้งหมด</button></div>` :
+        <div class="empty"><span class="empty-icon">🔍</span><h3>ไม่พบครัวเรือนตามตัวกรอง</h3>
+          <p>ลองปรับตัวกรอง หรือล้างตัวกรอง</p>
+          <button class="btn btn-ghost" onclick="App.resetFilters()">ล้างตัวกรอง</button></div>` :
         `<div class="hh-list">${list.map(hh => {
           const t    = hh.members.reduce((s, m) => s + m.trips.length, 0);
           const totM = Object.values(hh.memberGrid || {}).reduce((s, v) => s + (+v || 0), 0);
@@ -351,6 +367,29 @@ const App = {
 
   toggleNoCoords() {
     this._filterNoCoords = !this._filterNoCoords;
+    this.render();
+  },
+
+  // บ้านสมบูรณ์ = มีสมาชิกที่มีข้อมูลการเดินทางอย่างน้อย 1 คน
+  _hhComplete(hh) { return (hh.members || []).some(m => (m.trips || []).length > 0); },
+
+  // ปุ่มสถานะแบบ segmented
+  _segBtn(label, val) {
+    const on = (this._filterStatus || 'all') === val;
+    return `<button onclick="App.setStatus('${val}')" style="border:none;padding:6px 12px;border-radius:6px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;${on ? 'background:var(--primary);color:#fff;' : 'background:transparent;color:var(--gray-600);'}">${label}</button>`;
+  },
+
+  setStatus(v) { this._filterStatus = v; this.render(); },
+
+  setNameFilter(v) {
+    this._filterName = v;
+    this.render();
+    const el = document.getElementById('flt_name');
+    if (el) { el.focus(); const n = el.value.length; try { el.setSelectionRange(n, n); } catch (e) {} }
+  },
+
+  resetFilters() {
+    this._filterStatus = 'all'; this._filterName = ''; this._filterNoCoords = false;
     this.render();
   },
 

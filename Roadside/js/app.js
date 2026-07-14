@@ -198,6 +198,8 @@ const App = {
   },
 
   navigate(page, stId, ivId) {
+    // เปลี่ยนจุดสำรวจ → รีเซ็ตตัวกรองหน้ารายการสำรวจ (แต่ละจุดเริ่มใหม่)
+    if (stId !== undefined && stId !== this.stId) { this._filterStatus = 'all'; this._filterName = ''; }
     this.page = page;
     if (stId !== undefined) this.stId = stId;
     if (ivId !== undefined) this.ivId = ivId;
@@ -396,6 +398,26 @@ const App = {
     this.render();
   },
 
+  // ปุ่มสถานะแบบ segmented (ใช้ในหน้ารายการสำรวจ)
+  _segBtn(label, val) {
+    const on = (this._filterStatus || 'all') === val;
+    return `<button onclick="App.setStatus('${val}')" style="border:none;padding:6px 12px;border-radius:6px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;${on ? 'background:var(--primary);color:#fff;' : 'background:transparent;color:var(--gray-600);'}">${label}</button>`;
+  },
+
+  setStatus(v) { this._filterStatus = v; this.render(); },
+
+  setNameFilter(v) {
+    this._filterName = v;
+    this.render();
+    const el = document.getElementById('flt_name');
+    if (el) { el.focus(); const n = el.value.length; try { el.setSelectionRange(n, n); } catch (e) {} }
+  },
+
+  resetFilters() {
+    this._filterStatus = 'all'; this._filterName = ''; this._filterNoCoords = false;
+    this.render();
+  },
+
   // ===================== PAGE: STATION =====================
   pageStation() {
     const st = DB.getStation(this.stId);
@@ -405,6 +427,14 @@ const App = {
     const myIvs   = isAdmin
       ? st.interviews
       : st.interviews.filter(iv => iv.surveyorName === this._surveyorName);
+
+    // ── ตัวกรอง: สถานะ (สมบูรณ์=มีพิกัดต้นทาง+ปลายทางครบ) + ชื่อผู้สำรวจ ──
+    const status = this._filterStatus || 'all';
+    const nameQ  = (this._filterName || '').trim().toLowerCase();
+    let ivs = myIvs;
+    if (status === 'complete')        ivs = ivs.filter(iv => iv.originCoords && iv.destinationCoords);
+    else if (status === 'incomplete') ivs = ivs.filter(iv => !iv.originCoords || !iv.destinationCoords);
+    if (nameQ)                        ivs = ivs.filter(iv => (iv.surveyorName || '').toLowerCase().includes(nameQ));
 
     return `<div class="page container">
       <div class="hh-detail-header">
@@ -446,6 +476,16 @@ const App = {
         <button class="btn btn-primary btn-sm" onclick="App.openWizard()" style="white-space:nowrap;">+ เพิ่มรายถัดไป</button>
       </div>` : ''}
 
+      ${myIvs.length > 0 ? `
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px;">
+        <div style="display:inline-flex;gap:2px;background:var(--gray-100);padding:3px;border-radius:8px;flex-shrink:0;">
+          ${this._segBtn('ทั้งหมด','all')}${this._segBtn('✅ สมบูรณ์','complete')}${this._segBtn('⚠️ ไม่สมบูรณ์','incomplete')}
+        </div>
+        ${isAdmin ? `<input id="flt_name" value="${this.esc(this._filterName || '')}" oninput="App.setNameFilter(this.value)"
+          placeholder="🔍 ค้นหาชื่อผู้สำรวจ" autocomplete="off"
+          style="flex:1;min-width:150px;padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-family:inherit;font-size:14px;background:var(--white);color:var(--gray-800);" />` : ''}
+      </div>` : ''}
+
       ${myIvs.length === 0 ? `
         <div class="empty">
           <span class="empty-icon">📋</span>
@@ -453,7 +493,11 @@ const App = {
           <p>เพิ่มข้อมูลยานพาหนะ / ผู้เดินทางที่ถูกสัมภาษณ์</p>
           <button class="btn btn-primary" onclick="App.openWizard()">+ เพิ่มการสำรวจ</button>
         </div>` :
-        `<div class="member-list">${myIvs.map(iv => {
+        (ivs.length === 0 ? `
+        <div class="empty"><span class="empty-icon">🔍</span><h3>ไม่พบรายการตามตัวกรอง</h3>
+          <p>ลองปรับตัวกรอง หรือล้างตัวกรอง</p>
+          <button class="btn btn-ghost" onclick="App.resetFilters()">ล้างตัวกรอง</button></div>` :
+        `<div class="member-list">${ivs.map(iv => {
           const vt = OPT.vehicleTypes.find(v => v.key === iv.vehicleType) || { icon: '🚘', label: iv.vehicleType || 'ไม่ระบุ' };
           const dotCls = (iv.originName && iv.destinationName && iv.purpose) ? 'dot-green' : (iv.originName || iv.destinationName) ? 'dot-amber' : 'dot-gray';
           return `<div class="member-card" onclick="App.navigate('interview','${st.id}','${iv.id}')">
@@ -470,7 +514,7 @@ const App = {
               <span style="color:var(--gray-300)">›</span>
             </div>
           </div>`;
-        }).join('')}</div>`}
+        }).join('')}</div>`)}
     </div>`;
   },
 
