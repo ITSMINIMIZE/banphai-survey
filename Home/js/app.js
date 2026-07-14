@@ -277,6 +277,8 @@ const App = {
     else if (status === 'incomplete') list = list.filter(h => !this._hhComplete(h));
     if (this._filterNoCoords)         list = list.filter(h => this._hhCoordsIncomplete(h));
     if (nameQ)                        list = list.filter(h => (h.surveyorName || '').toLowerCase().includes(nameQ));
+    // ใหม่สุดอยู่บน
+    list = list.slice().sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
 
     return `<div class="page container">
       <div class="dash-hero">

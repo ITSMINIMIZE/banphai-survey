@@ -435,6 +435,8 @@ const App = {
     if (status === 'complete')        ivs = ivs.filter(iv => iv.originCoords && iv.destinationCoords);
     else if (status === 'incomplete') ivs = ivs.filter(iv => !iv.originCoords || !iv.destinationCoords);
     if (nameQ)                        ivs = ivs.filter(iv => (iv.surveyorName || '').toLowerCase().includes(nameQ));
+    // ใหม่สุดอยู่บน
+    ivs = ivs.slice().sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
 
     return `<div class="page container">
       <div class="hh-detail-header">
