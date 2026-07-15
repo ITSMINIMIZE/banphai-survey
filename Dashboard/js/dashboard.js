@@ -343,6 +343,46 @@ function renderProgress() {
     datasets: [{ label: 'คัน', data: stRows.map(r => r.count), backgroundColor: '#22c55e' }]
   }, { plugins: { legend: { display: false } } });
 
+  // ═══ สรุปรายผู้สำรวจแต่ละคน (รวม Home + Road ตาม surveyorName) ═══
+  const surv = {};
+  const getS = name => surv[name] || (surv[name] = { name, sup: '', hhs: 0, members: 0, trips: 0, ivs: 0, pax: 0 });
+  households.forEach(hh => {
+    if (!hh.surveyorName) return;
+    const s = getS(hh.surveyorName);
+    s.hhs++;
+    if (!s.sup && hh.supervisorName) s.sup = hh.supervisorName;
+    (hh.members || []).forEach(m => { s.members++; s.trips += (m.trips || []).length; });
+  });
+  stations.forEach(st => {
+    (st.interviews || []).forEach(iv => {
+      if (!iv.surveyorName) return;
+      const s = getS(iv.surveyorName);
+      s.ivs++;
+      s.pax += (+iv.passengerCount || 0);
+      if (!s.sup && st.supervisorName) s.sup = st.supervisorName;
+    });
+  });
+  const survRows = Object.values(surv).sort((a, b) => (b.hhs + b.ivs) - (a.hhs + a.ivs));
+  set('badgeSurveyors', survRows.length + ' คน');
+  set('surveyorTable', survRows.length === 0
+    ? '<p style="color:var(--muted);padding:8px 0">ยังไม่มีข้อมูล</p>'
+    : `<table class="data-table">
+        <thead><tr><th>ผู้สำรวจ</th><th>ผู้ควบคุม</th><th>บ้าน</th><th>คน</th><th>เที่ยว</th><th>คัน</th><th>คนในรถ</th><th>สถานะ</th></tr></thead>
+        <tbody>${survRows.map(s => {
+          const isHome = s.hhs > 0;
+          const target = isHome ? HOME_QUOTA_PER_PERSON : ROAD_QUOTA_PER_PERSON;
+          const actual = isHome ? s.hhs : s.ivs;
+          const pct = target ? Math.round(actual / target * 100) : 0;
+          return `<tr data-name="${esc((s.name + ' ' + s.sup).toLowerCase())}">
+            <td style="font-weight:600">${esc(s.name)}</td>
+            <td style="color:var(--muted)">${esc(s.sup || '—')}</td>
+            <td>${s.hhs || ''}</td><td>${s.members || ''}</td><td>${s.trips || ''}</td>
+            <td>${s.ivs || ''}</td><td>${s.pax || ''}</td>
+            <td>${statusChip(pct, actual, target)}</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>`);
+
   // Incomplete records
   const incomplete = households.filter(hh =>
     !hh.coordinates || !hh.surveyorName ||
@@ -992,6 +1032,14 @@ const App = {
         }
       }, 100);
     }
+  },
+
+  filterSurveyors(q) {
+    const query = (q || '').trim().toLowerCase();
+    document.querySelectorAll('#surveyorTable tbody tr').forEach(tr => {
+      const name = tr.getAttribute('data-name') || '';
+      tr.style.display = (!query || name.includes(query)) ? '' : 'none';
+    });
   },
 
   setODSource(src) {

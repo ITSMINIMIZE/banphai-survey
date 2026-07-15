@@ -329,6 +329,12 @@
       </div>
     </div>
     <div class="card">
+      <div class="card-title">👤 สรุปรายผู้สำรวจ <span class="badge" id="badgeSurveyors"></span></div>
+      <input type="text" id="survSearch" oninput="App.filterSurveyors(this.value)" placeholder="🔍 ค้นหาชื่อผู้สำรวจ / ผู้ควบคุม..."
+        style="width:100%;max-width:360px;margin-bottom:12px;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-family:inherit;font-size:14px;" />
+      <div style="overflow-x:auto"><div id="surveyorTable"><p style="color:var(--muted)">กำลังโหลด...</p></div></div>
+    </div>
+    <div class="card">
       <div class="card-title">⚠️ ข้อมูลที่ไม่ครบ (Home) <span class="badge" id="badgeIncomplete"></span></div>
       <div id="incompleteTable"><p style="color:var(--muted)">กำลังตรวจสอบ...</p></div>
     </div>
