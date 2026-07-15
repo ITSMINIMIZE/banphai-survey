@@ -1198,6 +1198,20 @@ const App = {
       }
     }
 
+    // ซ่อมกรณีแก้ไข: ต้นทางเที่ยวนี้ไม่มีพิกัด แต่ปลายทางเที่ยวก่อนหน้ามีแล้ว → ดึงมาให้อัตโนมัติ
+    if (isEdit && !defOriginCoords && m) {
+      const idx = m.trips.findIndex(x => x.id === t.id);
+      if (idx === 0) {
+        defOriginCoords = hh?.coordinates || '';
+        if (!defOrigin) defOrigin = homeAddr;
+      } else if (idx > 0) {
+        const prev = m.trips[idx - 1];
+        defOriginCoords = prev.destinationCoords || defOriginCoords;
+        if (!defOrigin) defOrigin = prev.destination || '';
+        if (!defOriginType) defOriginType = prev.destinationType || '';
+      }
+    }
+
     // default departure = เวลาถึงปลายทางครั้งที่แล้ว
     let defDepart = t?.departureTime || '';
     let prevArrival = '';
@@ -1250,15 +1264,20 @@ const App = {
       </div>`;
 
     this.showModal(isEdit ? '✏️ แก้ไขการเดินทาง' : '🚗 เพิ่มการเดินทาง', `
-      <!-- ต้นทาง (read-only — auto-filled จากบ้านหรือปลายทางครั้งก่อน) -->
+      <!-- ต้นทาง (auto จากปลายทางก่อนหน้า/บ้าน — แก้ได้ถ้าพิกัดขาด) -->
       <div class="section-label"><span class="od-pill od-pill-from">🟢 ต้นทาง — จุดเริ่มต้น</span></div>
       <div class="form-row">
         <label class="form-label">สถานที่ตั้งต้นทาง
-          <span style="font-size:11px;font-weight:400;color:var(--gray-400);margin-left:6px;">🔒 กำหนดอัตโนมัติ</span>
+          <span style="font-size:11px;font-weight:400;color:var(--gray-400);margin-left:6px;">ดึงจากปลายทางก่อนหน้า · แก้ได้ถ้าพิกัดขาด</span>
         </label>
-        <input id="t_origin" class="form-input" readonly autocomplete="off"
-          value="${defOrigin}"
-          style="background:var(--gray-50);color:var(--gray-600);cursor:default;" />
+        <div style="display:flex;gap:8px;">
+          <input id="t_origin" class="form-input" autocomplete="off"
+            value="${defOrigin}" placeholder="เช่น ตลาด, โรงเรียน" style="flex:1;min-width:0;" />
+          <button type="button" onclick="App._openMap('t_originCoords','t_origin')"
+            style="padding:9px 12px;background:var(--primary-light);color:var(--primary);
+                   border:1.5px solid var(--primary);border-radius:var(--radius-sm);
+                   font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">🗺 แผนที่</button>
+        </div>
         <input type="hidden" id="t_originCoords" value="${defOriginCoords}" />
         ${defOriginCoords ? `<div style="font-size:11px;color:var(--gray-400);margin-top:3px;">📍 ${defOriginCoords}</div>` : ''}
       </div>
