@@ -328,11 +328,21 @@
         </div>
       </div>
     </div>
-    <div class="card">
-      <div class="card-title">👤 สรุปรายผู้สำรวจ <span class="badge" id="badgeSurveyors"></span></div>
-      <input type="text" id="survSearch" oninput="App.filterSurveyors(this.value)" placeholder="🔍 ค้นหาชื่อผู้สำรวจ / ผู้ควบคุม..."
-        style="width:100%;max-width:360px;margin-bottom:12px;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-family:inherit;font-size:14px;" />
-      <div style="overflow-x:auto"><div id="surveyorTable"><p style="color:var(--muted)">กำลังโหลด...</p></div></div>
+    <div class="grid-2">
+      <!-- ซ้าย: ผู้สำรวจ Road -->
+      <div class="card">
+        <div class="card-title">👤 สรุปรายผู้สำรวจ — Road <span class="badge" id="badgeRoadSurv"></span></div>
+        <input type="text" id="roadSurvSearch" oninput="App.filterTable('roadPersonTable', this.value)" placeholder="🔍 ค้นหาชื่อผู้สำรวจ / ผู้ควบคุม..."
+          style="width:100%;margin-bottom:12px;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-family:inherit;font-size:14px;" />
+        <div style="overflow-x:auto"><div id="roadPersonTable"><p style="color:var(--muted)">กำลังโหลด...</p></div></div>
+      </div>
+      <!-- ขวา: ผู้สำรวจ Home -->
+      <div class="card">
+        <div class="card-title">👤 สรุปรายผู้สำรวจ — Home <span class="badge" id="badgeHomeSurv"></span></div>
+        <input type="text" id="homeSurvSearch" oninput="App.filterTable('homePersonTable', this.value)" placeholder="🔍 ค้นหาชื่อผู้สำรวจ / ผู้ควบคุม..."
+          style="width:100%;margin-bottom:12px;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-family:inherit;font-size:14px;" />
+        <div style="overflow-x:auto"><div id="homePersonTable"><p style="color:var(--muted)">กำลังโหลด...</p></div></div>
+      </div>
     </div>
     <div class="card">
       <div class="card-title">⚠️ ข้อมูลที่ไม่ครบ (Home) <span class="badge" id="badgeIncomplete"></span></div>
