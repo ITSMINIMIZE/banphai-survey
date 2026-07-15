@@ -273,8 +273,9 @@ const App = {
     const nameQ  = (this._filterName || '').trim().toLowerCase();
     const noCoordList = hhs.filter(h => this._hhCoordsIncomplete(h));
     let list = hhs;
-    if (status === 'complete')        list = list.filter(h => this._hhComplete(h));
-    else if (status === 'incomplete') list = list.filter(h => !this._hhComplete(h));
+    // สมบูรณ์ = ไม่มีประเด็นเลย · ไม่สมบูรณ์ = มีประเด็นใดๆ (ไม่มีคนเดินทาง / พิกัดไม่ครบ / พิกัดจากแผนที่)
+    if (status === 'complete')        list = list.filter(h => !this._hhHasIssue(h));
+    else if (status === 'incomplete') list = list.filter(h => this._hhHasIssue(h));
     if (this._filterNoCoords)         list = list.filter(h => this._hhCoordsIncomplete(h));
     if (nameQ)                        list = list.filter(h => (h.surveyorName || '').toLowerCase().includes(nameQ));
     // ใหม่สุดอยู่บน
@@ -336,17 +337,21 @@ const App = {
           const t    = hh.members.reduce((s, m) => s + m.trips.length, 0);
           const totM = Object.values(hh.memberGrid || {}).reduce((s, v) => s + (+v || 0), 0);
           const addr = [hh.houseNo ? 'บ้านเลขที่ ' + hh.houseNo : '', hh.moo ? 'ม.' + hh.moo : '', hh.road].filter(Boolean).join(' ');
-          // บ้านสมบูรณ์ = มีสมาชิกที่มีข้อมูลการเดินทางอย่างน้อย 1 คน ไม่งั้นขึ้นพื้นหลังแดง
-          const complete = hh.members.some(m => m.trips.length > 0);
-          const noCoord  = this._hhCoordsIncomplete(hh);
-          return `<div class="hh-card${complete ? '' : ' hh-card-incomplete'}" onclick="App.navigate('household','${hh.id}')">
+          // แยกประเด็นให้ชัด: ไม่มีคนเดินทาง / บ้านไม่มีพิกัด / เที่ยวไม่มีพิกัด / พิกัดจากแผนที่ (มีพิกัดแต่ควรตรวจ)
+          const noTraveler = !this._hhComplete(hh);
+          const homeNoCo   = !hh.coordinates;
+          const tripNoCo   = !homeNoCo && (hh.members || []).some(m => (m.trips || []).some(t => !t.originCoords || !t.destinationCoords));
+          const mapCo      = this._hhMapCoords(hh);
+          return `<div class="hh-card${noTraveler ? ' hh-card-incomplete' : ''}" onclick="App.navigate('household','${hh.id}')">
             <div class="hh-card-icon">🏠</div>
             <div class="hh-card-body">
               <div class="hh-card-id">${this.esc(addr) || 'ไม่ระบุที่อยู่'}</div>
               <div class="hh-card-addr">${hh.surveyorName ? 'ผู้สำรวจ: ' + this.esc(hh.surveyorName) : ''}</div>
               <div class="hh-card-tags">
-                ${complete ? '' : '<span class="tag" style="background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;">⚠️ ยังไม่สมบูรณ์</span>'}
-                ${noCoord ? '<span class="tag" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;">📍 พิกัดไม่ครบ</span>' : ''}
+                ${noTraveler ? '<span class="tag" style="background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;">⚠️ ยังไม่สมบูรณ์</span>' : ''}
+                ${homeNoCo ? '<span class="tag" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;">📍 บ้านไม่มีพิกัด</span>' : ''}
+                ${tripNoCo ? '<span class="tag" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;">📍 เที่ยวไม่มีพิกัด</span>' : ''}
+                ${mapCo ? '<span class="tag" style="background:#ffedd5;color:#9a3412;border:1px solid #fdba74;" title="พิกัดจากแผนที่/พิมพ์เอง ไม่ใช่ GPS ที่จุดจริง — ควรสุ่มตรวจ">🗺 พิกัดจากแผนที่</span>' : ''}
                 <span class="tag tag-blue">👥 ${totM} คน</span>
                 <span class="tag tag-green">🚗 ${t} เที่ยว</span>
                 <span class="tag tag-gray">📅 ${hh.surveyDate}</span>
@@ -374,6 +379,14 @@ const App = {
 
   // บ้านสมบูรณ์ = มีสมาชิกที่มีข้อมูลการเดินทางอย่างน้อย 1 คน
   _hhComplete(hh) { return (hh.members || []).some(m => (m.trips || []).length > 0); },
+
+  // มีพิกัดแต่มาจากแผนที่/พิมพ์เอง (ไม่ใช่ GPS จุดจริง) — ควรตรวจ
+  _hhMapCoords(hh) { return hh.coordsSource === 'manual' && !!hh.coordinates; },
+
+  // มีประเด็นต้องดู = ไม่มีคนเดินทาง หรือ พิกัดไม่ครบ หรือ พิกัดจากแผนที่
+  _hhHasIssue(hh) {
+    return !this._hhComplete(hh) || this._hhCoordsIncomplete(hh) || this._hhMapCoords(hh);
+  },
 
   // ปุ่มสถานะแบบ segmented
   _segBtn(label, val) {
