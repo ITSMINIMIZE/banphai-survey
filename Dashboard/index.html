@@ -382,11 +382,12 @@
   <div class="tab-panel" id="panel-map">
     <div class="card" style="padding:0;overflow:hidden">
       <div class="map-panel-header">
-        <span style="font-size:14px;font-weight:700">แผนที่ Desire Lines &amp; Choropleth</span>
+        <span style="font-size:14px;font-weight:700">แผนที่การเดินทาง</span>
         <div style="display:flex;gap:12px;flex-wrap:wrap">
           <div class="toggle-group">
             <button class="toggle-btn active" id="mapToggleDesire" onclick="App.setMapMode('desire')">📍 Desire Lines</button>
             <button class="toggle-btn" id="mapToggleChoropleth" onclick="App.setMapMode('choropleth')">🎨 Choropleth</button>
+            <button class="toggle-btn" id="mapToggleRaw" onclick="App.setMapMode('raw')">📌 พิกัดจริง</button>
           </div>
           <span class="map-controls-sep">|</span>
           <div class="toggle-group">

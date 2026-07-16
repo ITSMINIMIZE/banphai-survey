@@ -10,7 +10,7 @@ const FB_CFG = {
   appId:             '1:755175522135:web:da20ccae36e1d1e9210812'
 };
 
-const CENTER = { lat: 14.6318, lon: 102.7916 };
+const CENTER = { lat: 16.0587, lon: 102.7355 }; // อ.บ้านไผ่ (fallback เมื่อไม่มีโซน)
 
 // ── STATE ─────────────────────────────────────────────────────────────────────
 let db = null, auth = null;
@@ -18,6 +18,7 @@ let households = [];
 let stations   = [];
 let charts = {};
 let leafletMap = null;
+let rawRenderer = null;   // canvas renderer สำหรับโหมดพิกัดจริง
 let desireLayer = null;
 let choroLayer  = null;
 let zoneLayer   = null;
@@ -577,10 +578,25 @@ function initLeafletMap() {
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap contributors', maxZoom: 19
   }).addTo(leafletMap);
+  // canvas renderer สำหรับโหมดพิกัดจริง — เส้นหลักพันเส้นลื่นกว่า SVG มาก
+  rawRenderer = L.canvas({ padding: 0.4 });
   // layer order: zones (bottom) → desire lines → choropleth (top)
   zoneLayer   = L.layerGroup().addTo(leafletMap);
   desireLayer = L.layerGroup().addTo(leafletMap);
   choroLayer  = L.layerGroup().addTo(leafletMap);
+  fitMapToZones(); // default view = ครอบเขต shp ที่นำเข้าไว้
+}
+
+// ซูมให้ครอบทุกโซนจาก shp ที่นำเข้า (ถ้าไม่มีโซน คงไว้ที่ CENTER)
+let didFitZones = false;
+function fitMapToZones() {
+  const features = zFeatures();
+  if (!leafletMap || !features.length || didFitZones) return;
+  if (!leafletMap.getSize().x) return; // container ยังไม่แสดงผล — switchTab จะเรียกซ้ำเมื่อมองเห็น
+  try {
+    const b = L.geoJSON({ type: 'FeatureCollection', features }).getBounds();
+    if (b.isValid()) { leafletMap.fitBounds(b, { padding: [16, 16] }); didFitZones = true; }
+  } catch (e) { /* geometry เพี้ยน — คงมุมมองเดิม */ }
 }
 
 // Build pairMap from source (cached until source changes)
@@ -647,6 +663,21 @@ function renderMap(mode, source) {
       });
     });
 
+  } else if (mode === 'raw') {
+    // ── โหมดพิกัดจริง: วาดทุกเที่ยวจาก origin → destination ตาม lat/long จริง ──
+    selectedZone = null;
+    _hideZonePanel();
+
+    // เส้นขอบโซนบาง ๆ เป็นบริบท (ไม่ interactive)
+    features.forEach(f => {
+      L.polygon(
+        featureRings(f).flatMap(ring => [ring.map(c => [c[1], c[0]])]),
+        { color: '#475569', weight: 1, fill: false, opacity: 0.5, interactive: false }
+      ).addTo(zoneLayer);
+    });
+
+    _drawRawTrips(source);
+
   } else {
     // ── Desire Lines mode ──
     selectedZone = null;
@@ -707,6 +738,42 @@ function _drawDesireLines(pairs, maxCount, centroids) {
   });
 }
 
+// วาดเส้นทางตามพิกัดจริง (ไม่จับเป็นโซน) — 1 เส้น = 1 เที่ยว, จุดกลม = ปลายทาง
+function _drawRawTrips(source) {
+  const drawSet = (items, name, color, label) => {
+    let n = 0;
+    items.forEach(it => {
+      const o = parseCoords(it.originCoords), d = parseCoords(it.destinationCoords);
+      if (!o || !d) return;
+      n++;
+      L.polyline([[o.lat, o.lon], [d.lat, d.lon]],
+        { renderer: rawRenderer, color, weight: 1.5, opacity: 0.45 })
+        .bindTooltip(`<b>${esc(name(it, 'o') || '—')}</b> → <b>${esc(name(it, 'd') || '—')}</b><br>${label}`, { sticky: true })
+        .addTo(desireLayer);
+      L.circleMarker([d.lat, d.lon],
+        { renderer: rawRenderer, radius: 2.5, color: '#fff', weight: 0.8, fillColor: color, fillOpacity: 0.9 })
+        .addTo(desireLayer);
+    });
+    return n;
+  };
+
+  let nHome = 0, nRoad = 0;
+  if (source === 'home' || source === 'all')
+    nHome = drawSet(allTrips(), (t, s) => s === 'o' ? t.origin : t.destination, '#3b82f6', '🏠 Home');
+  if (source === 'roadside' || source === 'all')
+    nRoad = drawSet(allInterviews(), (iv, s) => s === 'o' ? iv.originName : iv.destinationName, '#f59e0b', '🚗 Roadside');
+
+  // สรุปจำนวนเส้นในแผงข้าง (แทนข้อความ "คลิกโซน" ซึ่งไม่เกี่ยวกับโหมดนี้)
+  const el = document.getElementById('mapZoneEmpty');
+  if (el) el.innerHTML = `
+    <div style="font-size:12px;line-height:2;color:var(--muted)">
+      <div style="font-weight:700;color:var(--text);margin-bottom:4px">📌 เส้นทางตามพิกัดจริง</div>
+      ${(source === 'home' || source === 'all') ? `<div><span style="color:#3b82f6">━</span> Home ${nHome} เที่ยว</div>` : ''}
+      ${(source === 'roadside' || source === 'all') ? `<div><span style="color:#f59e0b">━</span> Roadside ${nRoad} เที่ยว</div>` : ''}
+      <div style="font-size:11px;margin-top:6px">จุดกลม = ปลายทาง<br>ชี้ที่เส้นเพื่อดูชื่อสถานที่</div>
+    </div>`;
+}
+
 // Update zone polygon styles based on selection
 function _styleZonePolygons() {
   zoneLayer.eachLayer(poly => {
@@ -756,7 +823,10 @@ function _showZonePanel(zoneName) {
 
 function _hideZonePanel() {
   document.getElementById('mapZoneDetail').style.display = 'none';
-  document.getElementById('mapZoneEmpty').style.display  = 'flex';
+  const empty = document.getElementById('mapZoneEmpty');
+  empty.style.display = 'flex';
+  // ข้อความ default (โหมด raw จะเขียนสรุปทับทีหลัง)
+  empty.innerHTML = '<p style="color:var(--muted);font-size:12px;line-height:1.6">คลิกโซนบนแผนที่<br>หรือค้นหาชื่อโซน<br>เพื่อดูการเดินทาง</p>';
   // clear search
   const inp = document.getElementById('zoneSearchInput');
   if (inp) inp.value = '';
@@ -1061,6 +1131,7 @@ const App = {
         } else {
           leafletMap.invalidateSize();
         }
+        fitMapToZones(); // ครั้งแรกที่แผนที่มองเห็นจริง — default view รอบ shp
       }, 100);
     }
   },
@@ -1131,6 +1202,7 @@ const App = {
     this._mapMode = mode;
     document.getElementById('mapToggleDesire')?.classList.toggle('active', mode === 'desire');
     document.getElementById('mapToggleChoropleth')?.classList.toggle('active', mode === 'choropleth');
+    document.getElementById('mapToggleRaw')?.classList.toggle('active', mode === 'raw');
     renderMap(mode, this._mapSrc);
   },
 
