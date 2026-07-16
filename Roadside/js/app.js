@@ -1682,11 +1682,16 @@ const App = {
     );
   },
 
-  _doExport() {
+  async _doExport() {
     const fSurveyor = document.getElementById('ex_surveyor')?.value || '';
     const fFrom     = document.getElementById('ex_from')?.value     || '';
     const fTo       = document.getElementById('ex_to')?.value       || '';
     this.closeModal();
+
+    // โหลดโซนจากระบบเพื่อคำนวณคอลัมน์โซนจากพิกัด (ถ้าโหลดไม่ได้ export ต่อได้ คอลัมน์โซนว่าง)
+    try { await ZoneService.load(); }
+    catch (e) { this.toast('⚠ โหลดโซนไม่ได้ (' + e.message + ') — export โดยไม่มีโซน', 'warning'); }
+    const zone = c => ZoneService.assign(c);
 
     const data = JSON.parse(DB.exportJSON());
     // กรอง interview ตาม filter
@@ -1727,6 +1732,7 @@ const App = {
       'พิกัด (lat,lon)':    st.coordinates,
       'Latitude':           coordsLat(st.coordinates),
       'Longitude':          coordsLon(st.coordinates),
+      'โซนจุดสำรวจ':        zone(st.coordinates),
       'ผู้สำรวจ (สร้าง)':  st.surveyorName,
       'วันที่สร้าง':         st.surveyDate,
       'จำนวนการสำรวจ':      st.interviews.length,
@@ -1764,12 +1770,14 @@ const App = {
           'พิกัดต้นทาง':          iv.originCoords || '',
           'Lat ต้นทาง':           coordsLat(iv.originCoords),
           'Lon ต้นทาง':           coordsLon(iv.originCoords),
+          'โซนต้นทาง':            zone(iv.originCoords),
           // ปลายทาง
           'ประเภทสถานที่ปลายทาง': iv.destinationType === 'อื่น ๆ' && iv.destinationTypeOther ? 'อื่น ๆ: ' + iv.destinationTypeOther : (iv.destinationType || ''),
           'ชื่อสถานที่ปลายทาง':   iv.destinationName || '',
           'พิกัดปลายทาง':         iv.destinationCoords || '',
           'Lat ปลายทาง':          coordsLat(iv.destinationCoords),
           'Lon ปลายทาง':          coordsLon(iv.destinationCoords),
+          'โซนปลายทาง':           zone(iv.destinationCoords),
           // วัตถุประสงค์
           'วัตถุประสงค์':         iv.purpose || '',
           // สินค้า

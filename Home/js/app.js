@@ -1791,12 +1791,17 @@ const App = {
   },
 
   // ===================== EXPORT / CLEAR =====================
-  exportData() {
+  async exportData() {
     if (this._role !== 'admin') { this.toast('เฉพาะผู้ดูแลระบบเท่านั้น', 'error'); return; }
     if (typeof XLSX === 'undefined') {
       this.toast('โหลด SheetJS ไม่สำเร็จ — ตรวจสอบอินเทอร์เน็ต', 'error');
       return;
     }
+    // โหลดโซนจากระบบเพื่อคำนวณคอลัมน์โซนจากพิกัด (ถ้าโหลดไม่ได้ export ต่อได้ คอลัมน์โซนว่าง)
+    try { await ZoneService.load(); }
+    catch (e) { this.toast('⚠ โหลดโซนไม่ได้ (' + e.message + ') — export โดยไม่มีโซน', 'warning'); }
+    const zone = c => ZoneService.assign(c);
+
     const data = JSON.parse(DB.exportJSON());
     const wb   = XLSX.utils.book_new();
 
@@ -1823,6 +1828,7 @@ const App = {
         'ถนน':                       hh.road,
         'โทรศัพท์':                  hh.phone,
         'พิกัด':                     hh.coordinates,
+        'โซนบ้าน':                   zone(hh.coordinates),
         'ตำบล':                      hh.subdistrict,
         'อำเภอ':                     hh.district,
         'จังหวัด':                   hh.province,
@@ -1858,6 +1864,7 @@ const App = {
         'การศึกษา':           m.education,
         'ชื่อสถานที่ทำงาน':   m.workplaceName,
         'พิกัดที่ทำงาน':      m.workplaceCoords || '',
+        'โซนที่ทำงาน':        zone(m.workplaceCoords),
         'รายได้':             m.income,
       }))
     );
@@ -1876,10 +1883,12 @@ const App = {
             'ลำดับการเดินทาง':    t.seq,
             'ต้นทาง':            t.origin,
             'พิกัดต้นทาง':       t.originCoords,
+            'โซนต้นทาง':         zone(t.originCoords),
             'ประเภทต้นทาง':      t.originType,
             'เวลาออกเดินทาง':     t.departureTime,
             'ปลายทาง':           t.destination,
             'พิกัดปลายทาง':      t.destinationCoords,
+            'โซนปลายทาง':        zone(t.destinationCoords),
             'ประเภทปลายทาง':     t.destinationType,
             'เวลาถึงปลายทาง':    t.arrivalTime,
             'วัตถุประสงค์':       t.purpose,

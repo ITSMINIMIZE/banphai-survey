@@ -1,10 +1,11 @@
 // Service Worker — Home Interview
-const CACHE_VERSION = 'hi-v39-normname2';
+const CACHE_VERSION = 'hi-v40-exportzone';
 const CORE_ASSETS = [
   './',
   './index.html',
   './css/style.css',
   './js/data.js',
+  './js/zone-service.js',
   './js/app.js',
   './js/firebase.js',
   './js/place-service.js',
