@@ -50,8 +50,32 @@ function ptInFeature(lat, lon, f) {
   return false;
 }
 
+// โซนจากระบบ (Firestore, อัปโหลดผ่าน tools/import-zones.html) — ถ้ามีให้ใช้ก่อนไฟล์ zones.js ที่ฝังมา
+let ZONES_CLOUD = null;
 function zFeatures() {
+  if (ZONES_CLOUD && ZONES_CLOUD.features) return ZONES_CLOUD.features;
   return (typeof ZONES_GEOJSON !== 'undefined' && ZONES_GEOJSON.features) ? ZONES_GEOJSON.features : [];
+}
+
+// โหลดโซนจาก Firestore: config/zones = meta {chunks}, config/zones_c0..n = ชิ้น JSON
+async function loadCloudZones() {
+  try {
+    const meta = await db.collection('config').doc('zones').get();
+    if (!meta.exists || !(meta.data().chunks > 0)) return false;
+    const n = meta.data().chunks;
+    const docs = await Promise.all(
+      Array.from({ length: n }, (_, i) => db.collection('config').doc('zones_c' + i).get())
+    );
+    if (docs.some(d => !d.exists)) return false; // ชุดไม่ครบ (อัปโหลดค้าง) — ใช้ไฟล์ฝังแทน
+    const parsed = JSON.parse(docs.map(d => d.data().data).join(''));
+    if (!parsed.features || !parsed.features.length) return false;
+    ZONES_CLOUD = parsed;
+    didFitZones = false;            // ให้แผนที่ fit รอบโซนชุดใหม่
+    return true;
+  } catch (e) {
+    console.warn('[zones] โหลดโซนจากระบบไม่ได้ — ใช้ไฟล์ฝัง:', e.message);
+    return false;
+  }
 }
 
 function zName(f) {
@@ -1089,6 +1113,7 @@ const App = {
   async loadData() {
     this._showLoading('กำลังโหลดข้อมูล Home...');
     try {
+      await loadCloudZones();   // โซนจากระบบ (ถ้าเคยอัปโหลดผ่าน import-zones)
       households = await pullHouseholds();
       this._setStatus('โหลด Home แล้ว · กำลังโหลด Roadside...');
       stations   = await pullRoadside();
