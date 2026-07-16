@@ -1,7 +1,7 @@
 // Service Worker — Roadside Interview
 // กลยุทธ์: network-first สำหรับทุกอย่าง, fall back cache เมื่อ offline
 // ทุก deploy ใหม่ขึ้น CACHE_VERSION → cache เก่าโดนล้างอัตโนมัติ
-const CACHE_VERSION = 'ri-v36-normname';
+const CACHE_VERSION = 'ri-v37-normname2';
 const CORE_ASSETS = [
   './',
   './index.html',

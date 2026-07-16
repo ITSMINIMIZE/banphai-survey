@@ -215,9 +215,16 @@ function esc(s) {
   return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// รวมชื่อผู้สำรวจ/ผู้ควบคุมที่ควรเป็นคนเดียวกัน — ตัดช่องว่างหน้า-หลัง, ยุบช่องว่างซ้อน
+// รวมชื่อผู้สำรวจ/ผู้ควบคุมที่ควรเป็นคนเดียวกัน
+// - normalize NFC (สระ/วรรณยุกต์ไทยเรียงลำดับให้เท่ากัน)
+// - ตัดอักขระล่องหน (zero-width / directional marks) ที่แทรกจากการ copy หรือคีย์บอร์ด
+// - ตัดช่องว่างหน้า-หลัง + ยุบช่องว่างซ้อน
 function normName(s) {
-  return String(s ?? '').trim().replace(/\s+/g, ' ');
+  return String(s ?? '')
+    .normalize('NFC')
+    .replace(/[​-‏‪-‮⁠﻿]/g, '')
+    .trim()
+    .replace(/\s+/g, ' ');
 }
 // key สำหรับจัดกลุ่ม (case-insensitive) — ให้ "สมชาย" กับ "สมชาย " กับ "ส มชาย" (พิมพ์ต่างเคส) รวมเป็นแถวเดียว
 function nameKey(s) {

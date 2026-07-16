@@ -103,8 +103,14 @@ const App = {
     setTimeout(() => document.getElementById('sv_fname')?.focus(), 50);
   },
 
-  // รวมชื่อให้เป็นรูปแบบเดียว — ตัดช่องว่างหน้า-หลัง + ยุบช่องว่างซ้อนกลางชื่อ
-  _normName(s) { return String(s ?? '').trim().replace(/\s+/g, ' '); },
+  // รวมชื่อให้เป็นรูปแบบเดียว — NFC + ตัดอักขระล่องหน (zero-width) + ยุบช่องว่างซ้อน
+  _normName(s) {
+    return String(s ?? '')
+      .normalize('NFC')
+      .replace(/[​-‏‪-‮⁠﻿]/g, '')
+      .trim()
+      .replace(/\s+/g, ' ');
+  },
 
   doSurveyorLogin() {
     const fname = document.getElementById('sv_fname')?.value.trim();
