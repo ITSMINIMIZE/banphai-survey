@@ -1085,6 +1085,12 @@ const App = {
         if (e.key === 'Enter') this.login();
       });
     });
+
+    // Esc = ออกจากแผนที่เต็มจอ
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && document.getElementById('mapCard')?.classList.contains('map-fs'))
+        this.toggleMapFullscreen();
+    });
   },
 
   async login() {
@@ -1221,6 +1227,18 @@ const App = {
         ${esc(n)}
       </div>`).join('');
     res.style.display = 'block';
+  },
+
+  // ขยาย/ย่อแผนที่เต็มจอ — Esc ก็ย่อได้
+  toggleMapFullscreen() {
+    const card = document.getElementById('mapCard');
+    if (!card) return;
+    const on = card.classList.toggle('map-fs');
+    const btn = document.getElementById('mapFsBtn');
+    if (btn) { btn.textContent = on ? '✕ ย่อ' : '⛶ เต็มจอ'; btn.classList.toggle('active', on); }
+    document.body.style.overflow = on ? 'hidden' : '';
+    // ให้ Leaflet คำนวณขนาดใหม่หลัง layout เปลี่ยน
+    setTimeout(() => { if (leafletMap) leafletMap.invalidateSize(); }, 80);
   },
 
   setMapMode(mode) {

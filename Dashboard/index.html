@@ -170,6 +170,17 @@
 
     /* Map */
     #leafletMap { height: 480px; border-radius: 8px; }
+
+    /* Map fullscreen (toggle ด้วยปุ่ม ⛶ / Esc) */
+    #mapCard.map-fs {
+      position: fixed; inset: 0; z-index: 2000;
+      margin: 0; border-radius: 0; border: none;
+      display: flex; flex-direction: column;
+    }
+    #mapCard.map-fs .map-panel-header { flex-shrink: 0; }
+    #mapCard.map-fs #mapBody { flex: 1; min-height: 0; }
+    #mapCard.map-fs #mapCol  { display: flex; flex-direction: column; min-height: 0; }
+    #mapCard.map-fs #leafletMap { flex: 1; height: auto; min-height: 0; }
     .zone-poly { cursor: pointer; }
     .zone-tooltip { font-family: 'Sarabun', sans-serif; font-size: 12px; }
     .map-controls {
@@ -380,7 +391,7 @@
 
   <!-- ── Tab: Map ── -->
   <div class="tab-panel" id="panel-map">
-    <div class="card" style="padding:0;overflow:hidden">
+    <div class="card" id="mapCard" style="padding:0;overflow:hidden">
       <div class="map-panel-header">
         <span style="font-size:14px;font-weight:700">แผนที่การเดินทาง</span>
         <div style="display:flex;gap:12px;flex-wrap:wrap">
@@ -395,11 +406,12 @@
             <button class="toggle-btn" id="mapSrcRoadside" onclick="App.setMapSource('roadside')">🚗 Roadside</button>
             <button class="toggle-btn" id="mapSrcAll" onclick="App.setMapSource('all')">📊 ทั้งหมด</button>
           </div>
+          <button class="toggle-btn" id="mapFsBtn" onclick="App.toggleMapFullscreen()" title="ขยายเต็มจอ / ย่อ (Esc)">⛶ เต็มจอ</button>
         </div>
       </div>
-      <div style="display:flex;gap:0">
+      <div id="mapBody" style="display:flex;gap:0">
         <!-- Map -->
-        <div style="flex:1;min-width:0;padding:16px">
+        <div id="mapCol" style="flex:1;min-width:0;padding:16px">
           <div id="leafletMap"></div>
           <p style="font-size:11px;color:var(--muted);margin-top:8px">💡 คลิกที่โซนบนแผนที่เพื่อดูการเดินทางเข้า-ออก</p>
         </div>
