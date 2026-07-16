@@ -1821,7 +1821,6 @@ const App = {
         'วันที่บันทึก':              hh.surveyDate,
         'ผู้สำรวจ':                  hh.surveyorName,
         'ผู้ควบคุม':                 hh.supervisorName,
-        'รหัสพื้นที่':               hh.areaCode,
         'บ้านเลขที่':                hh.houseNo,
         'หมู่':                      hh.moo,
         'ซอย':                       hh.alley,
@@ -1853,7 +1852,6 @@ const App = {
     const memberRows = data.households.flatMap(hh =>
       hh.members.map(m => ({
         'ID_ครัวเรือน':        hh.id,
-        'รหัสพื้นที่':         hh.areaCode,
         'ID_สมาชิก':          m.id,
         'ลำดับ':              m.seq,
         'เพศ':                m.gender,
@@ -1876,7 +1874,6 @@ const App = {
           const segs = t.segments || [];
           return {
             'ID_ครัวเรือน':       hh.id,
-            'รหัสพื้นที่':        hh.areaCode,
             'ID_สมาชิก':         m.id,
             'ลำดับสมาชิก':       m.seq,
             'ID_การเดินทาง':      t.id,

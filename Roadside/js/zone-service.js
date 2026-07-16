@@ -41,14 +41,19 @@ const ZoneService = {
     return false;
   },
 
-  // "16.05, 102.73" → "โซน 12" | "(นอกพื้นที่)" | "(ไม่มีพิกัด)"
+  // "16.05, 102.73" → เลขโซน (number เช่น 108) | "(นอกพื้นที่)" | "(ไม่มีพิกัด)"
   // ถ้ายังไม่ได้ load() สำเร็จ → คืน '' (คอลัมน์ว่าง)
   assign(coordStr) {
     if (!this._features) return '';
     const p = String(coordStr || '').split(',').map(s => parseFloat(s.trim()));
     if (p.length !== 2 || isNaN(p[0]) || isNaN(p[1])) return '(ไม่มีพิกัด)';
-    for (const f of this._features)
-      if (this._inFeature(p[0], p[1], f)) return (f.properties && f.properties.name) || 'ไม่ระบุ';
+    for (const f of this._features) {
+      if (this._inFeature(p[0], p[1], f)) {
+        const pr = f.properties || {};
+        const n = +pr.N;
+        return isNaN(n) ? (pr.name || 'ไม่ระบุ') : n;   // เลขล้วน — Excel มองเป็น number
+      }
+    }
     return '(นอกพื้นที่)';
   }
 };
