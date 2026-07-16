@@ -215,6 +215,15 @@ function esc(s) {
   return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// รวมชื่อผู้สำรวจ/ผู้ควบคุมที่ควรเป็นคนเดียวกัน — ตัดช่องว่างหน้า-หลัง, ยุบช่องว่างซ้อน
+function normName(s) {
+  return String(s ?? '').trim().replace(/\s+/g, ' ');
+}
+// key สำหรับจัดกลุ่ม (case-insensitive) — ให้ "สมชาย" กับ "สมชาย " กับ "ส มชาย" (พิมพ์ต่างเคส) รวมเป็นแถวเดียว
+function nameKey(s) {
+  return normName(s).toLowerCase();
+}
+
 function countBy(arr, fn) {
   const m = {};
   arr.forEach(x => { const k = fn(x) || '(ไม่ระบุ)'; m[k] = (m[k] || 0) + 1; });
@@ -285,10 +294,11 @@ function renderProgress() {
   // ═══ HOME: จัดกลุ่มตามผู้ควบคุม (= ทีม) ═══
   const teams = {};
   households.forEach(hh => {
-    const sup = hh.supervisorName || '(ไม่ระบุผู้ควบคุม)';
+    const sup = normName(hh.supervisorName) || '(ไม่ระบุผู้ควบคุม)';
     const t = teams[sup] || (teams[sup] = { hhs: 0, members: 0, trips: 0, people: new Set() });
     t.hhs++;
-    if (hh.surveyorName) t.people.add(hh.surveyorName);
+    const pk = nameKey(hh.surveyorName);
+    if (pk) t.people.add(pk);
     (hh.members || []).forEach(m => { t.members++; t.trips += (m.trips || []).length; });
   });
   const teamRows = Object.entries(teams).sort((a, b) => b[1].hhs - a[1].hhs);
@@ -312,7 +322,7 @@ function renderProgress() {
   set('badgeRoadsideStation', stations.length + ' จุด');
   const stRows = stations.map(st => {
     const ivs = st.interviews || [];
-    const people = new Set(ivs.map(iv => iv.surveyorName).filter(Boolean));
+    const people = new Set(ivs.map(iv => nameKey(iv.surveyorName)).filter(Boolean));
     const pax = ivs.reduce((s, iv) => s + (+iv.passengerCount || 0), 0);
     const target = ROAD_QUOTA_PER_PERSON * Math.max(people.size, 1);
     const pct = Math.round(ivs.length / target * 100);
@@ -348,10 +358,11 @@ function renderProgress() {
   // ═══ สรุปรายผู้สำรวจ — Home (ตาม surveyorName ของครัวเรือน) ═══
   const homeSurv = {};
   households.forEach(hh => {
-    if (!hh.surveyorName) return;
-    const s = homeSurv[hh.surveyorName] || (homeSurv[hh.surveyorName] = { name: hh.surveyorName, sup: '', hhs: 0, members: 0, trips: 0 });
+    const key = nameKey(hh.surveyorName);
+    if (!key) return;
+    const s = homeSurv[key] || (homeSurv[key] = { name: normName(hh.surveyorName), sup: '', hhs: 0, members: 0, trips: 0 });
     s.hhs++;
-    if (!s.sup && hh.supervisorName) s.sup = hh.supervisorName;
+    if (!s.sup && hh.supervisorName) s.sup = normName(hh.supervisorName);
     (hh.members || []).forEach(m => { s.members++; s.trips += (m.trips || []).length; });
   });
   const homeSurvRows = Object.values(homeSurv).sort((a, b) => b.hhs - a.hhs);
@@ -373,11 +384,12 @@ function renderProgress() {
   // ═══ สรุปรายผู้สำรวจ — Road (ตาม surveyorName ของ interview) ═══
   const roadSurv = {};
   stations.forEach(st => (st.interviews || []).forEach(iv => {
-    if (!iv.surveyorName) return;
-    const s = roadSurv[iv.surveyorName] || (roadSurv[iv.surveyorName] = { name: iv.surveyorName, sup: '', ivs: 0, pax: 0 });
+    const key = nameKey(iv.surveyorName);
+    if (!key) return;
+    const s = roadSurv[key] || (roadSurv[key] = { name: normName(iv.surveyorName), sup: '', ivs: 0, pax: 0 });
     s.ivs++;
     s.pax += (+iv.passengerCount || 0);
-    if (!s.sup && st.supervisorName) s.sup = st.supervisorName;
+    if (!s.sup && st.supervisorName) s.sup = normName(st.supervisorName);
   }));
   const roadSurvRows = Object.values(roadSurv).sort((a, b) => b.ivs - a.ivs);
   set('badgeRoadSurv', roadSurvRows.length + ' คน');
