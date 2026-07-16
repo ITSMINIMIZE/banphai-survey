@@ -138,38 +138,96 @@ dropEl.onclick = () => fileEl.click();
 dropEl.addEventListener('drop', ev => { const f = ev.dataTransfer.files[0]; if (f) handleFile(f); });
 fileEl.addEventListener('change', () => { if (fileEl.files[0]) handleFile(fileEl.files[0]); });
 
+// ---- unzip เอง (แทน unzip ใน shpjs) เพื่อคุม encoding ของ .dbf ได้ ----
+async function unzip(buf) {
+  const u8 = new Uint8Array(buf), dv = new DataView(buf);
+  let e = buf.byteLength - 22;                       // หา End of Central Directory
+  while (e >= 0 && dv.getUint32(e, true) !== 0x06054b50) e--;
+  if (e < 0) throw new Error('ไม่ใช่ไฟล์ zip');
+  const cnt = dv.getUint16(e + 10, true);
+  let p = dv.getUint32(e + 16, true);
+  const out = {};
+  for (let i = 0; i < cnt; i++) {
+    if (dv.getUint32(p, true) !== 0x02014b50) break;
+    const method  = dv.getUint16(p + 10, true);
+    const csize   = dv.getUint32(p + 20, true);
+    const nameLen = dv.getUint16(p + 28, true), extraLen = dv.getUint16(p + 30, true), cmtLen = dv.getUint16(p + 32, true);
+    const lho     = dv.getUint32(p + 42, true);
+    const name    = new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nameLen));
+    p += 46 + nameLen + extraLen + cmtLen;
+    if (name.endsWith('/')) continue;
+    const dataOff = lho + 30 + dv.getUint16(lho + 26, true) + dv.getUint16(lho + 28, true);
+    const raw = u8.slice(dataOff, dataOff + csize);
+    let data = raw;
+    if (method === 8) data = new Uint8Array(await new Response(
+      new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+    else if (method !== 0) throw new Error('zip compression ไม่รองรับ (method ' + method + ')');
+    out[name.toLowerCase().split('/').pop()] = data;
+  }
+  return out;
+}
+
+const toAB = u8 => u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
+
+// เลือก encoding ของ .dbf: อ่าน .cpg ก่อน, ไม่มีก็ลอง utf-8 → ถ้าเพี้ยน (มี U+FFFD) สลับเป็น TIS-620/CP874
+function decodeDbf(dbfU8, cpgU8) {
+  const parse = enc => shp.parseDbf(toAB(dbfU8), enc);
+  const broken = rows => JSON.stringify(rows).includes('�');
+  if (cpgU8) {
+    const label = new TextDecoder().decode(cpgU8).trim().toLowerCase();
+    const enc = /874|620|8859-?11/.test(label) ? 'windows-874'
+              : /utf-?8/.test(label)           ? 'utf-8' : label;
+    try { const rows = parse(enc); if (!broken(rows)) return { rows, encoding: enc }; } catch (e) { /* label ใช้ไม่ได้ — auto ต่อ */ }
+  }
+  const utf = parse('utf-8');
+  if (!broken(utf)) return { rows: utf, encoding: 'utf-8' };
+  const th = parse('windows-874');
+  return broken(th) ? { rows: utf, encoding: 'utf-8 (มีอักขระเพี้ยน)' } : { rows: th, encoding: 'TIS-620/CP874' };
+}
+
 async function handleFile(file) {
   const status = document.getElementById('status');
   _generated = null;
   document.getElementById('dlBtn').disabled = true;
   status.innerHTML = `กำลังอ่าน <b>${file.name}</b> ...`;
   try {
-    let features;
+    let features, meta = {};
     if (/\.zip$/i.test(file.name)) {
-      const buf = await file.arrayBuffer();
-      let gj = await shp(buf);              // อ่าน + reproject เป็น WGS84 (จาก .prj)
-      if (Array.isArray(gj)) gj = { features: gj.flatMap(g => g.features) };
-      features = gj.features || [];
+      const files = await unzip(await file.arrayBuffer());
+      const find = ext => { const k = Object.keys(files).find(n => n.endsWith(ext)); return k ? files[k] : null; };
+      const shpU8 = find('.shp'), dbfU8 = find('.dbf'), prjU8 = find('.prj'), cpgU8 = find('.cpg');
+      if (!shpU8) throw new Error('ใน zip ไม่มีไฟล์ .shp');
+      if (!dbfU8) throw new Error('ใน zip ไม่มีไฟล์ .dbf (ตาราง attribute)');
+      meta.prjMissing = !prjU8;
+      const prjText = prjU8 ? new TextDecoder().decode(prjU8) : null;
+      const geoms = shp.parseShp(toAB(shpU8), prjText);   // reproject เป็น WGS84 จาก .prj
+      const dec = decodeDbf(dbfU8, cpgU8);
+      meta.encoding = dec.encoding;
+      features = shp.combine([geoms, dec.rows]).features || [];
     } else {
       const gj = JSON.parse(await file.text());
       features = gj.features || (gj.type === 'Feature' ? [gj] : []);
     }
     if (!features.length) { status.innerHTML = '<span class="err">ไม่พบ feature ในไฟล์</span>'; return; }
     status.innerHTML = `อ่านสำเร็จ — พบ <b>${features.length}</b> feature`;
-    runReport(features);
+    runReport(features, meta);
   } catch (e) {
     status.innerHTML = `<span class="err">อ่านไฟล์ไม่ได้: ${e.message}</span>`;
   }
 }
 
-function runReport(features) {
+function runReport(features, meta = {}) {
   const { problems, dupN, foundKeys } = validateFeatures(features);
   const bb = bboxOf(features);
+  // เป็นองศาจริงไหม — ถ้าเกิน ±180/±90 คือยังเป็น UTM เมตร (reproject ไม่สำเร็จ)
+  const isDegrees = Math.abs(bb.minLon) <= 180 && Math.abs(bb.maxLon) <= 180 &&
+                    Math.abs(bb.minLat) <= 90  && Math.abs(bb.maxLat) <= 90;
   const inTH = bb.minLon > 96 && bb.maxLon < 106 && bb.minLat > 5 && bb.maxLat < 21;
   const rows = [];
 
   rows.push(row('จำนวนโซน (feature)', features.length, 'ok'));
   rows.push(row('Field ที่พบในไฟล์', foundKeys.map(k => `<code>${k}</code>`).join(' ') || '—', 'muted'));
+  if (meta.encoding) rows.push(row('การอ่านภาษาไทย (.dbf)', meta.encoding, meta.encoding.includes('เพี้ยน') ? 'warn' : 'ok'));
 
   if (problems.length === 0) {
     rows.push(row('✅ Field บังคับครบทุก feature', REQUIRED.join(', '), 'ok'));
@@ -177,7 +235,13 @@ function runReport(features) {
     rows.push(row(`❌ Field ไม่ครบ ${problems.length} feature`, 'ดูรายการด้านล่าง', 'err'));
   }
   rows.push(row(dupN.length ? '⚠️ N ซ้ำ' : '✅ N ไม่ซ้ำ', dupN.length ? dupN.join(', ') : 'ทุกค่าไม่ซ้ำ', dupN.length ? 'warn' : 'ok'));
-  rows.push(row(inTH ? '✅ พิกัดอยู่ในไทย' : '⚠️ พิกัดนอกช่วงไทย?', `lon ${bb.minLon.toFixed(3)}–${bb.maxLon.toFixed(3)} · lat ${bb.minLat.toFixed(3)}–${bb.maxLat.toFixed(3)}`, inTH ? 'ok' : 'warn'));
+
+  if (!isDegrees) {
+    rows.push(row('❌ พิกัดยังเป็นเมตร (UTM) — reproject ไม่สำเร็จ',
+      meta.prjMissing ? 'ใน zip ไม่มีไฟล์ <b>.prj</b> — ใส่ .prj แล้ว zip ใหม่' : 'ไฟล์ .prj อ่านไม่ได้/ไม่รองรับ', 'err'));
+  } else {
+    rows.push(row(inTH ? '✅ พิกัดอยู่ในไทย' : '⚠️ พิกัดนอกช่วงไทย?', `lon ${bb.minLon.toFixed(3)}–${bb.maxLon.toFixed(3)} · lat ${bb.minLat.toFixed(3)}–${bb.maxLat.toFixed(3)}`, inTH ? 'ok' : 'warn'));
+  }
 
   let detail = '';
   if (problems.length) {
@@ -192,13 +256,15 @@ function runReport(features) {
 
   const dlBtn = document.getElementById('dlBtn');
   const note = document.getElementById('dlNote');
-  if (problems.length === 0) {
+  if (problems.length === 0 && isDegrees) {
     _generated = buildZonesJs(features);
     dlBtn.disabled = false;
     note.innerHTML = `ขนาดไฟล์ ~${(new Blob([_generated]).size / 1024).toFixed(0)} KB`;
   } else {
     dlBtn.disabled = true;
-    note.innerHTML = '<span class="err">แก้ field ที่ขาดในไฟล์ก่อน แล้วอัปโหลดใหม่</span>';
+    note.innerHTML = !isDegrees
+      ? '<span class="err">พิกัดยังไม่ใช่ lat/long — ตรวจไฟล์ .prj ใน zip แล้วอัปโหลดใหม่</span>'
+      : '<span class="err">แก้ field ที่ขาดในไฟล์ก่อน แล้วอัปโหลดใหม่</span>';
   }
 }
 
