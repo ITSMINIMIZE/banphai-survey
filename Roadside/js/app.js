@@ -103,12 +103,15 @@ const App = {
     setTimeout(() => document.getElementById('sv_fname')?.focus(), 50);
   },
 
+  // รวมชื่อให้เป็นรูปแบบเดียว — ตัดช่องว่างหน้า-หลัง + ยุบช่องว่างซ้อนกลางชื่อ
+  _normName(s) { return String(s ?? '').trim().replace(/\s+/g, ' '); },
+
   doSurveyorLogin() {
     const fname = document.getElementById('sv_fname')?.value.trim();
     const lname = document.getElementById('sv_lname')?.value.trim();
     if (!fname) { this.toast('กรุณากรอกชื่อ', 'error'); return; }
     if (!lname) { this.toast('กรุณากรอกนามสกุล', 'error'); return; }
-    this._surveyorName = `${fname} ${lname}`;
+    this._surveyorName = this._normName(`${fname} ${lname}`);
     this._role = 'surveyor';
     this.closeModal();
     this._enterApp(true);
@@ -731,7 +734,7 @@ const App = {
       surveyDate:     (existing && existing.surveyDate) || this._today(),
       stationName:    document.getElementById('s_stName')?.value.trim()      || '',
       stationCode:    document.getElementById('s_stName')?.value.trim()      || '',
-      supervisorName: document.getElementById('s_supervisor')?.value.trim()  || '',
+      supervisorName: this._normName(document.getElementById('s_supervisor')?.value)  || '',
       road:           document.getElementById('s_road')?.value.trim()        || '',
       direction:      document.getElementById('s_direction')?.value          || '',
       coordinates:    document.getElementById('s_coords')?.value.trim()      || '',
