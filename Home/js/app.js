@@ -210,6 +210,17 @@ const App = {
             </span>`;
   },
 
+  // เรียก push อัตโนมัติแบบปลอดภัย — ไม่ล้มการบันทึก local ถ้า FB ยังไม่พร้อม
+  _autoPush(fn) {
+    try { if (typeof FB !== 'undefined' && FB.db) fn(); }
+    catch (e) { console.warn('[autosync]', e); }
+  },
+  // อัปเดต badge sync ล่าสุดในที่ (เรียกจาก FB._pushDoc เมื่อ server ack) — ไม่ re-render ทั้งหน้า
+  _refreshSyncBadge() {
+    const el = document.querySelector('.sync-badge');
+    if (el) el.outerHTML = this._syncBadge();
+  },
+
   // ---- ออกจากระบบ ----
   logout() {
     if (!confirm('ออกจากระบบ?')) return;
@@ -726,7 +737,7 @@ const App = {
     if (!workStatus) { this.toast('กรุณาเลือกสถานะการทำงาน', 'error'); return; }
     if (!notSpec && !incomeRaw) { this.toast('กรุณากรอกรายได้ หรือเลือก "ไม่ระบุ"', 'error'); return; }
 
-    DB.updateMember(this.hhId, this.memberId, {
+    const savedMember = DB.updateMember(this.hhId, this.memberId, {
       gender,
       age:                  +(document.getElementById('f_age')?.value) || '',
       homeStatus:           document.getElementById('f_homeStatus')?.value || '',
@@ -737,6 +748,7 @@ const App = {
       workplaceName:        document.getElementById('f_wpName')?.value.trim()   || '',
       workplaceCoords:      document.getElementById('f_wpCoords')?.value.trim()  || ''
     });
+    this._autoPush(() => FB.pushMember(this.hhId, savedMember));
 
     // --- auto-update household income if sum > current ---
     const updatedHH  = DB.getHousehold(this.hhId);
@@ -745,7 +757,8 @@ const App = {
       return (!m.income || m.income === 'ไม่ระบุ' || isNaN(n)) ? s : s + n;
     }, 0);
     if (memberSum > 0 && memberSum > (+(updatedHH?.householdIncome) || 0)) {
-      DB.updateHousehold(this.hhId, { householdIncome: memberSum });
+      const savedHH = DB.updateHousehold(this.hhId, { householdIncome: memberSum });
+      this._autoPush(() => FB.pushHousehold(savedHH));  // บันทึกนี้แตะ 2 doc (member + household)
       this.toast(`บันทึกแล้ว — อัพเดทรายได้ครัวเรือนเป็น ${memberSum.toLocaleString()} บาท`, 'success');
     } else {
       this.toast('บันทึกข้อมูลบุคคลแล้ว', 'success');
@@ -1091,6 +1104,7 @@ const App = {
       deviceId:   (typeof FB !== 'undefined' ? FB.deviceId() : null) || localStorage.getItem('_device_id') || '',
       clientIp:   this._clientIp || ''
     });
+    this._autoPush(() => FB.pushHousehold(hh));
     this.closeModal();
     this.toast('บันทึกครัวเรือนแล้ว — กรอกสมาชิกอย่างน้อย 1 คน (ถ้าไม่มีคนเดินทางจะขึ้นสีแดง)', 'success');
     this.navigate('household', hh.id);
@@ -1110,7 +1124,8 @@ const App = {
     const errs = this._validateHhForm(data);
     if (errs.length) { this.toast('กรุณากรอก: ' + errs.join(', '), 'error'); return; }
     this._saveSurveyorNames(data.surveyorName, data.supervisorName);
-    DB.updateHousehold(id, data);
+    const hh = DB.updateHousehold(id, data);
+    this._autoPush(() => FB.pushHousehold(hh));
     this.closeModal();
     this.toast('บันทึกข้อมูลบ้านแล้ว', 'success');
     this.render();
@@ -1152,6 +1167,7 @@ const App = {
   addMember() {
     const m = DB.addMember(this.hhId, {});
     if (!m) return;
+    this._autoPush(() => FB.pushMember(this.hhId, m));
     this.memberTab = 'info';
     this.navigate('member', this.hhId, m.id);
   },
@@ -1681,13 +1697,15 @@ const App = {
       parkingFee:        document.getElementById('t_parkFee')?.value              || ''
     };
 
+    let savedTrip;
     if (this.editingTripId) {
-      DB.updateTrip(this.hhId, this.memberId, this.editingTripId, data);
+      savedTrip = DB.updateTrip(this.hhId, this.memberId, this.editingTripId, data);
       this.toast('แก้ไขการเดินทางแล้ว', 'success');
     } else {
-      DB.addTrip(this.hhId, this.memberId, data);
+      savedTrip = DB.addTrip(this.hhId, this.memberId, data);
       this.toast('เพิ่มการเดินทางแล้ว', 'success');
     }
+    this._autoPush(() => FB.pushTrip(this.hhId, this.memberId, savedTrip));
     this.editingTripId = null;
     this.closeModal();
     this.memberTab = 'trips';

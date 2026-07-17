@@ -286,6 +286,17 @@ const App = {
             </span>`;
   },
 
+  // เรียก push อัตโนมัติแบบปลอดภัย — ไม่ล้มการบันทึก local ถ้า FB ยังไม่พร้อม
+  _autoPush(fn) {
+    try { if (typeof FB !== 'undefined' && FB.db) fn(); }
+    catch (e) { console.warn('[autosync]', e); }
+  },
+  // อัปเดต badge sync ล่าสุดในที่ (เรียกจาก FB._pushDoc เมื่อ server ack) — ไม่ re-render ทั้งหน้า
+  _refreshSyncBadge() {
+    const el = document.querySelector('.sync-badge');
+    if (el) el.outerHTML = this._syncBadge();
+  },
+
   // interview นี้พิมพ์ชื่อสถานที่เองโดยไม่มีพิกัด (ไม่ได้เลือกหมุด/ค้นหาจนพบ) หรือไม่
   _ivPlaceManual(iv) {
     if (!iv) return false;
@@ -781,6 +792,7 @@ const App = {
       deviceId: (typeof FB !== 'undefined' ? FB.deviceId() : null) || localStorage.getItem('_device_id') || '',
       clientIp: this._clientIp || ''
     });
+    if (this._role === 'admin') this._autoPush(() => FB.pushStation(st));  // rules: surveyor เขียน station ไม่ได้
     this.closeModal();
     this.toast('เพิ่มจุดสำรวจแล้ว', 'success');
     this.navigate('station', st.id);
@@ -801,7 +813,8 @@ const App = {
     const errs = this._validateStationForm(data);
     if (errs.length) { this.toast('กรอกข้อมูลให้ครบ: ' + errs.join(', '), 'error'); return; }
     this._saveSurveyorNames(null, data.supervisorName);
-    DB.updateStation(id, data);
+    const st = DB.updateStation(id, data);
+    if (this._role === 'admin') this._autoPush(() => FB.pushStation(st));  // rules: surveyor เขียน station ไม่ได้
     this.closeModal();
     this.toast('บันทึกข้อมูลจุดสำรวจแล้ว', 'success');
     this.render();
@@ -1036,7 +1049,8 @@ const App = {
     if (data.hasCargo === 'มีสินค้า' && data.cargoType === 'อื่น ๆ (ระบุ)' && !data.cargoTypeOther) errs.push('ระบุชนิดสินค้า (อื่น ๆ)');
     if (errs.length) { this.toast('กรอกข้อมูลให้ครบ: ' + errs.join(', '), 'error'); return; }
 
-    DB.updateInterview(this.stId, ivId, data);
+    const iv = DB.updateInterview(this.stId, ivId, data);
+    this._autoPush(() => FB.pushInterview(this.stId, iv));
     this.toast('แก้ไขการสำรวจแล้ว', 'success');
     this.closeModal();
     this.navigate('station', this.stId);
@@ -1414,7 +1428,7 @@ const App = {
     const incEl = document.getElementById('wiz_income');
     if (incEl) this.wizardData.driverIncome = incEl.value;
     const wd = this.wizardData;
-    DB.addInterview(this.stId, {
+    const iv = DB.addInterview(this.stId, {
       surveyorName:      this._role === 'admin' ? this._adminUsername : this._surveyorName,
       interviewTime:     new Date().toTimeString().slice(0,5),
       vehicleType:       wd.vehicleType,
@@ -1435,6 +1449,7 @@ const App = {
       cargoWeight:       wd.cargoWeight,
       driverIncome:      wd.driverIncome
     });
+    this._autoPush(() => FB.pushInterview(this.stId, iv));
     this._wizardDone = true;
     this.page = 'wizard'; this.render(); window.scrollTo(0,0);
   },

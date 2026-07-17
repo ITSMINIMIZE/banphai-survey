@@ -77,6 +77,25 @@ const FB = {
     return d;
   },
 
+  // ===== AUTO-PUSH (per-doc, บันทึกทีละรายการ) =====
+  // เขียน doc เดียวแบบ fire-and-forget — ไม่มี _withTimeout เพื่อให้ offline persistence
+  // คิวงานเองตอนเน็ตหลุด (promise ค้าง ส่งเมื่อออนไลน์) แล้ว badge อัปเดตเมื่อ server ack จริง
+  _stData(st) { const { interviews, ...d } = st; return d; },
+
+  _pushDoc(ref, data) {
+    if (!this.db) return;
+    const syncedAt = new Date().toISOString();
+    ref.set({ ...data, _device: this.deviceId(), _syncedAt: syncedAt }, { merge: true })
+      .then(() => {
+        localStorage.setItem('_ri_last_sync', syncedAt);
+        if (typeof App !== 'undefined' && App._refreshSyncBadge) App._refreshSyncBadge();
+      })
+      .catch(e => console.warn('[FB] auto-push:', e.code || e));  // console เท่านั้น — ไม่ toast
+  },
+
+  pushStation(st)         { if (st) this._pushDoc(this.db.collection(this.COLLECTION).doc(st.id), this._stData(st)); },
+  pushInterview(stId, iv) { if (iv) this._pushDoc(this.db.collection(this.COLLECTION).doc(stId).collection('interviews').doc(iv.id), iv); },
+
   // ===== SYNC =====
   // admin: sync ทุก station + interview ที่อยู่ใน local
   // surveyor: sync เฉพาะ interview ของตัวเอง (ไม่แตะ station)

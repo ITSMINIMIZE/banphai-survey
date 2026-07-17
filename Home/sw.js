@@ -1,5 +1,5 @@
 // Service Worker — Home Interview
-const CACHE_VERSION = 'hi-v41-zonenum';
+const CACHE_VERSION = 'hi-v42-autosync';
 const CORE_ASSETS = [
   './',
   './index.html',
