@@ -278,7 +278,54 @@ const App = {
         <a onclick="App.navigate('household','${this.hhId}')">${hh ? (hh.houseNo ? 'บ้านเลขที่ ' + this.esc(hh.houseNo) : hh.id) : ''}</a>
         <span>›</span> สมาชิกที่ ${m ? m.seq : ''}`;
       app.innerHTML = this.pageMember();
+    } else if (this.page === 'trash') {
+      bc.className = 'breadcrumb visible';
+      bc.innerHTML = `<a onclick="App.navigate('home')">หน้าหลัก</a> <span>›</span> ถังขยะ`;
+      app.innerHTML = this.pageTrash();
     }
+  },
+
+  // ===================== PAGE: ถังขยะ (admin) =====================
+  pageTrash() {
+    if (this._role !== 'admin') return `<div class="section"><p>เฉพาะผู้ดูแลระบบ</p></div>`;
+    const items = DB.getTrash();
+    return `
+      <div class="section">
+        <div class="sec-head">
+          <div>
+            <div class="sec-title">🗑 ถังขยะ</div>
+            <div class="sec-sub">${items.length} รายการที่ลบออกจากระบบ · กู้คืนได้ทุกเมื่อ</div>
+          </div>
+        </div>
+        ${items.length === 0
+          ? `<div class="empty"><div class="empty-icon">✨</div><p>ถังขยะว่าง</p></div>`
+          : items.map(it => `
+            <div class="hh-card" style="border-left:3px solid var(--danger)">
+              <div class="hh-card-main">
+                <div class="hh-detail-id">${this.esc(it.label)}</div>
+                <div class="hh-card-sub">${this.esc(it.sub)}</div>
+                <div class="hh-card-sub" style="font-size:12px;color:var(--gray-500)">
+                  ลบเมื่อ ${it.at ? new Date(it.at).toLocaleString('th-TH') : '—'}${it.by ? ' · โดย ' + this.esc(it.by) : ''}
+                </div>
+              </div>
+              <button class="btn btn-primary btn-sm"
+                onclick="App.restoreItem('${it.kind}','${it.hhId}','${it.mId || ''}','${it.tId || ''}')">↩ กู้คืน</button>
+            </div>`).join('')}
+      </div>`;
+  },
+
+  restoreItem(kind, hhId, mId, tId) {
+    let entity = null;
+    if (kind === 'household')   entity = DB.restoreHousehold(hhId);
+    else if (kind === 'member') entity = DB.restoreMember(hhId, mId);
+    else if (kind === 'trip')   entity = DB.restoreTrip(hhId, mId, tId);
+    if (!entity) { this.toast('ไม่พบรายการ', 'error'); return; }
+    // ส่ง flag กู้คืนขึ้น cloud ทันที
+    if (kind === 'household')   this._autoPush(() => FB.pushHousehold(entity));
+    else if (kind === 'member') this._autoPush(() => FB.pushMember(hhId, entity));
+    else                        this._autoPush(() => FB.pushTrip(hhId, mId, entity));
+    this.toast('กู้คืนแล้ว', 'success');
+    this.render();
   },
 
   // ===================== PAGE: HOME =====================
@@ -321,6 +368,8 @@ const App = {
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           ${isAdmin && hhs.length > 0 ? `<button class="btn btn-ghost btn-sm" onclick="App.exportData()">⬇ Export Excel</button>` : ''}
+          ${isAdmin ? (() => { const n = DB.getTrash().length;
+            return `<button class="btn btn-ghost btn-sm" onclick="App.navigate('trash')">🗑 ถังขยะ${n ? ` (${n})` : ''}</button>`; })() : ''}
           ${hhs.length > 0 ? `<button class="btn btn-ghost btn-sm" id="syncBtn" onclick="App.syncToCloud()">☁️ Sync</button>` : ''}
           <button class="btn btn-ghost btn-sm" id="pullBtn" onclick="App.pullFromCloud()">☁️ ดึงข้อมูล</button>
           ${hhs.length > 0 ? `<button class="btn btn-danger btn-sm" onclick="App.confirmClearAll()">🗑 ล้าง cache</button>` : ''}
@@ -1133,13 +1182,37 @@ const App = {
 
   confirmDeleteHousehold(id) {
     const hh = DB.getHousehold(id);
-    this.showModal('🗑 ลบครัวเรือนจากเครื่องนี้',
-      `<p style="color:var(--gray-600)">จะลบครัวเรือน <strong>[${hh?.areaCode || hh?.id}]</strong>
-       พร้อมสมาชิก ${hh?.members.length || 0} คน <b>ออกจากเครื่องนี้</b></p>
-       <p style="font-size:13px;color:var(--success);font-weight:600;margin-top:8px;">✅ ข้อมูลบน Cloud ยังอยู่ — ดึงกลับได้</p>`,
+    const isAdmin = this._role === 'admin';
+    const label = `<strong>[${hh?.houseNo || hh?.id}]</strong> พร้อมสมาชิก ${hh?.members.length || 0} คน`;
+    this.showModal('🗑 ลบครัวเรือน',
+      `<p style="color:var(--gray-600)">จะลบครัวเรือน ${label}</p>
+       <div style="margin-top:14px;padding:12px;background:var(--gray-100);border-radius:8px;">
+         <div style="font-weight:700;font-size:13px;">🖥 ลบจากเครื่องนี้</div>
+         <div style="font-size:12px;color:var(--gray-600);margin-top:2px;">ล้างแคชในเครื่อง · ข้อมูลบนระบบยังอยู่ ดึงกลับได้</div>
+       </div>
+       ${isAdmin ? `
+       <div style="margin-top:10px;padding:12px;background:rgba(239,68,68,.08);border:1px solid var(--danger);border-radius:8px;">
+         <div style="font-weight:700;font-size:13px;color:var(--danger);">☁️ ลบออกจากระบบ</div>
+         <div style="font-size:12px;color:var(--gray-600);margin-top:2px;">
+           หายจากรายการ · กราฟ · Export ทุกที่ทันที (ทุกเครื่อง)<br>
+           <b>เก็บไว้ในถังขยะ — กู้คืนได้ภายหลัง</b>
+         </div>
+       </div>` : ''}`,
       `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
-       <button class="btn btn-danger" onclick="App.deleteHousehold('${id}')">ลบจากเครื่องนี้</button>`
+       <button class="btn btn-ghost" style="color:var(--gray-700)" onclick="App.deleteHousehold('${id}')">🖥 ลบจากเครื่องนี้</button>
+       ${isAdmin ? `<button class="btn btn-danger" onclick="App.systemDeleteHousehold('${id}')">☁️ ลบออกจากระบบ</button>` : ''}`
     );
+  },
+
+  // ลบออกจากระบบ (soft delete) — ซ่อนทุกที่ + ส่งขึ้น cloud ทันที · กู้คืนได้จากถังขยะ
+  systemDeleteHousehold(id) {
+    if (this._role !== 'admin') { this.toast('เฉพาะผู้ดูแลระบบเท่านั้น', 'error'); return; }
+    const hh = DB.softDeleteHousehold(id, this._adminUsername || 'admin');
+    if (!hh) { this.toast('ไม่พบครัวเรือน', 'error'); return; }
+    this._autoPush(() => FB.pushHousehold(hh));
+    this.closeModal();
+    this.toast('ลบออกจากระบบแล้ว · กู้คืนได้จากถังขยะ', 'success');
+    this.navigate('home');
   },
 
   deleteHousehold(id) {

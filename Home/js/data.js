@@ -106,7 +106,29 @@ const DB = {
   },
 
   // ===== HOUSEHOLDS =====
-  getHouseholds() { return this.load().households; },
+  // ===== SOFT DELETE (ถังขยะ) =====
+  // _deleted:true = admin ลบออกจากระบบแล้ว — ซ่อนทุกที่ที่แสดงผล/นับ/export แต่ยังกู้คืนได้
+  // ตัดออกทั้ง household, member, trip (ลบบ้าน = สมาชิก+เที่ยวข้างในหายตามไปด้วย)
+  _pruneDeleted(hhs) {
+    // fast path: ไม่มีอะไรถูกลบ → คืน array เดิม ไม่ต้อง copy (เรียกทุก render)
+    const hasDeleted = hhs.some(h =>
+      h._deleted ||
+      (h.members || []).some(m => m._deleted || (m.trips || []).some(t => t._deleted))
+    );
+    if (!hasDeleted) return hhs;
+    return hhs.filter(h => !h._deleted).map(h => ({
+      ...h,
+      members: (h.members || []).filter(m => !m._deleted).map(m => ({
+        ...m,
+        trips: (m.trips || []).filter(t => !t._deleted)
+      }))
+    }));
+  },
+
+  // ใช้แสดงผล/นับ/export — ไม่รวมที่ลบแล้ว
+  getHouseholds() { return this._pruneDeleted(this.load().households); },
+  // ใช้กับถังขยะ + sync (ต้องเห็นของที่ลบแล้วด้วย เพื่อส่ง flag ขึ้น cloud)
+  getHouseholdsRaw() { return this.load().households; },
   getHousehold(id) { return this.load().households.find(h => h.id === id) || null; },
 
   addHousehold(data) {
@@ -249,6 +271,66 @@ const DB = {
     this.save();
   },
 
+  // ===== ถังขยะ: ลบออกจากระบบ (soft) / กู้คืน =====
+  // คืน entity ที่เปลี่ยน เพื่อให้ App push ขึ้น cloud ต่อได้
+  _mark(obj, deleted, by) {
+    if (!obj) return null;
+    if (deleted) {
+      obj._deleted   = true;
+      obj._deletedAt = new Date().toISOString();
+      obj._deletedBy = by || '';
+    } else {
+      obj._deleted   = false;   // false ไม่ใช่ delete field — ให้ merge:true ทับค่าเดิมบน cloud ได้
+      obj._deletedAt = '';
+      obj._deletedBy = '';
+    }
+    this.save();
+    return obj;
+  },
+
+  softDeleteHousehold(id, by)  { return this._mark(this.getHousehold(id), true,  by); },
+  restoreHousehold(id)         { return this._mark(this.getHousehold(id), false); },
+  softDeleteMember(hhId, mid, by) { return this._mark(this.getMember(hhId, mid), true,  by); },
+  restoreMember(hhId, mid)        { return this._mark(this.getMember(hhId, mid), false); },
+  softDeleteTrip(hhId, mid, tid, by) {
+    const m = this.getMember(hhId, mid);
+    return this._mark(m && m.trips.find(t => t.id === tid), true, by);
+  },
+  restoreTrip(hhId, mid, tid) {
+    const m = this.getMember(hhId, mid);
+    return this._mark(m && m.trips.find(t => t.id === tid), false);
+  },
+
+  // รายการในถังขยะ — flatten ทุกระดับให้ UI แสดง/กู้คืนได้
+  getTrash() {
+    const out = [];
+    this.load().households.forEach(hh => {
+      if (hh._deleted) {
+        out.push({ kind: 'household', hhId: hh.id, label: `บ้าน ${hh.houseNo || hh.id}`,
+                   sub: `${(hh.members||[]).length} สมาชิก · ผู้สำรวจ ${hh.surveyorName || '—'}`,
+                   at: hh._deletedAt, by: hh._deletedBy });
+        return;   // ลบทั้งบ้านแล้ว ไม่ต้องแสดงลูกซ้ำ
+      }
+      (hh.members || []).forEach(m => {
+        if (m._deleted) {
+          out.push({ kind: 'member', hhId: hh.id, mId: m.id,
+                     label: `สมาชิกที่ ${m.seq} (บ้าน ${hh.houseNo || hh.id})`,
+                     sub: `${(m.trips||[]).length} เที่ยว`, at: m._deletedAt, by: m._deletedBy });
+          return;
+        }
+        (m.trips || []).forEach(t => {
+          if (t._deleted) {
+            out.push({ kind: 'trip', hhId: hh.id, mId: m.id, tId: t.id,
+                       label: `เที่ยวที่ ${t.seq} — สมาชิกที่ ${m.seq} (บ้าน ${hh.houseNo || hh.id})`,
+                       sub: `${t.origin || '—'} → ${t.destination || '—'}`,
+                       at: t._deletedAt, by: t._deletedBy });
+          }
+        });
+      });
+    });
+    return out.sort((a, b) => (b.at || '').localeCompare(a.at || ''));
+  },
+
   clearMyData(surveyorName) {
     const d = this.load();
     d.households = d.households.filter(h => h.surveyorName !== surveyorName);
@@ -263,7 +345,8 @@ const DB = {
     return { households: hhs.length, members: members.length, trips: trips.length };
   },
 
-  exportJSON() { return JSON.stringify(this.load(), null, 2); }
+  // export = ข้อมูลที่ใช้จริง (ไม่รวมที่ลบออกจากระบบแล้ว)
+  exportJSON() { return JSON.stringify({ ...this.load(), households: this.getHouseholds() }, null, 2); }
 };
 
 // ===== OPTION LISTS =====

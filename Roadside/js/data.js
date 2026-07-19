@@ -106,7 +106,23 @@ const DB = {
   },
 
   // ===== STATIONS =====
-  getStations() { return this.load().stations; },
+  // ===== SOFT DELETE (ถังขยะ) =====
+  // _deleted:true = admin ลบออกจากระบบแล้ว — ซ่อนทุกที่ที่แสดงผล/นับ/export แต่ยังกู้คืนได้
+  // ตัดออกทั้ง station และ interview (ลบจุดสำรวจ = การสำรวจข้างในหายตามไปด้วย)
+  _pruneDeleted(sts) {
+    // fast path: ไม่มีอะไรถูกลบ → คืน array เดิม ไม่ต้อง copy (เรียกทุก render)
+    const hasDeleted = sts.some(s => s._deleted || (s.interviews || []).some(iv => iv._deleted));
+    if (!hasDeleted) return sts;
+    return sts.filter(s => !s._deleted).map(s => ({
+      ...s,
+      interviews: (s.interviews || []).filter(iv => !iv._deleted)
+    }));
+  },
+
+  // ใช้แสดงผล/นับ/export — ไม่รวมที่ลบแล้ว
+  getStations() { return this._pruneDeleted(this.load().stations); },
+  // ใช้กับถังขยะ + sync (ต้องเห็นของที่ลบแล้วด้วย เพื่อส่ง flag ขึ้น cloud)
+  getStationsRaw() { return this.load().stations; },
   getStation(id) { return this.load().stations.find(s => s.id === id) || null; },
 
   addStation(data) {
@@ -209,6 +225,51 @@ const DB = {
     this.save();
   },
 
+  // ===== ถังขยะ: ลบออกจากระบบ (soft) / กู้คืน =====
+  // คืน entity ที่เปลี่ยน เพื่อให้ App push ขึ้น cloud ต่อได้
+  _mark(obj, deleted, by) {
+    if (!obj) return null;
+    if (deleted) {
+      obj._deleted   = true;
+      obj._deletedAt = new Date().toISOString();
+      obj._deletedBy = by || '';
+    } else {
+      obj._deleted   = false;   // false ไม่ใช่ delete field — ให้ merge:true ทับค่าเดิมบน cloud ได้
+      obj._deletedAt = '';
+      obj._deletedBy = '';
+    }
+    this.save();
+    return obj;
+  },
+
+  softDeleteStation(id, by)   { return this._mark(this.getStation(id), true,  by); },
+  restoreStation(id)          { return this._mark(this.getStation(id), false); },
+  softDeleteInterview(stId, ivId, by) { return this._mark(this.getInterview(stId, ivId), true,  by); },
+  restoreInterview(stId, ivId)        { return this._mark(this.getInterview(stId, ivId), false); },
+
+  // รายการในถังขยะ — flatten ให้ UI แสดง/กู้คืนได้
+  getTrash() {
+    const out = [];
+    this.load().stations.forEach(st => {
+      if (st._deleted) {
+        out.push({ kind: 'station', stId: st.id,
+                   label: `จุดสำรวจ ${st.stationName || st.id}`,
+                   sub: `${(st.interviews||[]).length} การสำรวจ · ${st.road || '—'}`,
+                   at: st._deletedAt, by: st._deletedBy });
+        return;   // ลบทั้งจุดแล้ว ไม่ต้องแสดงลูกซ้ำ
+      }
+      (st.interviews || []).forEach(iv => {
+        if (iv._deleted) {
+          out.push({ kind: 'interview', stId: st.id, ivId: iv.id,
+                     label: `การสำรวจที่ ${iv.seq} (${st.stationName || st.id})`,
+                     sub: `${iv.originName || '—'} → ${iv.destinationName || '—'} · ผู้สำรวจ ${iv.surveyorName || '—'}`,
+                     at: iv._deletedAt, by: iv._deletedBy });
+        }
+      });
+    });
+    return out.sort((a, b) => (b.at || '').localeCompare(a.at || ''));
+  },
+
   clearMyInterviews(surveyorName) {
     this.load().stations.forEach(st => {
       st.interviews = st.interviews.filter(iv => iv.surveyorName !== surveyorName);
@@ -223,7 +284,8 @@ const DB = {
     return { stations: sts.length, interviews: ivs.length };
   },
 
-  exportJSON() { return JSON.stringify(this.load(), null, 2); }
+  // export = ข้อมูลที่ใช้จริง (ไม่รวมที่ลบออกจากระบบแล้ว)
+  exportJSON() { return JSON.stringify({ ...this.load(), stations: this.getStations() }, null, 2); }
 };
 
 // ===== OPTION LISTS =====

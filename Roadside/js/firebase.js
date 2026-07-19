@@ -101,7 +101,7 @@ const FB = {
   // surveyor: sync เฉพาะ interview ของตัวเอง (ไม่แตะ station)
   async syncAll(surveyorName) {
     if (!this.db) throw new Error('Firebase ไม่พร้อม');
-    const sts = DB.getStations();
+    const sts = DB.getStationsRaw();   // raw: ต้องส่ง flag _deleted ขึ้น cloud ด้วย
     if (!sts.length) throw new Error('ไม่มีข้อมูลในเครื่อง');
     const device   = this.deviceId();
     const syncedAt = new Date().toISOString();

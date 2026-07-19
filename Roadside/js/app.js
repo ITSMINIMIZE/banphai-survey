@@ -252,7 +252,49 @@ const App = {
         <a onclick="App.navigate('station','${this.stId}')">${st ? (this.esc(st.stationName) || st.id) : ''}</a>
         <span>›</span> การสำรวจที่ ${iv ? iv.seq : ''}`;
       app.innerHTML = this.pageInterview();
+    } else if (this.page === 'trash') {
+      bc.className = 'breadcrumb visible';
+      bc.innerHTML = `<a onclick="App.navigate('home')">หน้าหลัก</a> <span>›</span> ถังขยะ`;
+      app.innerHTML = this.pageTrash();
     }
+  },
+
+  // ===================== PAGE: ถังขยะ (admin) =====================
+  pageTrash() {
+    if (this._role !== 'admin') return `<div class="page container"><p>เฉพาะผู้ดูแลระบบ</p></div>`;
+    const items = DB.getTrash();
+    return `<div class="page container">
+      <div class="sec-header">
+        <div>
+          <div class="sec-title">🗑 ถังขยะ</div>
+          <div class="sec-sub">${items.length} รายการที่ลบออกจากระบบ · กู้คืนได้ทุกเมื่อ</div>
+        </div>
+      </div>
+      ${items.length === 0
+        ? `<div class="empty"><div class="empty-icon">✨</div><p>ถังขยะว่าง</p></div>`
+        : items.map(it => `
+          <div class="st-card" style="border-left:3px solid var(--danger)">
+            <div class="st-card-main">
+              <div class="st-card-title">${this.esc(it.label)}</div>
+              <div class="st-card-sub">${this.esc(it.sub)}</div>
+              <div class="st-card-sub" style="font-size:12px;color:var(--gray-500)">
+                ลบเมื่อ ${it.at ? new Date(it.at).toLocaleString('th-TH') : '—'}${it.by ? ' · โดย ' + this.esc(it.by) : ''}
+              </div>
+            </div>
+            <button class="btn btn-primary btn-sm"
+              onclick="App.restoreItem('${it.kind}','${it.stId}','${it.ivId || ''}')">↩ กู้คืน</button>
+          </div>`).join('')}
+    </div>`;
+  },
+
+  restoreItem(kind, stId, ivId) {
+    const entity = kind === 'station' ? DB.restoreStation(stId) : DB.restoreInterview(stId, ivId);
+    if (!entity) { this.toast('ไม่พบรายการ', 'error'); return; }
+    // ส่ง flag กู้คืนขึ้น cloud ทันที
+    if (kind === 'station') this._autoPush(() => FB.pushStation(entity));
+    else                    this._autoPush(() => FB.pushInterview(stId, entity));
+    this.toast('กู้คืนแล้ว', 'success');
+    this.render();
   },
 
   // ===================== UTIL =====================
@@ -382,6 +424,8 @@ const App = {
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           ${noCoordSts.length > 0 ? `<button class="btn btn-sm ${this._filterNoCoords ? 'btn-danger' : 'btn-ghost'}" onclick="App.toggleNoCoords()">📍 พิกัดไม่ครบ ${noCoordSts.length}</button>` : ''}
           ${isAdmin && allSts.length > 0 ? `<button class="btn btn-ghost btn-sm" onclick="App.exportData()">⬇ Export Excel</button>` : ''}
+          ${isAdmin ? (() => { const n = DB.getTrash().length;
+            return `<button class="btn btn-ghost btn-sm" onclick="App.navigate('trash')">🗑 ถังขยะ${n ? ` (${n})` : ''}</button>`; })() : ''}
           ${allSts.length > 0 ? `<button class="btn btn-ghost btn-sm" id="syncBtn" onclick="App.syncToCloud()">☁️ Sync</button>` : ''}
           ${isAdmin && allSts.length > 0 ? `<button class="btn btn-danger btn-sm" onclick="App.confirmClearAll()">🗑 ล้างข้อมูล</button>` : ''}
           <button class="btn btn-ghost btn-sm" id="pullBtn" onclick="App.pullFromCloud()">☁️ ดึงข้อมูล</button>
@@ -822,13 +866,36 @@ const App = {
 
   confirmDeleteStation(id) {
     const st = DB.getStation(id);
-    this.showModal('🗑 ลบจุดสำรวจจากเครื่องนี้',
+    this.showModal('🗑 ลบจุดสำรวจ',
       `<p style="color:var(--gray-600);">จะลบจุดสำรวจ <strong>${st?.stationName || st?.id}</strong>
-       พร้อมข้อมูลการสำรวจ ${st?.interviews.length || 0} ราย <b>ออกจากเครื่องนี้</b></p>
-       <p style="font-size:13px;color:var(--success);font-weight:600;margin-top:8px;">✅ ข้อมูลบน Cloud ยังคงอยู่ — ดึงกลับได้</p>`,
+       พร้อมข้อมูลการสำรวจ ${st?.interviews.length || 0} ราย</p>
+       <div style="margin-top:14px;padding:12px;background:var(--gray-100);border-radius:8px;">
+         <div style="font-weight:700;font-size:13px;">🖥 ลบจากเครื่องนี้</div>
+         <div style="font-size:12px;color:var(--gray-600);margin-top:2px;">ล้างแคชในเครื่อง · ข้อมูลบนระบบยังอยู่ ดึงกลับได้</div>
+       </div>
+       ${this._role === 'admin' ? `
+       <div style="margin-top:10px;padding:12px;background:rgba(239,68,68,.08);border:1px solid var(--danger);border-radius:8px;">
+         <div style="font-weight:700;font-size:13px;color:var(--danger);">☁️ ลบออกจากระบบ</div>
+         <div style="font-size:12px;color:var(--gray-600);margin-top:2px;">
+           จุดสำรวจและการสำรวจข้างในหายจากทุกที่ทันที<br>
+           <b>เก็บไว้ในถังขยะ — กู้คืนได้ภายหลัง</b>
+         </div>
+       </div>` : ''}`,
       `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
-       <button class="btn btn-danger" onclick="App.deleteStation('${id}')">ลบจากเครื่องนี้</button>`
+       <button class="btn btn-ghost" style="color:var(--gray-700)" onclick="App.deleteStation('${id}')">🖥 ลบจากเครื่องนี้</button>
+       ${this._role === 'admin' ? `<button class="btn btn-danger" onclick="App.systemDeleteStation('${id}')">☁️ ลบออกจากระบบ</button>` : ''}`
     );
+  },
+
+  // ลบออกจากระบบ (soft delete) — ซ่อนทุกที่ + ส่งขึ้น cloud ทันที · กู้คืนได้จากถังขยะ
+  systemDeleteStation(id) {
+    if (this._role !== 'admin') { this.toast('เฉพาะผู้ดูแลระบบเท่านั้น', 'error'); return; }
+    const st = DB.softDeleteStation(id, this._adminUsername || 'admin');
+    if (!st) { this.toast('ไม่พบจุดสำรวจ', 'error'); return; }
+    this._autoPush(() => FB.pushStation(st));
+    this.closeModal();
+    this.toast('ลบออกจากระบบแล้ว · กู้คืนได้จากถังขยะ', 'success');
+    this.navigate('home');
   },
 
   deleteStation(id) {
@@ -1059,10 +1126,22 @@ const App = {
   confirmDeleteInterview(ivId) {
     const iv = DB.getInterview(this.stId, ivId);
     this.showModal('🗑 ลบการสำรวจจากเครื่องนี้',
-      `<p style="color:var(--gray-600);">จะลบการสำรวจรายที่ ${iv?.seq} <b>ออกจากเครื่องนี้</b></p>
-       <p style="font-size:13px;color:var(--success);font-weight:600;margin-top:8px;">✅ ถ้า sync ไปแล้ว ข้อมูลบน Cloud ยังอยู่ — ดึงกลับได้</p>`,
+      `<p style="color:var(--gray-600);">จะลบการสำรวจรายที่ ${iv?.seq}</p>
+       <div style="margin-top:14px;padding:12px;background:var(--gray-100);border-radius:8px;">
+         <div style="font-weight:700;font-size:13px;">🖥 ลบจากเครื่องนี้</div>
+         <div style="font-size:12px;color:var(--gray-600);margin-top:2px;">ล้างแคชในเครื่อง · ข้อมูลบนระบบยังอยู่ ดึงกลับได้</div>
+       </div>
+       ${this._role === 'admin' ? `
+       <div style="margin-top:10px;padding:12px;background:rgba(239,68,68,.08);border:1px solid var(--danger);border-radius:8px;">
+         <div style="font-weight:700;font-size:13px;color:var(--danger);">☁️ ลบออกจากระบบ</div>
+         <div style="font-size:12px;color:var(--gray-600);margin-top:2px;">
+           หายจากรายการ · กราฟ · Export ทุกที่ทันที (ทุกเครื่อง)<br>
+           <b>เก็บไว้ในถังขยะ — กู้คืนได้ภายหลัง</b>
+         </div>
+       </div>` : ''}`,
       `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
-       <button class="btn btn-danger" onclick="App.deleteInterview('${ivId}')">ลบจากเครื่องนี้</button>`
+       <button class="btn btn-ghost" style="color:var(--gray-700)" onclick="App.deleteInterview('${ivId}')">🖥 ลบจากเครื่องนี้</button>
+       ${this._role === 'admin' ? `<button class="btn btn-danger" onclick="App.systemDeleteInterview('${ivId}')">☁️ ลบออกจากระบบ</button>` : ''}`
     );
   },
 
@@ -1070,6 +1149,17 @@ const App = {
     DB.deleteInterview(this.stId, ivId);
     this.closeModal();
     this.toast('ลบจากเครื่องนี้แล้ว · Cloud ยังอยู่', 'success');
+    this.navigate('station', this.stId);
+  },
+
+  // ลบออกจากระบบ (soft delete) — ซ่อนทุกที่ + ส่งขึ้น cloud ทันที · กู้คืนได้จากถังขยะ
+  systemDeleteInterview(ivId) {
+    if (this._role !== 'admin') { this.toast('เฉพาะผู้ดูแลระบบเท่านั้น', 'error'); return; }
+    const iv = DB.softDeleteInterview(this.stId, ivId, this._adminUsername || 'admin');
+    if (!iv) { this.toast('ไม่พบการสำรวจ', 'error'); return; }
+    this._autoPush(() => FB.pushInterview(this.stId, iv));
+    this.closeModal();
+    this.toast('ลบออกจากระบบแล้ว · กู้คืนได้จากถังขยะ', 'success');
     this.navigate('station', this.stId);
   },
 

@@ -95,7 +95,7 @@ const FB = {
   // surveyor: sync เฉพาะ household ของตัวเอง
   async syncAll(surveyorName) {
     if (!this.db) throw new Error('Firebase ไม่พร้อม');
-    let hhs = DB.getHouseholds();
+    let hhs = DB.getHouseholdsRaw();   // raw: ต้องส่ง flag _deleted ขึ้น cloud ด้วย
     if (surveyorName) hhs = hhs.filter(h => h.surveyorName === surveyorName);
     if (!hhs.length) throw new Error('ไม่มีข้อมูลที่จะ sync');
 

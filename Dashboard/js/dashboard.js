@@ -187,7 +187,12 @@ async function pullHouseholds() {
     hh.members.sort((a, b) => (a.seq || 0) - (b.seq || 0));
     hh.members.forEach(m => m.trips.sort((a, b) => (a.seq || 0) - (b.seq || 0)));
   });
-  return households;
+  // ตัดรายการที่ admin ลบออกจากระบบแล้ว (_deleted) ออกทุกระดับ — ครอบคลุมทุกแท็บในหน้าเดียว
+  return households.filter(hh => !hh._deleted).map(hh => {
+    hh.members = hh.members.filter(m => !m._deleted);
+    hh.members.forEach(m => { m.trips = m.trips.filter(t => !t._deleted); });
+    return hh;
+  });
 }
 
 async function pullRoadside() {
@@ -207,7 +212,11 @@ async function pullRoadside() {
       map[stId].interviews.push(x);
     });
   });
-  return Object.values(map);
+  // ตัดรายการที่ admin ลบออกจากระบบแล้ว (_deleted) ออก
+  return Object.values(map).filter(st => !st._deleted).map(st => {
+    st.interviews = st.interviews.filter(iv => !iv._deleted);
+    return st;
+  });
 }
 
 // ── DERIVED DATA ──────────────────────────────────────────────────────────────
