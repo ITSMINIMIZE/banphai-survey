@@ -123,7 +123,15 @@ const DB = {
   getStations() { return this._pruneDeleted(this.load().stations); },
   // ใช้กับถังขยะ + sync (ต้องเห็นของที่ลบแล้วด้วย เพื่อส่ง flag ขึ้น cloud)
   getStationsRaw() { return this.load().stations; },
+  // ⚠️ คืน reference จริง (ยังมีรายการที่ลบแล้ว) — ใช้กับการแก้ข้อมูล/ถังขยะเท่านั้น
   getStation(id) { return this.load().stations.find(s => s.id === id) || null; },
+  // ใช้ "แสดงผล" หน้าจุดสำรวจ — ตัด interview ที่ลบออกจากระบบแล้วออก
+  getStationView(id) {
+    const st = this.getStation(id);
+    if (!st) return null;
+    if (!(st.interviews || []).some(iv => iv._deleted)) return st;   // fast path
+    return { ...st, interviews: st.interviews.filter(iv => !iv._deleted) };
+  },
 
   addStation(data) {
     const st = {

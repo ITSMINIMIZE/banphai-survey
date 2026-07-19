@@ -484,7 +484,7 @@ const App = {
 
   // ===================== PAGE: STATION =====================
   pageStation() {
-    const st = DB.getStation(this.stId);
+    const st = DB.getStationView(this.stId);   // view: ไม่รวมรายการที่ลบออกจากระบบแล้ว
     if (!st) return '<div class="container"><p>ไม่พบข้อมูล</p></div>';
     const isAdmin = this._role === 'admin';
     // surveyor เห็นเฉพาะ interview ของตัวเอง (กรองตาม surveyorName ระดับ interview)
@@ -588,7 +588,7 @@ const App = {
   pageInterview() {
     const st = DB.getStation(this.stId);
     const iv = DB.getInterview(this.stId, this.ivId);
-    if (!iv) return '<div class="container"><p>ไม่พบข้อมูล</p></div>';
+    if (!iv || iv._deleted) return '<div class="container"><p>ไม่พบข้อมูล (ถูกลบออกจากระบบแล้ว)</p></div>';
     const vt = OPT.vehicleTypes.find(v => v.key === iv.vehicleType) || { icon: '🚘', label: iv.vehicleType || '—' };
     const canEdit = this._role === 'admin' || iv.surveyorName === this._surveyorName;
 

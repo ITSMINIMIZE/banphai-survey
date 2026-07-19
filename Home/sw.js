@@ -1,5 +1,5 @@
 // Service Worker — Home Interview
-const CACHE_VERSION = 'hi-v44-redcards';
+const CACHE_VERSION = 'hi-v45-trashfix';
 const CORE_ASSETS = [
   './',
   './index.html',

@@ -485,7 +485,7 @@ const App = {
 
   // ===================== PAGE: HOUSEHOLD =====================
   pageHousehold() {
-    const hh = DB.getHousehold(this.hhId);
+    const hh = DB.getHouseholdView(this.hhId);   // view: ไม่รวมสมาชิก/เที่ยวที่ลบออกจากระบบแล้ว
     if (!hh) return '<div class="container"><p>ไม่พบข้อมูล</p></div>';
 
     const addr = [
@@ -605,8 +605,8 @@ const App = {
   // ===================== PAGE: MEMBER =====================
   pageMember() {
     const hh = DB.getHousehold(this.hhId);
-    const m  = DB.getMember(this.hhId, this.memberId);
-    if (!m) return '<div class="container"><p>ไม่พบข้อมูล</p></div>';
+    const m  = DB.getMemberView(this.hhId, this.memberId);   // view: ไม่รวมเที่ยวที่ลบออกจากระบบแล้ว
+    if (!m || m._deleted) return '<div class="container"><p>ไม่พบข้อมูล (ถูกลบออกจากระบบแล้ว)</p></div>';
     const infoDone = this._memberInfoComplete(m);
     // ยังกรอกข้อมูลบุคคลไม่ครบ → บังคับอยู่แท็บข้อมูลบุคคล (กันข้ามไปกรอกการเดินทาง)
     const tab = (this.memberTab === 'trips' && !infoDone) ? 'info' : this.memberTab;

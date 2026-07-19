@@ -129,7 +129,24 @@ const DB = {
   getHouseholds() { return this._pruneDeleted(this.load().households); },
   // ใช้กับถังขยะ + sync (ต้องเห็นของที่ลบแล้วด้วย เพื่อส่ง flag ขึ้น cloud)
   getHouseholdsRaw() { return this.load().households; },
+  // ⚠️ คืน reference จริง (ยังมีรายการที่ลบแล้ว) — ใช้กับการแก้ข้อมูล/ถังขยะเท่านั้น
   getHousehold(id) { return this.load().households.find(h => h.id === id) || null; },
+  // ใช้ "แสดงผล" หน้าบ้าน — ตัดสมาชิก/เที่ยวที่ลบออกจากระบบแล้วออก
+  getHouseholdView(id) {
+    const hh = this.getHousehold(id);
+    if (!hh) return null;
+    const dirty = (hh.members || []).some(m => m._deleted || (m.trips || []).some(t => t._deleted));
+    if (!dirty) return hh;   // fast path
+    return { ...hh, members: hh.members.filter(m => !m._deleted)
+      .map(m => ({ ...m, trips: (m.trips || []).filter(t => !t._deleted) })) };
+  },
+  // ใช้ "แสดงผล" หน้าสมาชิก — ตัดเที่ยวที่ลบออกจากระบบแล้วออก
+  getMemberView(hhId, mid) {
+    const m = this.getMember(hhId, mid);
+    if (!m) return null;
+    if (!(m.trips || []).some(t => t._deleted)) return m;   // fast path
+    return { ...m, trips: m.trips.filter(t => !t._deleted) };
+  },
 
   addHousehold(data) {
     const hh = {
