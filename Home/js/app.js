@@ -441,6 +441,12 @@ const App = {
       (m.trips || []).some(t => !t.originCoords || !t.destinationCoords));
   },
 
+  // เที่ยวนี้พิกัดไม่ครบ (ต้นทางหรือปลายทางขาด) — ใช้ไฮไลต์การ์ดเที่ยวสีแดง
+  _tripNoCoords(t) { return !t.originCoords || !t.destinationCoords; },
+
+  // สมาชิกคนนี้มีเที่ยวที่พิกัดไม่ครบ — ใช้ไฮไลต์การ์ดสมาชิกสีแดง
+  _memberNoCoords(m) { return (m.trips || []).some(t => this._tripNoCoords(t)); },
+
   toggleNoCoords() {
     this._filterNoCoords = !this._filterNoCoords;
     this.render();
@@ -570,15 +576,20 @@ const App = {
           const avIcon = m.gender === 'ชาย' ? '👨'   : m.gender === 'หญิง' ? '👩'   : '👤';
           const hasInfo = m.gender && m.occupation;
           const dotCls  = hasInfo && m.trips.length > 0 ? 'dot-green' : (hasInfo || m.trips.length > 0) ? 'dot-amber' : 'dot-gray';
-          return `<div class="member-card" onclick="App.navigate('member','${hh.id}','${m.id}')">
+          // มีเที่ยวที่พิกัดไม่ครบ → ไฮไลต์แดง ให้รู้ว่าต้องเข้าไปแก้คนไหน
+          const noCo    = this._memberNoCoords(m);
+          const badCnt  = (m.trips || []).filter(t => this._tripNoCoords(t)).length;
+          return `<div class="member-card" onclick="App.navigate('member','${hh.id}','${m.id}')"
+            ${noCo ? 'style="background:#fef2f2;border-color:var(--danger);"' : ''}>
             <div class="member-avatar ${avCls}">${avIcon}</div>
             <div class="member-info">
               <div class="member-name">สมาชิกที่ ${m.seq}${m.gender ? ' · ' + m.gender : ''}${m.age ? ' · ' + m.age + ' ปี' : ''}</div>
               <div class="member-detail">${[m.homeStatus, m.occupation].filter(Boolean).join(' · ') || 'ยังไม่กรอกข้อมูล'}</div>
+              ${noCo ? `<div class="member-detail" style="color:var(--danger);font-weight:600;">📍 ${badCnt} เที่ยวไม่มีพิกัด</div>` : ''}
             </div>
             <div class="member-right">
               <span class="tag ${m.trips.length > 0 ? 'tag-green' : 'tag-gray'}">🚗 ${m.trips.length} เที่ยว</span>
-              <div class="status-dot ${dotCls}"></div>
+              <div class="status-dot ${noCo ? 'dot-red' : dotCls}"></div>
               <span style="color:var(--gray-300)">›</span>
             </div>
           </div>`;
@@ -841,14 +852,18 @@ const App = {
         `<div class="trip-list">
           ${m.trips.map(t => {
             const segs = (t.segments || []).filter(s => s.mode);
-            return `<div class="trip-card">
-              <div class="trip-seq">${t.seq}</div>
+            // พิกัดไม่ครบ → ไฮไลต์แดง + บอกว่าขาดฝั่งไหน (กดแก้ไขได้เลย)
+            const noCo = this._tripNoCoords(t);
+            const missing = [!t.originCoords ? 'ต้นทาง' : '', !t.destinationCoords ? 'ปลายทาง' : ''].filter(Boolean).join(' + ');
+            return `<div class="trip-card"${noCo ? ' style="background:#fef2f2;border-color:var(--danger);"' : ''}>
+              <div class="trip-seq"${noCo ? ' style="background:var(--danger);color:#fff;"' : ''}>${t.seq}</div>
               <div class="trip-body">
                 <div class="trip-route">
                   <span class="trip-origin">${this.esc(t.origin) || '?'}</span>
                   <span class="trip-arrow">→</span>
                   <span class="trip-dest">${this.esc(t.destination) || '?'}</span>
                 </div>
+                ${noCo ? `<div style="font-size:12px;color:var(--danger);font-weight:600;margin-top:3px;">📍 ไม่มีพิกัด${missing}</div>` : ''}
                 <div class="trip-meta">
                   ${t.purpose      ? `<span>🎯 ${t.purpose}</span>` : ''}
                   ${t.departureTime? `<span>🕐 ${t.departureTime}${t.arrivalTime ? '–' + t.arrivalTime : ''}</span>` : ''}
