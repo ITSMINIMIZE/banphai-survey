@@ -1,10 +1,13 @@
-/* 🔒 Tools auth gate — บังคับ login ด้วย Firebase Admin จริง (แทน gate รหัสฝัง client เดิม)
-   - กันคนนอกเข้าหน้าเครื่องมือ: ต้องมีบัญชี admin (Firebase Auth) เท่านั้น
+/* 🔒 Tools auth gate — บังคับ login + ตรวจ role ว่าเป็น admin จริง
+   - กันคนนอกเข้าหน้าเครื่องมือ: ต้องเป็นบัญชีจริง (ไม่ใช่ anonymous) + role admin ใน users/{uid}
    - ความปลอดภัยจริงยังอยู่ที่ Firestore rules — gate นี้บังคับ identity + กัน UI
    - ใช้ร่วมทุกหน้าใน tools/ : <script src="auth-gate.js"></script>
-   - ต้องโหลด firebase-app-compat + firebase-auth-compat ไว้ในหน้าด้วย (gate จะ init เองถ้ายังไม่ init) */
+   - ต้องโหลด firebase-app-compat + auth-compat + firestore-compat ไว้ในหน้าด้วย
+   - หน้าที่ต้อง bootstrap ระบบบัญชี (users.html) ให้ตั้ง window._AUTH_GATE_ALLOW_BOOTSTRAP = true
+     ก่อนโหลดไฟล์นี้ → ผ่านได้ด้วยบัญชีจริงที่ยังไม่มี users doc (สิทธิ์จริงบังคับที่ rules อยู่ดี) */
 (function () {
   var EMAIL_DOMAIN = '@banphai.local';
+  var ALLOW_BOOTSTRAP = !!window._AUTH_GATE_ALLOW_BOOTSTRAP;
   var CFG = {
     apiKey:            'AIzaSyA_f0UniGXeSRRn4VjD-56Gp9Xb0M-I8kQ',
     authDomain:        'banphai-survey.firebaseapp.com',
@@ -66,6 +69,17 @@
     setTimeout(function () { u.focus(); }, 50);
   }
 
+  // ---- ข้อความปฏิเสธ (login แล้วแต่ไม่ใช่ admin) ----
+  function showDenied(auth, text) {
+    if (!ov) return;
+    ov.innerHTML =
+      '<div style="font-size:40px">⛔</div>' +
+      '<div style="color:#f1f5f9;font-size:18px;font-weight:700">เครื่องมือนี้สำหรับผู้ดูแลเท่านั้น</div>' +
+      '<div style="color:#94a3b8;font-size:13px;text-align:center;max-width:320px;line-height:1.6">' + text + '</div>' +
+      '<button id="_agOut" style="padding:10px 24px;border:none;border-radius:10px;background:#334155;color:#cbd5e1;font-weight:600;font-size:14px;cursor:pointer">ออกจากระบบ</button>';
+    ov.querySelector('#_agOut').onclick = function () { auth.signOut(); };
+  }
+
   // ---- firebase พร้อมหรือยัง (init ถ้ายังไม่ init) ----
   function getAuth() {
     if (typeof firebase === 'undefined' || !firebase.auth) return null;
@@ -75,6 +89,19 @@
     } catch (e) { return null; }
   }
 
+  // ---- อ่าน role จาก users/{uid} ----
+  // คืน 'admin' | 'staff' | 'none' | 'error'
+  function fetchRole(user) {
+    if (typeof firebase === 'undefined' || !firebase.firestore) return Promise.resolve('error');
+    return firebase.firestore().collection('users').doc(user.uid).get()
+      .then(function (snap) {
+        if (!snap.exists) return 'none';
+        var d = snap.data();
+        return d.disabled === true ? 'none' : (d.role || 'none');
+      })
+      .catch(function () { return 'error'; });
+  }
+
   function start() {
     injectOverlay();
     var tries = 0;
@@ -82,8 +109,23 @@
       var auth = getAuth();
       if (auth) {
         auth.onAuthStateChanged(function (user) {
-          if (user) { if (ov) { ov.remove(); ov = null; } }
-          else { showLoginForm(auth); }
+          // ⚠️ ต้องเช็ค isAnonymous ด้วย — session ของผู้สำรวจ (anonymous) ใช้ origin เดียวกัน
+          //    ถ้าเช็คแค่ truthy ผู้สำรวจที่เปิดแอป Home มาก่อนจะผ่าน gate นี้ทันที
+          if (!user || user.isAnonymous) { showLoginForm(auth); return; }
+          if (statusEl) statusEl.textContent = 'กำลังตรวจสอบสิทธิ์...';
+          fetchRole(user).then(function (role) {
+            if (role === 'admin') { if (ov) { ov.remove(); ov = null; } return; }
+            // โหมด bootstrap (users.html): บัญชีจริงที่ยังไม่มี users doc ให้ผ่าน
+            // เพื่อสร้าง doc admin คนแรกได้ — การเขียนจริงยังถูกบังคับด้วย Firestore rules
+            if (ALLOW_BOOTSTRAP && (role === 'none' || role === 'error')) {
+              if (ov) { ov.remove(); ov = null; }
+              return;
+            }
+            var name = (user.email || '').replace(EMAIL_DOMAIN, '');
+            showDenied(auth, role === 'staff'
+              ? 'บัญชี <b>' + name + '</b> เป็นระดับ staff (ผู้ควบคุม) — ใช้ Dashboard แทน'
+              : 'บัญชี <b>' + name + '</b> ยังไม่ได้รับสิทธิ์ — ติดต่อผู้ดูแลระบบ');
+          });
         });
         return;
       }
