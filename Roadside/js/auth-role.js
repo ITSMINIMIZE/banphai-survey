@@ -113,3 +113,50 @@ const Supervisors = {
     return html;
   }
 };
+
+// ===== รอบเก็บข้อมูล — กันข้อมูลเก่าย้อนกลับเข้าระบบ =====
+// admin ตั้ง config/data_round.since (ISO) ผ่าน tools/data-round.html
+// ระเบียนที่ createdAt < since = "ข้อมูลเก่าก่อนรอบนี้" → ไม่ส่งขึ้น cloud
+// since ว่าง/ไม่มี doc = ไม่กรองอะไรเลย (พฤติกรรมเดิม)
+const DataRound = {
+  CACHE_KEY: '_data_round_v1',
+  _r: null,
+
+  // อ่านแบบ sync (ใช้ตอน render/sync) — คืน { since, label }
+  get() {
+    if (this._r) return this._r;
+    try {
+      const raw = localStorage.getItem(this.CACHE_KEY);
+      this._r = raw ? JSON.parse(raw) : { since: '', label: '' };
+    } catch (_) { this._r = { since: '', label: '' }; }
+    return this._r;
+  },
+  since() { return this.get().since || ''; },
+  label() { return this.get().label || ''; },
+
+  async load(db) {
+    try {
+      if (!db) return this.get();
+      const snap = await db.collection('config').doc('data_round').get();
+      const d = snap.exists ? snap.data() : {};
+      this._r = { since: d.since || '', label: d.label || '' };
+      try { localStorage.setItem(this.CACHE_KEY, JSON.stringify(this._r)); } catch (_) {}
+    } catch (_) { /* ออฟไลน์ → ใช้ cache เดิม */ }
+    return this.get();
+  },
+
+  // ระเบียนนี้เก่ากว่ารอบปัจจุบันหรือไม่ (ไม่มี createdAt = ถือว่าเก่า)
+  isOld(rec) {
+    const s = this.since();
+    if (!s) return false;
+    if (!rec) return false;
+    return String(rec.createdAt || '') < s;
+  },
+
+  // นาฬิกาเครื่องนี้ผิดหรือเปล่า — ถ้าเวลาปัจจุบันยังไม่ถึงวันเริ่มรอบ
+  // ข้อมูลที่บันทึกใหม่จะถูกสแตมป์เป็นเวลาเก่าแล้วโดนกรองทิ้งเงียบๆ
+  clockLooksWrong() {
+    const s = this.since();
+    return !!s && new Date().toISOString() < s;
+  }
+};
