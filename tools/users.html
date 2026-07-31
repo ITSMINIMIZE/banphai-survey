@@ -435,6 +435,30 @@ async function rebuildSupervisors(){
   } catch(e){ msg($('listMsg'), 'อัปเดตรายชื่อไม่สำเร็จ: ' + esc(e.message), 'err'); }
 }
 
+// ===== เปลี่ยนอีเมลที่ใช้ login ของบัญชีตัวเอง =====
+// Firebase บล็อก updateEmail ตรงๆ (email enumeration protection) → ต้องส่งลิงก์ยืนยันไปอีเมลใหม่
+// ข้อดี: uid เดิม รหัสผ่านเดิม สิทธิ์เดิม ข้อมูลไม่ขาดตอน
+async function changeMyEmail(){
+  const u = auth.currentUser;
+  if (!u) return;
+  const nw = (prompt('อีเมลใหม่ที่จะใช้เข้าระบบ\n\nระบบจะส่งลิงก์ยืนยันไปที่อีเมลนั้น '
+    + 'กดลิงก์แล้วอีเมลถึงจะเปลี่ยน (รหัสผ่านและสิทธิ์เดิมไม่เปลี่ยน)', u.email || '') || '').trim().toLowerCase();
+  if (!nw || nw === u.email) return;
+  if (!nw.includes('@') || nw.endsWith(EMAIL_DOMAIN))
+    return alert('ต้องเป็นอีเมลจริงที่เปิดอ่านได้ (ไม่ใช่ ' + EMAIL_DOMAIN + ')');
+  try {
+    await u.verifyBeforeUpdateEmail(nw);
+    alert('ส่งลิงก์ยืนยันไปที่ ' + nw + ' แล้ว\n\n'
+      + '1) เปิดอีเมลแล้วกดลิงก์ (ถ้าไม่เจอ ดูในกล่องจดหมายขยะ)\n'
+      + '2) กลับมา login ใหม่ด้วยอีเมลใหม่ + รหัสผ่านเดิม\n\n'
+      + 'จนกว่าจะกดลิงก์ ให้ใช้อีเมลเดิม login ไปก่อน');
+  } catch(e){
+    alert(e.code === 'auth/requires-recent-login'
+      ? 'เพื่อความปลอดภัย ต้องออกจากระบบแล้วเข้าใหม่ก่อนเปลี่ยนอีเมล'
+      : 'เปลี่ยนไม่สำเร็จ: ' + e.message);
+  }
+}
+
 // ===== ซ่อมบัญชีกำพร้า =====
 async function doRepair(){
   const uid = $('f_uid').value.trim(), rawEmail = $('f_email').value.trim().toLowerCase();
@@ -459,10 +483,21 @@ auth.onAuthStateChanged(async user => {
   let role = '(ยังไม่มี users doc)';
   try {
     const snap = await db.collection('users').doc(user.uid).get();
-    if (snap.exists) role = snap.data().role + (snap.data().disabled ? ' · ปิดใช้งาน' : '');
+    if (snap.exists) {
+      const d = snap.data();
+      role = d.role + (d.disabled ? ' · ปิดใช้งาน' : '');
+      // อีเมลที่ใช้ login เปลี่ยนไปแล้ว (ยืนยันผ่านลิงก์) → อัปเดตในระบบให้ตรงกัน
+      if (user.email && d.email !== user.email) {
+        db.collection('users').doc(user.uid)
+          .set({ email: user.email, username: user.email.replace(EMAIL_DOMAIN,''),
+                 updatedAt: new Date().toISOString(), updatedBy: 'auto-sync' }, { merge: true })
+          .catch(() => {});
+      }
+    }
   } catch(_) {}
   $('meBox').innerHTML =
     `เข้าสู่ระบบเป็น <b>${esc(user.email)}</b> · ระดับ: <b>${esc(role)}</b>
+     <button class="btn btn-ghost btn-sm" style="margin-left:8px" onclick="changeMyEmail()">✉️ เปลี่ยนอีเมลที่ใช้เข้าระบบ</button>
      <a href="#" onclick="auth.signOut();return false" style="margin-left:8px">ออกจากระบบ</a>
      <div style="margin-top:8px">UID ของฉัน: <code>${esc(user.uid)}</code>
        <button class="btn btn-ghost btn-sm" style="margin-left:6px"
