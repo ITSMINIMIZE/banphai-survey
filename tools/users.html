@@ -42,6 +42,9 @@
   .banner{background:rgba(180,83,9,.18);border:1px solid #b45309;border-radius:10px;padding:14px;margin-bottom:16px;font-size:13px;line-height:1.6}
   .warnbox{background:rgba(239,68,68,.08);border:1px solid #7f1d1d;border-radius:10px;padding:12px;font-size:12px;color:#fca5a5;line-height:1.6;margin-top:14px}
   a{color:#60a5fa}
+  .modal{position:fixed;inset:0;z-index:9000;background:rgba(15,23,42,.85);display:none;
+         align-items:center;justify-content:center;padding:20px}
+  .modal .card{max-width:520px;width:100%;margin:0}
 </style>
 <script>window._AUTH_GATE_ALLOW_BOOTSTRAP = true;</script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
@@ -105,9 +108,9 @@
     <button class="btn btn-go" id="createBtn" onclick="doCreate()">➕ สร้างบัญชี</button>
     <div class="msg" id="createMsg"></div>
     <div class="warnbox">
-      ⚠️ ระบบนี้ <b>ตั้งรหัสผ่านให้คนอื่นย้อนหลังไม่ได้</b> และ <b>ลบบัญชีถาวรไม่ได้</b> (ใช้ "ปิดบัญชี" แทน)<br>
-      • staff ลืมรหัส → กด "ลืมรหัสผ่าน" ที่หน้า Dashboard ระบบส่งลิงก์ไปอีเมลเอง<br>
-      • admin ลืมรหัส (อีเมลปลอม @banphai.local ส่งเมลไม่ได้) → ต้องปิดบัญชีเก่าแล้วสร้างใหม่
+      ⚠️ <b>ตั้งรหัสผ่านให้คนอื่นย้อนหลังไม่ได้</b> — ลืมรหัสต้องให้เจ้าตัวกด "ลืมรหัสผ่าน" ที่หน้า Dashboard
+      (ใช้ได้เฉพาะบัญชีที่เป็นอีเมลจริง · บัญชี <code>@banphai.local</code> ส่งเมลไม่ได้ ต้องลบแล้วสร้างใหม่)<br>
+      💡 แนะนำให้ทุกบัญชีใช้<b>อีเมลจริง</b> รวมทั้ง admin
     </div>
   </div>
 
@@ -122,6 +125,34 @@
     </div>
     <div style="overflow-x:auto"><table id="tbl"><tbody><tr><td>กำลังโหลด...</td></tr></tbody></table></div>
     <div class="msg" id="listMsg"></div>
+  </div>
+
+  <!-- หน้าต่างแก้ไขบัญชี -->
+  <div class="modal" id="editModal">
+    <div class="card">
+      <h2 id="e_title">แก้ไขบัญชี</h2>
+      <div class="field">
+        <label>ชื่อ-นามสกุล (ชื่อผู้ควบคุม)</label>
+        <input id="e_name" type="text" />
+        <div class="hint">⚠️ เปลี่ยนแล้วข้อมูลเก่าที่ผูกกับชื่อเดิมจะไม่ขึ้นใน Dashboard ของคนนี้</div>
+      </div>
+      <div class="grid2">
+        <div class="field">
+          <label>ระดับบัญชี</label>
+          <select id="e_role"><option value="staff">staff — ผู้ควบคุม</option><option value="admin">admin — ผู้ดูแลระบบ</option></select>
+        </div>
+        <div class="field">
+          <label>สถานะ</label>
+          <select id="e_disabled"><option value="0">ใช้งานอยู่</option><option value="1">ปิดใช้งาน</option></select>
+        </div>
+      </div>
+      <div class="field"><label>หมายเหตุ</label><input id="e_note" type="text" /></div>
+      <div style="display:flex;gap:10px;margin-top:6px">
+        <button class="btn btn-go" onclick="saveEdit()">💾 บันทึก</button>
+        <button class="btn btn-ghost" onclick="closeEdit()">ยกเลิก</button>
+      </div>
+      <div class="msg" id="editMsg"></div>
+    </div>
   </div>
 
   <!-- ซ่อมบัญชีกำพร้า -->
@@ -179,14 +210,6 @@ function secAuth(){
   return app.auth();
 }
 
-// อีเมลนี้มีบัญชี Firebase Auth (login ได้) แล้วหรือยัง
-// ใช้กันพลาด: ฟอร์ม "ซ่อม" เขียนแค่สิทธิ์ ถ้าไม่มีบัญชีจริงจะ login ไม่ได้
-async function authAccountExists(email){
-  try {
-    const methods = await auth.fetchSignInMethodsForEmail(email);
-    return methods && methods.length > 0;
-  } catch(_) { return null; }   // ตรวจไม่ได้ → ไม่บล็อก
-}
 
 // ===== pending queue (กันเขียน Firestore ไม่สำเร็จหลังสร้าง Auth แล้ว) =====
 function readPending(){ try { return JSON.parse(localStorage.getItem(PENDING_KEY) || '[]'); } catch(_) { return []; } }
@@ -304,67 +327,96 @@ async function loadUsers(){
              <td><span class="pill pill-${u.role}">${esc(u.role)}</span></td>
              <td id="st_${esc(u.uid)}">${u.disabled ? '<span class="pill pill-off">ปิดใช้งาน</span>' : '<span style="color:#34d399">ใช้งานอยู่</span>'}</td>
              <td style="white-space:nowrap;text-align:right">
-               <button class="btn btn-ghost btn-sm" onclick="editUser('${u.uid}')">แก้ไข</button>
-               <button class="btn btn-ghost btn-sm" onclick="toggleDisabled('${u.uid}')">${u.disabled ? 'เปิด' : 'ปิด'}</button>
+               <button class="btn btn-ghost btn-sm" onclick="openEdit('${u.uid}')">แก้ไข</button>
+               <button class="btn btn-sm" style="background:#7f1d1d;color:#fecaca" onclick="deleteUser('${u.uid}')"
+                 ${u.uid === (auth.currentUser && auth.currentUser.uid) ? 'disabled title="ลบบัญชีตัวเองไม่ได้"' : ''}>ลบ</button>
              </td>
            </tr>`).join('')}</tbody>`;
     msg($('listMsg'), '', 'info');
-    flagOrphans();   // เช็คพื้นหลังว่ามี doc ที่ไม่มีบัญชีเข้าระบบจริงไหม
   } catch(e){
     msg($('listMsg'), 'โหลดรายชื่อไม่สำเร็จ: ' + esc(e.message) + (e.code === 'permission-denied' ? ' (ยังไม่ได้ publish rules เฟส 1 หรือบัญชีนี้ไม่ใช่ admin)' : ''), 'err');
   }
 }
 
-// doc ที่ไม่มีบัญชี Firebase Auth คู่กัน = login ไม่ได้ (มักเกิดจากใช้ฟอร์ม "ซ่อม" กับอีเมลใหม่)
-async function flagOrphans(){
-  let found = 0;
-  for (const u of USERS) {
-    if (!u.email) continue;
-    const ok = await authAccountExists(u.email);
-    if (ok === false) {
-      found++;
-      const td = $('st_' + u.uid);
-      if (td) td.innerHTML = '<span class="pill" style="background:rgba(239,68,68,.18);color:#fca5a5">⚠ ไม่มีบัญชีเข้าระบบ</span>';
-    }
+// ===== กติกาความปลอดภัยของบัญชี =====
+const myUid       = () => auth.currentUser && auth.currentUser.uid;
+const activeAdmins = () => USERS.filter(x => x.role === 'admin' && !x.disabled);
+// เหตุผลที่ห้าม (คืน string) หรือ null ถ้าทำได้
+function blockReason(u, action){
+  if (u.uid === myUid()) {
+    if (action === 'delete')  return 'ลบบัญชีตัวเองไม่ได้';
+    if (action === 'disable') return 'ปิดบัญชีตัวเองไม่ได้';
+    if (action === 'demote')  return 'ลดระดับตัวเองไม่ได้';
   }
-  if (found) msg($('listMsg'),
-    `⚠️ พบ <b>${found}</b> รายการที่มีสิทธิ์แต่<b>ไม่มีบัญชีเข้าระบบ</b> — login ไม่ได้<br>
-     แก้โดยสร้างบัญชีใหม่ด้วยอีเมลเดิมผ่านกล่อง "➕ สร้างบัญชีใหม่" แล้วปิดรายการเก่านี้ทิ้ง`, 'err');
+  const isLastAdmin = u.role === 'admin' && !u.disabled && activeAdmins().length <= 1;
+  if (isLastAdmin && ['delete','disable','demote'].includes(action))
+    return 'ระบบต้องมีผู้ดูแล (admin) ที่ใช้งานอยู่อย่างน้อย 1 คน';
+  return null;
 }
 
-async function editUser(uid){
+// ===== หน้าต่างแก้ไข =====
+let EDITING = null;
+function openEdit(uid){
   const u = USERS.find(x => x.uid === uid); if (!u) return;
-  const name = prompt('ชื่อ-นามสกุล (ชื่อผู้ควบคุม)\n⚠️ เปลี่ยนแล้วข้อมูลเก่าที่ผูกกับชื่อเดิมจะไม่ขึ้นใน Dashboard ของคนนี้', u.displayName || '');
-  if (name === null) return;
-  const role = prompt('ระดับบัญชี: พิมพ์ admin หรือ staff', u.role);
-  if (role === null) return;
-  if (!['admin','staff'].includes(role)) return alert('ระดับต้องเป็น admin หรือ staff เท่านั้น');
-  if (u.role === 'admin' && role !== 'admin' &&
-      USERS.filter(x => x.role === 'admin' && !x.disabled).length <= 1)
-    return alert('ลดระดับไม่ได้ — นี่คือ admin คนสุดท้ายที่ใช้งานอยู่');
+  EDITING = uid;
+  $('e_name').value = u.displayName || '';
+  $('e_role').value = u.role;
+  $('e_note').value = u.note || '';
+  $('e_disabled').value = u.disabled ? '1' : '0';
+  $('e_title').innerHTML = `แก้ไขบัญชี — <b>${esc(u.email)}</b>${u.uid === myUid() ? ' <span class="pill pill-staff">บัญชีของคุณ</span>' : ''}`;
+  msg($('editMsg'), '', 'info');
+  $('editModal').style.display = 'flex';
+}
+function closeEdit(){ EDITING = null; $('editModal').style.display = 'none'; }
+
+async function saveEdit(){
+  const u = USERS.find(x => x.uid === EDITING); if (!u) return;
+  const name = normName($('e_name').value);
+  const role = $('e_role').value;
+  const disabled = $('e_disabled').value === '1';
+  if (!name) return msg($('editMsg'), 'กรอกชื่อ-นามสกุล', 'err');
+
+  if (role !== u.role && u.role === 'admin') {
+    const why = blockReason(u, 'demote');
+    if (why) return msg($('editMsg'), '❌ ' + why, 'err');
+  }
+  if (disabled && !u.disabled) {
+    const why = blockReason(u, 'disable');
+    if (why) return msg($('editMsg'), '❌ ' + why, 'err');
+  }
+  if (name !== (u.displayName || '') &&
+      !confirm('เปลี่ยนชื่อผู้ควบคุมจาก "' + (u.displayName||'-') + '" เป็น "' + name + '"\n\n'
+             + '⚠️ ข้อมูลเก่าที่บันทึกด้วยชื่อเดิมจะไม่ขึ้นใน Dashboard ของคนนี้อีก')) return;
   try {
-    await db.collection('users').doc(uid).set({
-      displayName: normName(name), supervisorName: normName(name), role,
+    await db.collection('users').doc(u.uid).set({
+      displayName: name, supervisorName: name, role, disabled,
+      note: $('e_note').value.trim(),
       updatedAt: new Date().toISOString(),
       updatedBy: auth.currentUser.email.replace(EMAIL_DOMAIN,'')
     }, { merge: true });
+    closeEdit();
     await loadUsers(); await rebuildSupervisors();
-  } catch(e){ alert('บันทึกไม่สำเร็จ: ' + e.message); }
+  } catch(e){ msg($('editMsg'), 'บันทึกไม่สำเร็จ: ' + esc(e.message), 'err'); }
 }
 
-async function toggleDisabled(uid){
+// ===== ลบบัญชี =====
+async function deleteUser(uid){
   const u = USERS.find(x => x.uid === uid); if (!u) return;
-  const next = !u.disabled;
-  if (next && u.role === 'admin' && USERS.filter(x => x.role === 'admin' && !x.disabled).length <= 1)
-    return alert('ปิดไม่ได้ — นี่คือ admin คนสุดท้ายที่ใช้งานอยู่');
-  if (next && !confirm(`ปิดบัญชี ${u.displayName || u.email}?\nเจ้าตัวจะเข้าระบบไม่ได้ทันทีที่ login ใหม่`)) return;
+  const why = blockReason(u, 'delete');
+  if (why) return alert('❌ ' + why);
+  if (!confirm(`ลบบัญชี "${u.displayName || u.email}" ออกจากระบบ?\n\n`
+    + `• หมดสิทธิ์ทันที เข้าใช้งานไม่ได้ทุกแอป\n`
+    + `• หายจากรายชื่อผู้ควบคุมในแบบสอบถาม\n`
+    + `• ข้อมูลสำรวจที่เก็บไว้แล้วไม่หาย\n\n`
+    + `หมายเหตุ: รหัสผ่านเดิมในระบบ Firebase ยังลบไม่ได้จากหน้านี้ แต่ใช้เข้าอะไรไม่ได้แล้ว`)) return;
   try {
-    await db.collection('users').doc(uid).set({
-      disabled: next, updatedAt: new Date().toISOString(),
-      updatedBy: auth.currentUser.email.replace(EMAIL_DOMAIN,'')
-    }, { merge: true });
+    await db.collection('users').doc(uid).delete();
     await loadUsers(); await rebuildSupervisors();
-  } catch(e){ alert('บันทึกไม่สำเร็จ: ' + e.message); }
+    msg($('listMsg'), `✓ ลบบัญชี ${esc(u.email)} แล้ว`, 'ok');
+  } catch(e){
+    msg($('listMsg'), 'ลบไม่สำเร็จ: ' + esc(e.message)
+      + (e.code === 'permission-denied' ? ' — ต้องอัปเดต Firestore rules ให้ admin ลบ users ได้ก่อน' : ''), 'err');
+  }
 }
 
 // ===== rebuild config/supervisors — รายชื่อที่แอปเอาไปทำ dropdown =====
@@ -389,14 +441,9 @@ async function doRepair(){
   const name = normName($('f_name').value), role = $('f_role').value;
   if (!uid || !rawEmail || !name) return msg($('repairMsg'), 'กรอก UID, อีเมล และชื่อให้ครบ', 'err');
   const email = rawEmail.includes('@') ? rawEmail : rawEmail + EMAIL_DOMAIN;
-  // กันพลาด: ฟอร์มนี้เขียนแค่สิทธิ์ ถ้ายังไม่มีบัญชี Auth จะ login ไม่ได้เลย
-  const exists = await authAccountExists(email);
-  if (exists === false) {
-    msg($('repairMsg'), `❌ ยังไม่มีบัญชีเข้าระบบสำหรับ <b>${esc(email)}</b><br>
-      ฟอร์มนี้ใช้ <b>เขียนสิทธิ์ให้บัญชีที่มีอยู่แล้ว</b> เท่านั้น (ไม่ได้สร้างบัญชีใหม่)<br>
-      ถ้าต้องการบัญชีใหม่ → ใช้กล่อง <b>"➕ สร้างบัญชีใหม่"</b> ด้านบนแทน`, 'err');
-    return;
-  }
+  if (!confirm('ยืนยัน: อีเมลนี้ "มีบัญชีเข้าระบบอยู่แล้ว" ใช่ไหม?\n\n'
+    + 'ฟอร์มนี้เขียนแค่สิทธิ์ ไม่ได้สร้างบัญชีใหม่\n'
+    + 'ถ้ายังไม่เคยสร้างบัญชี ให้กดยกเลิกแล้วไปใช้กล่อง "สร้างบัญชีใหม่" แทน')) return;
   try {
     await writeUserDoc({ uid, email, role, name, note: '' });
     clearPending(uid); renderPending();
