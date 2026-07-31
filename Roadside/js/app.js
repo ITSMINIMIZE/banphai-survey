@@ -2,9 +2,29 @@
 const App = {
   page: 'home', stId: null, ivId: null,
   _clientIp: '',
-  _role: null,
+  _role: null,          // 'admin' | 'staff' | 'surveyor'
   _surveyorName: '',
   _adminUsername: '',
+  _team: '',            // staff: ชื่อผู้ควบคุม = ทีมที่ตัวเองดูแล
+  _bootHandled: false,  // กันเข้าแอปซ้ำเมื่อ auth event ยิงหลายครั้ง
+
+  // ---- สิทธิ์ ----
+  _isAdmin()   { return this._role === 'admin'; },
+  _isStaff()   { return this._role === 'staff'; },
+  _canManage() { return this._role === 'admin' || this._role === 'staff'; },  // สร้างจุดสำรวจ/export
+  _canSeeAll() { return this._role === 'admin'; },                            // เห็นข้ามทีม
+  _teamName()  { return this._team || ''; },
+  // ดึงข้อมูลตามขอบเขตของบทบาท
+  _pullScoped() {
+    if (this._isAdmin()) return FB.pullAll();
+    if (this._isStaff()) return FB.pullBySupervisor(this._team);
+    return FB.pullBySurveyor(this._surveyorName);
+  },
+  // จุดสำรวจที่บทบาทนี้เห็นได้: admin=ทั้งหมด · staff=ทีมตัวเอง · ผู้สำรวจ=ทั้งหมด (ต้องเห็นเพื่อไปลงจุด)
+  _visibleStations(list) {
+    if (this._isStaff()) return list.filter(st => this._normName(st.supervisorName) === this._team);
+    return list;
+  },
   // wizard state
   wizardStep: 1,
   wizardData: null,
@@ -27,14 +47,21 @@ const App = {
       .catch(() => {});
 
     if (typeof firebase !== 'undefined' && firebase.apps?.length) {
-      FB.onAuthStateChanged(user => {
-        if (this._role) return;
-        // user แบบ anonymous = ผู้สำรวจ/ยังไม่ login → ไปหน้าเลือกบทบาท (ไม่ใช่ admin)
-        if (user && !user.isAnonymous) {
-          this._adminUsername = user.email.replace(FB.EMAIL_DOMAIN, '');
-          this._role = 'admin';
+      FB.onAuthStateChanged(async user => {
+        // รายชื่อผู้ควบคุมสำหรับ dropdown — ต้องมี token ก่อนถึงอ่าน config ได้ (anonymous ก็พอ)
+        if (user) Supervisors.load(FB.db).catch(() => {});
+        if (this._role || this._bootHandled) return;
+        // anonymous = ผู้สำรวจ/ยังไม่ login → ไปหน้าเลือกบทบาท
+        if (!user || user.isAnonymous) { this._showLoginGate(); return; }
+        this._bootHandled = true;   // ตั้งก่อน await — กัน event ยิงซ้ำระหว่างรออ่าน role
+        const r = await Role.resolve(user, FB.db);
+        if (r && (r.role === 'admin' || r.role === 'staff')) {
+          this._adminUsername = r.displayName || r.username;
+          this._role = r.role;
+          this._team = r.supervisorName || '';
           this._enterApp();
         } else {
+          this._bootHandled = false;
           this._showLoginGate();
         }
       });
@@ -76,7 +103,7 @@ const App = {
               <button class="btn btn-ghost" style="padding:14px 20px;font-size:15px;justify-content:flex-start;gap:12px;border-radius:var(--radius);"
                 onclick="App.loginAsAdmin()">
                 <span style="font-size:20px;">🔐</span>
-                <span>เข้าสู่ระบบ (ผู้ดูแลระบบ)</span>
+                <span>เข้าสู่ระบบ (ผู้ดูแล / ผู้ควบคุม)</span>
               </button>
             </div>
           </div>
@@ -124,11 +151,12 @@ const App = {
   },
 
   loginAsAdmin() {
-    this.showModal('🔐 เข้าสู่ระบบ (ผู้ดูแลระบบ)', `
+    this.showModal('🔐 เข้าสู่ระบบ (ผู้ดูแล / ผู้ควบคุม)', `
       <div class="form-row">
-        <label class="form-label">ชื่อผู้ใช้</label>
-        <input id="adm_user" class="form-input" autocomplete="off" placeholder="username"
+        <label class="form-label">ชื่อผู้ใช้ หรือ อีเมล</label>
+        <input id="adm_user" class="form-input" autocomplete="username" placeholder="username หรือ email"
           onkeydown="if(event.key==='Enter')document.getElementById('adm_pass').focus()" />
+        <div style="font-size:11px;color:var(--gray-500);margin-top:3px;">ผู้ดูแล = ชื่อผู้ใช้ · ผู้ควบคุม = อีเมลที่ลงทะเบียนไว้</div>
       </div>
       <div class="form-row">
         <label class="form-label">รหัสผ่าน</label>
@@ -149,9 +177,20 @@ const App = {
     if (btn) { btn.textContent = '⌛ กำลังตรวจสอบ...'; btn.disabled = true; }
     try {
       if (!FB.db) FB.init();
-      await FB.loginAdmin(username, password);
-      this._adminUsername = username;
-      this._role = 'admin';
+      const user = await FB.loginAdmin(username, password);
+      // อ่านสิทธิ์สดจาก users/{uid} (ข้าม cache) — เพิ่งเปลี่ยน role ต้องเห็นผลทันที
+      const r = await Role.resolve(user, FB.db, true);
+      if (!r || (r.role !== 'admin' && r.role !== 'staff')) {
+        await FB.logoutAdmin().catch(() => {});
+        Role.clear();
+        if (btn) { btn.textContent = 'เข้าสู่ระบบ'; btn.disabled = false; }
+        this.toast('บัญชีนี้ยังไม่ได้รับสิทธิ์ หรือถูกปิดการใช้งาน — ติดต่อผู้ดูแลระบบ', 'error');
+        return;
+      }
+      this._bootHandled   = true;
+      this._team          = r.supervisorName || '';
+      this._role          = r.role;
+      this._adminUsername = r.displayName || r.username;
       this.closeModal();
       this._enterApp();
     } catch {
@@ -168,7 +207,7 @@ const App = {
         <a class="tb-link" href="../index.html">◈ เมนูหลัก</a>
         <span class="tb-sep">|</span>
         <span class="tb-user">
-          ${this._role === 'admin' ? '🔐' : '👤'} ${this.esc(this._role === 'admin' ? this._adminUsername : this._surveyorName)}
+          ${this._isAdmin() ? '🔐' : this._isStaff() ? '🧑‍💼' : '👤'} ${this.esc(this._canManage() ? this._adminUsername : this._surveyorName)}${this._isStaff() ? ' · ผู้ควบคุม' : ''}
         </span>
         <button class="tb-logout" onclick="App.logout()">ออก</button>
       </div>`;
@@ -186,9 +225,7 @@ const App = {
       if (typeof firebase === 'undefined') return;
       if (!FB.db) FB.init();
       if (!FB.db) return;
-      const count = this._role === 'admin'
-        ? await FB.pullAll()
-        : await FB.pullBySurveyor(this._surveyorName);
+      const count = await this._pullScoped();
       localStorage.setItem('_ri_last_auto_pull', String(Date.now()));
       this.toast(`☁️ โหลดจุดสำรวจแล้ว ${count} จุด`, 'success');
       this.render();
@@ -197,7 +234,10 @@ const App = {
 
   logout() {
     if (!confirm('ออกจากระบบ?')) return;
-    if (this._role === 'admin') FB.logoutAdmin().catch(() => {});
+    if (this._canManage()) FB.logoutAdmin().catch(() => {});
+    Role.clear();
+    this._team = '';
+    this._bootHandled = false;
     this._role = null;
     this._surveyorName = '';
     this._adminUsername = '';
@@ -261,7 +301,7 @@ const App = {
 
   // ===================== PAGE: ถังขยะ (admin) =====================
   pageTrash() {
-    if (this._role !== 'admin') return `<div class="page container"><p>เฉพาะผู้ดูแลระบบ</p></div>`;
+    if (!this._isAdmin()) return `<div class="page container"><p>เฉพาะผู้ดูแลระบบ</p></div>`;
     const items = DB.getTrash();
     return `<div class="page container">
       <div class="sec-header">
@@ -349,16 +389,17 @@ const App = {
 
   // ===================== PAGE: HOME =====================
   pageHome() {
-    const isAdmin  = this._role === 'admin';
-    const allSts   = DB.getStations();
-    const mySts    = isAdmin ? allSts : allSts.filter(s => s.surveyorName === this._surveyorName);
-    const otherSts = isAdmin ? [] : allSts.filter(s => s.surveyorName !== this._surveyorName);
-    const ivCount  = isAdmin
+    const isAdmin  = this._isAdmin();
+    const seesAll  = this._canManage();   // admin + staff เห็นงานของทุกคนในขอบเขตตัวเอง
+    const allSts   = this._visibleStations(DB.getStations());
+    const mySts    = seesAll ? allSts : allSts.filter(s => s.surveyorName === this._surveyorName);
+    const otherSts = seesAll ? [] : allSts.filter(s => s.surveyorName !== this._surveyorName);
+    const ivCount  = seesAll
       ? allSts.reduce((s, st) => s + st.interviews.length, 0)
       : allSts.reduce((s, st) => s + st.interviews.filter(iv => iv.surveyorName === this._surveyorName).length, 0);
 
     // กรอง "พิกัดไม่ครบ" — จุดที่มี interview ต้นทาง/ปลายทางไม่มีพิกัด (รอไปแก้)
-    const stNoCoord = st => (isAdmin ? st.interviews : st.interviews.filter(iv => iv.surveyorName === this._surveyorName))
+    const stNoCoord = st => (seesAll ? st.interviews : st.interviews.filter(iv => iv.surveyorName === this._surveyorName))
       .some(iv => !iv.originCoords || !iv.destinationCoords);
     const noCoordSts = mySts.filter(stNoCoord);
     const shownMy    = this._filterNoCoords ? noCoordSts : mySts;
@@ -366,7 +407,7 @@ const App = {
     const stationCard = (st, isMine) => {
       const dirTag  = st.direction ? `<span class="tag tag-orange">↔ ${st.direction}</span>` : '';
       // นับเฉพาะ interview ของตัวเอง (ไม่นับของคนอื่น)
-      const relIvs  = isAdmin ? st.interviews : st.interviews.filter(iv => iv.surveyorName === this._surveyorName);
+      const relIvs  = seesAll ? st.interviews : st.interviews.filter(iv => iv.surveyorName === this._surveyorName);
       const myCount = relIvs.length;
       // มี interview ที่พิมพ์ชื่อสถานที่เอง (ไม่ได้เลือกหมุด/ค้นหาจนพบ → ไม่มีพิกัด) → การ์ดขึ้นสีแดง
       const manualPlace = relIvs.some(iv => this._ivPlaceManual(iv));
@@ -410,7 +451,7 @@ const App = {
           <p>โครงการวางผังเมืองรวมอำเภอบ้านไผ่ จ.ขอนแก่น</p>
         </div>
         <div class="dash-stats">
-          <div class="dash-stat"><div class="dash-stat-val">${mySts.length}</div><div class="dash-stat-lbl">${isAdmin ? 'จุดสำรวจ' : 'จุดของฉัน'}</div></div>
+          <div class="dash-stat"><div class="dash-stat-val">${mySts.length}</div><div class="dash-stat-lbl">${seesAll ? 'จุดสำรวจ' : 'จุดของฉัน'}</div></div>
           <div class="dash-stat"><div class="dash-stat-val">${ivCount}</div><div class="dash-stat-lbl">การสำรวจ</div></div>
           ${!isAdmin && otherSts.length > 0 ? `<div class="dash-stat"><div class="dash-stat-val">${otherSts.length}</div><div class="dash-stat-lbl">จุดอื่น</div></div>` : ''}
         </div>
@@ -419,17 +460,17 @@ const App = {
       <div class="sec-header">
         <div>
           <div class="sec-title">รายการจุดสำรวจ</div>
-          <div class="sec-sub">พบ ${allSts.length} จุดสำรวจ${!isAdmin ? ` · ของฉัน ${mySts.length} จุด` : ''} · ${this._syncBadge()}</div>
+          <div class="sec-sub">พบ ${allSts.length} จุดสำรวจ${this._isStaff() ? ` (ทีม ${this.esc(this._team)})` : !isAdmin ? ` · ของฉัน ${mySts.length} จุด` : ''} · ${this._syncBadge()}</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           ${noCoordSts.length > 0 ? `<button class="btn btn-sm ${this._filterNoCoords ? 'btn-danger' : 'btn-ghost'}" onclick="App.toggleNoCoords()">📍 พิกัดไม่ครบ ${noCoordSts.length}</button>` : ''}
-          ${isAdmin && allSts.length > 0 ? `<button class="btn btn-ghost btn-sm" onclick="App.exportData()">⬇ Export Excel</button>` : ''}
+          ${this._canManage() && allSts.length > 0 ? `<button class="btn btn-ghost btn-sm" onclick="App.exportData()">⬇ Export Excel</button>` : ''}
           ${isAdmin ? (() => { const n = DB.getTrash().length;
             return `<button class="btn btn-ghost btn-sm" onclick="App.navigate('trash')">🗑 ถังขยะ${n ? ` (${n})` : ''}</button>`; })() : ''}
           ${allSts.length > 0 ? `<button class="btn btn-ghost btn-sm" id="syncBtn" onclick="App.syncToCloud()">☁️ Sync</button>` : ''}
           ${isAdmin && allSts.length > 0 ? `<button class="btn btn-danger btn-sm" onclick="App.confirmClearAll()">🗑 ล้างข้อมูล</button>` : ''}
           <button class="btn btn-ghost btn-sm" id="pullBtn" onclick="App.pullFromCloud()">☁️ ดึงข้อมูล</button>
-          ${isAdmin ? `<button class="btn btn-primary" onclick="App.openAddStation()">+ เพิ่มจุดสำรวจ</button>` : ''}
+          ${this._canManage() ? `<button class="btn btn-primary" onclick="App.openAddStation()">+ เพิ่มจุดสำรวจ</button>` : ''}
         </div>
       </div>
 
@@ -437,9 +478,9 @@ const App = {
         <div class="empty">
           <span class="empty-icon">🚦</span>
           <h3>ยังไม่มีจุดสำรวจ</h3>
-          <p>${isAdmin ? 'กดปุ่มด้านบนเพื่อเริ่มบันทึกข้อมูล หรือดึงข้อมูลจาก Firebase' : 'กด "ดึงข้อมูล" เพื่อโหลดจุดสำรวจที่ admin สร้างไว้'}</p>
+          <p>${this._canManage() ? 'กดปุ่มด้านบนเพื่อเริ่มบันทึกข้อมูล หรือดึงข้อมูลจาก Firebase' : 'กด "ดึงข้อมูล" เพื่อโหลดจุดสำรวจที่ผู้ดูแลสร้างไว้'}</p>
           <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-            ${isAdmin ? `<button class="btn btn-primary" onclick="App.openAddStation()">+ เพิ่มจุดสำรวจแรก</button>` : ''}
+            ${this._canManage() ? `<button class="btn btn-primary" onclick="App.openAddStation()">+ เพิ่มจุดสำรวจแรก</button>` : ''}
             <button class="btn btn-ghost" id="pullBtn" onclick="App.pullFromCloud()">☁️ ดึงข้อมูลจาก Firebase</button>
           </div>
         </div>` :
@@ -486,7 +527,7 @@ const App = {
   pageStation() {
     const st = DB.getStationView(this.stId);   // view: ไม่รวมรายการที่ลบออกจากระบบแล้ว
     if (!st) return '<div class="container"><p>ไม่พบข้อมูล</p></div>';
-    const isAdmin = this._role === 'admin';
+    const isAdmin = this._isAdmin();
     // surveyor เห็นเฉพาะ interview ของตัวเอง (กรองตาม surveyorName ระดับ interview)
     const myIvs   = isAdmin
       ? st.interviews
@@ -590,7 +631,7 @@ const App = {
     const iv = DB.getInterview(this.stId, this.ivId);
     if (!iv || iv._deleted) return '<div class="container"><p>ไม่พบข้อมูล (ถูกลบออกจากระบบแล้ว)</p></div>';
     const vt = OPT.vehicleTypes.find(v => v.key === iv.vehicleType) || { icon: '🚘', label: iv.vehicleType || '—' };
-    const canEdit = this._role === 'admin' || iv.surveyorName === this._surveyorName;
+    const canEdit = this._canManage() || iv.surveyorName === this._surveyorName;
 
     const row = (label, val) => `
       <div class="info-item">
@@ -698,8 +739,16 @@ const App = {
       </div>
       <div class="form-row">
         <label class="form-label req">ผู้ควบคุม</label>
-        <input id="s_supervisor" class="form-input" autocomplete="off" placeholder="ชื่อผู้ควบคุมทีม"
-          value="${st?.supervisorName || names.supervisor || ''}" />
+        ${(() => {
+          const cur = st?.supervisorName || (this._isStaff() ? this._team : (names.supervisor || ''));
+          if (this._isStaff())
+            return `<input id="s_supervisor" class="form-input" value="${this.esc(this._team)}" readonly
+                      style="background:var(--gray-100);" />
+                    <div style="font-size:11px;color:var(--gray-400);margin-top:3px;">🔒 จากบัญชีที่เข้าสู่ระบบ</div>`;
+          const empty = Supervisors.list().length === 0;
+          return `<select id="s_supervisor" class="form-input">${Supervisors.optionsHTML(cur, x => this.esc(x))}</select>
+                  ${empty ? '<div style="font-size:11px;color:var(--danger);margin-top:3px;">⚠ ยังไม่มีรายชื่อผู้ควบคุมในระบบ — ติดต่อผู้ดูแล</div>' : ''}`;
+        })()}
       </div>
       <div class="form-grid">
         <div class="form-row">
@@ -819,6 +868,8 @@ const App = {
   },
 
   openAddStation() {
+    // guard จริง — เดิมซ่อนแค่ปุ่ม เรียกจาก console ได้
+    if (!this._canManage()) { this.toast('เฉพาะผู้ดูแลระบบ / ผู้ควบคุมเท่านั้น', 'error'); return; }
     this.showModal('🚦 เพิ่มจุดสำรวจใหม่', this._stationFormHTML(null),
       `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
        <button class="btn btn-primary" onclick="App.saveStation()">บันทึก</button>`
@@ -827,6 +878,7 @@ const App = {
   },
 
   saveStation() {
+    if (!this._canManage()) { this.toast('เฉพาะผู้ดูแลระบบ / ผู้ควบคุมเท่านั้น', 'error'); return; }
     const data = this._readStationForm();
     const errs = this._validateStationForm(data);
     if (errs.length) { this.toast('กรอกข้อมูลให้ครบ: ' + errs.join(', '), 'error'); return; }
@@ -836,7 +888,7 @@ const App = {
       deviceId: (typeof FB !== 'undefined' ? FB.deviceId() : null) || localStorage.getItem('_device_id') || '',
       clientIp: this._clientIp || ''
     });
-    if (this._role === 'admin') this._autoPush(() => FB.pushStation(st));  // rules: surveyor เขียน station ไม่ได้
+    if (this._canManage()) this._autoPush(() => FB.pushStation(st));  // rules: ผู้สำรวจเขียน station ไม่ได้
     this.closeModal();
     this.toast('เพิ่มจุดสำรวจแล้ว', 'success');
     this.navigate('station', st.id);
@@ -852,13 +904,14 @@ const App = {
   },
 
   saveEditStation(id) {
+    if (!this._canManage()) { this.toast('เฉพาะผู้ดูแลระบบ / ผู้ควบคุมเท่านั้น', 'error'); return; }
     const old = DB.getStation(id);
     const data = this._readStationForm(old);
     const errs = this._validateStationForm(data);
     if (errs.length) { this.toast('กรอกข้อมูลให้ครบ: ' + errs.join(', '), 'error'); return; }
     this._saveSurveyorNames(null, data.supervisorName);
     const st = DB.updateStation(id, data);
-    if (this._role === 'admin') this._autoPush(() => FB.pushStation(st));  // rules: surveyor เขียน station ไม่ได้
+    if (this._canManage()) this._autoPush(() => FB.pushStation(st));  // rules: ผู้สำรวจเขียน station ไม่ได้
     this.closeModal();
     this.toast('บันทึกข้อมูลจุดสำรวจแล้ว', 'success');
     this.render();
@@ -873,7 +926,7 @@ const App = {
          <div style="font-weight:700;font-size:13px;">🖥 ลบจากเครื่องนี้</div>
          <div style="font-size:12px;color:var(--gray-600);margin-top:2px;">ล้างแคชในเครื่อง · ข้อมูลบนระบบยังอยู่ ดึงกลับได้</div>
        </div>
-       ${this._role === 'admin' ? `
+       ${this._isAdmin() ? `
        <div style="margin-top:10px;padding:12px;background:rgba(239,68,68,.08);border:1px solid var(--danger);border-radius:8px;">
          <div style="font-weight:700;font-size:13px;color:var(--danger);">☁️ ลบออกจากระบบ</div>
          <div style="font-size:12px;color:var(--gray-600);margin-top:2px;">
@@ -883,13 +936,13 @@ const App = {
        </div>` : ''}`,
       `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
        <button class="btn btn-ghost" style="color:var(--gray-700)" onclick="App.deleteStation('${id}')">🖥 ลบจากเครื่องนี้</button>
-       ${this._role === 'admin' ? `<button class="btn btn-danger" onclick="App.systemDeleteStation('${id}')">☁️ ลบออกจากระบบ</button>` : ''}`
+       ${this._isAdmin() ? `<button class="btn btn-danger" onclick="App.systemDeleteStation('${id}')">☁️ ลบออกจากระบบ</button>` : ''}`
     );
   },
 
   // ลบออกจากระบบ (soft delete) — ซ่อนทุกที่ + ส่งขึ้น cloud ทันที · กู้คืนได้จากถังขยะ
   systemDeleteStation(id) {
-    if (this._role !== 'admin') { this.toast('เฉพาะผู้ดูแลระบบเท่านั้น', 'error'); return; }
+    if (!this._isAdmin()) { this.toast('เฉพาะผู้ดูแลระบบเท่านั้น', 'error'); return; }
     const st = DB.softDeleteStation(id, this._adminUsername || 'admin');
     if (!st) { this.toast('ไม่พบจุดสำรวจ', 'error'); return; }
     this._autoPush(() => FB.pushStation(st));
@@ -1131,7 +1184,7 @@ const App = {
          <div style="font-weight:700;font-size:13px;">🖥 ลบจากเครื่องนี้</div>
          <div style="font-size:12px;color:var(--gray-600);margin-top:2px;">ล้างแคชในเครื่อง · ข้อมูลบนระบบยังอยู่ ดึงกลับได้</div>
        </div>
-       ${this._role === 'admin' ? `
+       ${this._isAdmin() ? `
        <div style="margin-top:10px;padding:12px;background:rgba(239,68,68,.08);border:1px solid var(--danger);border-radius:8px;">
          <div style="font-weight:700;font-size:13px;color:var(--danger);">☁️ ลบออกจากระบบ</div>
          <div style="font-size:12px;color:var(--gray-600);margin-top:2px;">
@@ -1141,7 +1194,7 @@ const App = {
        </div>` : ''}`,
       `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
        <button class="btn btn-ghost" style="color:var(--gray-700)" onclick="App.deleteInterview('${ivId}')">🖥 ลบจากเครื่องนี้</button>
-       ${this._role === 'admin' ? `<button class="btn btn-danger" onclick="App.systemDeleteInterview('${ivId}')">☁️ ลบออกจากระบบ</button>` : ''}`
+       ${this._isAdmin() ? `<button class="btn btn-danger" onclick="App.systemDeleteInterview('${ivId}')">☁️ ลบออกจากระบบ</button>` : ''}`
     );
   },
 
@@ -1154,7 +1207,7 @@ const App = {
 
   // ลบออกจากระบบ (soft delete) — ซ่อนทุกที่ + ส่งขึ้น cloud ทันที · กู้คืนได้จากถังขยะ
   systemDeleteInterview(ivId) {
-    if (this._role !== 'admin') { this.toast('เฉพาะผู้ดูแลระบบเท่านั้น', 'error'); return; }
+    if (!this._isAdmin()) { this.toast('เฉพาะผู้ดูแลระบบเท่านั้น', 'error'); return; }
     const iv = DB.softDeleteInterview(this.stId, ivId, this._adminUsername || 'admin');
     if (!iv) { this.toast('ไม่พบการสำรวจ', 'error'); return; }
     this._autoPush(() => FB.pushInterview(this.stId, iv));
@@ -1519,7 +1572,7 @@ const App = {
     if (incEl) this.wizardData.driverIncome = incEl.value;
     const wd = this.wizardData;
     const iv = DB.addInterview(this.stId, {
-      surveyorName:      this._role === 'admin' ? this._adminUsername : this._surveyorName,
+      surveyorName:      this._canManage() ? this._adminUsername : this._surveyorName,
       interviewTime:     new Date().toTimeString().slice(0,5),
       vehicleType:       wd.vehicleType,
       passengerCount:    wd.passengerCount,
@@ -1694,7 +1747,7 @@ const App = {
 
   // ===================== FIREBASE SYNC / PULL =====================
   pullFromCloud() {
-    const isAdmin    = this._role === 'admin';
+    const isAdmin    = this._isAdmin();
     const localCount = DB.getStations().length;
     const filterNote = isAdmin ? '' :
       `<br><span style="color:var(--primary);font-size:12px;">🔍 จะดึงเฉพาะข้อมูลของ "${this._surveyorName}" เท่านั้น</span>`;
@@ -1714,9 +1767,7 @@ const App = {
       if (typeof firebase === 'undefined') throw new Error('โหลด Firebase SDK ไม่สำเร็จ — ต้องการอินเทอร์เน็ต');
       if (!FB.db) FB.init();
       if (!FB.db) throw new Error('Firebase เชื่อมต่อไม่ได้ — ลองรีเฟรชหน้า');
-      const count = this._role === 'admin'
-        ? await FB.pullAll()
-        : await FB.pullBySurveyor(this._surveyorName);
+      const count = await this._pullScoped();
       this.toast(`☁️ ดึงข้อมูลสำเร็จ รวม ${count} จุดสำรวจ`, 'success');
       this.navigate('home');
     } catch (e) {
@@ -1733,8 +1784,10 @@ const App = {
       if (typeof firebase === 'undefined') throw new Error('โหลด Firebase SDK ไม่สำเร็จ — ต้องการอินเทอร์เน็ต');
       if (!FB.db) FB.init();
       if (!FB.db) throw new Error('Firebase เชื่อมต่อไม่ได้ — ลองรีเฟรชหน้า');
-      const isAdmin  = this._role === 'admin';
-      const count    = await FB.syncAll(isAdmin ? null : this._surveyorName);
+      const isAdmin  = this._isAdmin();
+      const count    = this._isAdmin() ? await FB.syncAll(null)
+                     : this._isStaff() ? await FB.syncAll(null, this._team)
+                     :                   await FB.syncAll(this._surveyorName);
       const lastSync = FB.lastSync();
       const timeStr  = lastSync ? new Date(lastSync).toLocaleTimeString('th-TH') : '';
       const unit     = isAdmin ? 'จุดสำรวจ' : 'การสำรวจ';
@@ -1748,7 +1801,7 @@ const App = {
 
   // ===================== EXPORT / CLEAR =====================
   exportData() {
-    if (this._role !== 'admin') { this.toast('เฉพาะผู้ดูแลระบบเท่านั้น', 'error'); return; }
+    if (!this._canManage()) { this.toast('เฉพาะผู้ดูแลระบบ / ผู้ควบคุมเท่านั้น', 'error'); return; }
     if (typeof XLSX === 'undefined') { this.toast('โหลด SheetJS ไม่สำเร็จ', 'error'); return; }
     // เปิด modal ตัวกรองก่อน
     this._openExportFilter();
@@ -1799,6 +1852,7 @@ const App = {
     const zone = c => ZoneService.assign(c);
 
     const data = JSON.parse(DB.exportJSON());
+    data.stations = this._visibleStations(data.stations || []);   // staff = เฉพาะทีมตัวเอง
     // กรอง interview ตาม filter
     let totalKept = 0;
     data.stations = data.stations.map(st => {
@@ -1964,7 +2018,7 @@ const App = {
   },
 
   confirmClearAll() {
-    const isAdmin = this._role === 'admin';
+    const isAdmin = this._canManage();   // staff ล้าง cache ในเครื่องได้
     if (isAdmin) {
       const stats = DB.stats();
       this.showModal('⚠️ ล้างข้อมูลทั้งหมด',

@@ -17,6 +17,7 @@ let db = null, auth = null;
 let households = [];
 let stations   = [];
 let charts = {};
+let ME = null;          // บัญชีที่ login: { uid, role, supervisorName, displayName }
 let leafletMap = null;
 let rawRenderer = null;   // canvas renderer สำหรับโหมดพิกัดจริง
 let desireLayer = null;
@@ -142,6 +143,29 @@ function fbInit() {
   auth = firebase.auth();
 }
 
+// อ่านสิทธิ์จาก users/{uid} — null = ไม่มีสิทธิ์/ถูกปิด
+async function resolveRole(user) {
+  try {
+    const snap = await db.collection('users').doc(user.uid).get();
+    if (!snap.exists) return null;
+    const d = snap.data();
+    if (d.disabled === true) return null;
+    if (d.role !== 'admin' && d.role !== 'staff') return null;
+    return { uid: user.uid, email: user.email || '', username: d.username || '',
+             role: d.role, supervisorName: d.supervisorName || '', displayName: d.displayName || d.username || '' };
+  } catch (e) { return null; }
+}
+const isStaff = () => !!ME && ME.role === 'staff';
+
+// staff เห็นเฉพาะทีมตัวเอง → ซ่อนส่วนที่เทียบข้ามทีม (เหลือแถวเดียว ไม่มีประโยชน์)
+function applyRoleUI() {
+  const hide = isStaff();
+  ['cardHomeSupervisor', 'cardHomeSurv', 'cardRoadSurv'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = (hide && id === 'cardHomeSupervisor') ? 'none' : '';
+  });
+}
+
 async function loginAdmin(username, password) {
   const u = username.trim().toLowerCase().replace(/\s+/g, '');
   // ถ้าพิมพ์ email เต็ม (มี @) ใช้ตรงๆ — มิฉะนั้นต่อ @banphai.local
@@ -152,7 +176,10 @@ async function loginAdmin(username, password) {
 // ── DATA PULL ─────────────────────────────────────────────────────────────────
 // nested schema: households/{}/members/{}/trips/{} → ประกอบเป็น hh.members[].trips[]
 async function pullHouseholds() {
-  const snap = await db.collection('households').get({ source: 'server' });
+  // staff = ดึงเฉพาะทีมตัวเอง (ประหยัดค่าอ่านจริง — เดิมดึงทุกบ้าน + subcollection ต่อบ้าน)
+  let q = db.collection('households');
+  if (isStaff()) q = q.where('supervisorName', '==', ME.supervisorName);
+  const snap = await q.get({ source: 'server' });
   const households = snap.docs.map(d => {
     const x = d.data(); delete x._device; delete x._syncedAt;
     x.members = []; return x;
@@ -196,7 +223,9 @@ async function pullHouseholds() {
 }
 
 async function pullRoadside() {
-  const stSnap = await db.collection('roadside_stations').get({ source: 'server' });
+  let q = db.collection('roadside_stations');
+  if (isStaff()) q = q.where('supervisorName', '==', ME.supervisorName);
+  const stSnap = await q.get({ source: 'server' });
   const map = {};
   stSnap.docs.forEach(d => {
     const x = d.data(); delete x._device; delete x._syncedAt;
@@ -1077,16 +1106,27 @@ const App = {
     Chart.defaults.color = '#94a3b8';
     Chart.defaults.font.family = 'Sarabun';
 
-    auth.onAuthStateChanged(user => {
-      if (user) {
-        document.getElementById('loginOverlay').style.display = 'none';
-        document.getElementById('dashboardMain').style.display = 'block';
-        set('headerUser', user.email.replace('@banphai.local', ''));
-        this.loadData();
-      } else {
+    auth.onAuthStateChanged(async user => {
+      const showLogin = (errText) => {
+        ME = null;
         document.getElementById('loginOverlay').style.display = 'flex';
         document.getElementById('dashboardMain').style.display = 'none';
-      }
+        const el = document.getElementById('loginError');
+        if (el && errText) { el.textContent = errText; el.style.display = 'block'; }
+        const btn = document.getElementById('loginBtn');
+        if (btn) { btn.disabled = false; btn.textContent = 'เข้าสู่ระบบ'; }
+      };
+      // ⚠️ ต้องเช็ค isAnonymous — session ผู้สำรวจใช้ origin เดียวกัน ถ้าเช็คแค่ truthy จะหลุดเข้ามาได้
+      if (!user || user.isAnonymous) { showLogin(); return; }
+      const me = await resolveRole(user);
+      if (!me) { await auth.signOut().catch(() => {});
+                 showLogin('บัญชีนี้ยังไม่ได้รับสิทธิ์ หรือถูกปิดการใช้งาน — ติดต่อผู้ดูแลระบบ'); return; }
+      ME = me;
+      document.getElementById('loginOverlay').style.display = 'none';
+      document.getElementById('dashboardMain').style.display = 'block';
+      set('headerUser', (me.displayName || me.username) + (me.role === 'staff' ? ' · ผู้ควบคุม' : ''));
+      applyRoleUI();
+      this.loadData();
     });
 
     ['loginUsername', 'loginPassword'].forEach(id => {
@@ -1123,7 +1163,36 @@ const App = {
     }
   },
 
-  logout() { auth.signOut(); },
+  logout() { ME = null; auth.signOut(); },
+
+  // เปลี่ยนรหัสผ่านตัวเอง (ทำได้ทุกบทบาท)
+  async changePassword() {
+    const pw = prompt('ตั้งรหัสผ่านใหม่ (อย่างน้อย 8 ตัว)');
+    if (pw === null) return;
+    if (pw.length < 8) { alert('รหัสผ่านต้องยาวอย่างน้อย 8 ตัว'); return; }
+    if (prompt('พิมพ์รหัสผ่านใหม่อีกครั้งเพื่อยืนยัน') !== pw) { alert('รหัสผ่านไม่ตรงกัน'); return; }
+    try {
+      await auth.currentUser.updatePassword(pw);
+      alert('เปลี่ยนรหัสผ่านแล้ว');
+    } catch (e) {
+      alert(e.code === 'auth/requires-recent-login'
+        ? 'เพื่อความปลอดภัย ต้องออกจากระบบแล้วเข้าใหม่ก่อนเปลี่ยนรหัสผ่าน'
+        : 'เปลี่ยนไม่สำเร็จ: ' + e.message);
+    }
+  },
+
+  // ลืมรหัสผ่าน — ส่งลิงก์ไปอีเมล (ใช้ได้เฉพาะบัญชีที่เป็นอีเมลจริง = staff)
+  async forgotPassword() {
+    const email = (document.getElementById('loginUsername').value || '').trim().toLowerCase();
+    if (!email.includes('@')) {
+      alert('กรอกอีเมลของคุณในช่องด้านบนก่อน\n\n(บัญชีผู้ดูแลที่ใช้ชื่อผู้ใช้ ส่งอีเมลไม่ได้ — ติดต่อผู้ดูแลระบบ)');
+      return;
+    }
+    try {
+      await auth.sendPasswordResetEmail(email);
+      alert('ส่งลิงก์ตั้งรหัสผ่านใหม่ไปที่ ' + email + ' แล้ว\nถ้าไม่เจอ ให้ดูในกล่องจดหมายขยะ (spam)');
+    } catch (e) { alert('ส่งไม่สำเร็จ: ' + e.message); }
+  },
 
   async loadData() {
     this._showLoading('กำลังโหลดข้อมูล Home...');
@@ -1133,7 +1202,7 @@ const App = {
       this._setStatus('โหลด Home แล้ว · กำลังโหลด Roadside...');
       stations   = await pullRoadside();
       const ivCnt = allInterviews().length;
-      this._setStatus(`✓ ${households.length} ครัวเรือน · ${stations.length} จุดสำรวจ · ${ivCnt} สัมภาษณ์`);
+      this._setStatus(`✓ ${households.length} ครัวเรือน · ${stations.length} จุดสำรวจ · ${ivCnt} สัมภาษณ์${isStaff() ? ' · เฉพาะทีมของคุณ' : ''}`);
       this._statusDot(true);
       this._hideLoading();
       this._renderAll();

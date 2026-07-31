@@ -2,9 +2,30 @@
 const App = {
   page: 'home', hhId: null, memberId: null, memberTab: 'info', editingTripId: null,
   _clientIp: '',
-  _role: null,          // 'admin' | 'surveyor'
+  _role: null,          // 'admin' | 'staff' | 'surveyor'
   _surveyorName: '',    // ชื่อ-นามสกุล ผู้สำรวจ
-  _adminUsername: '',   // username ผู้ดูแลระบบ
+  _adminUsername: '',   // username ผู้ดูแล/ผู้ควบคุม
+  _team: '',            // staff: ชื่อผู้ควบคุม = ทีมที่ตัวเองดูแล
+  _bootHandled: false,  // กันเข้าแอปซ้ำเมื่อ auth event ยิงหลายครั้ง
+
+  // ---- สิทธิ์ ----
+  _isAdmin()   { return this._role === 'admin'; },
+  // ครัวเรือนที่บทบาทนี้เห็นได้: admin=ทั้งหมด · staff=ทีมตัวเอง · ผู้สำรวจ=ของตัวเอง
+  _visibleHouseholds(list) {
+    if (this._isAdmin()) return list;
+    if (this._isStaff()) return list.filter(h => this._normName(h.supervisorName) === this._team);
+    return list.filter(h => h.surveyorName === this._surveyorName);
+  },
+  _isStaff()   { return this._role === 'staff'; },
+  _canManage() { return this._role === 'admin' || this._role === 'staff'; },  // เห็นเครื่องมือจัดการ
+  _canSeeAll() { return this._role === 'admin'; },                            // เห็นข้ามทีม
+  _teamName()  { return this._team || ''; },
+  // ดึงข้อมูลตามขอบเขตของบทบาท: admin=ทั้งหมด · staff=ทีมตัวเอง · ผู้สำรวจ=ของตัวเอง
+  _pullScoped() {
+    if (this._isAdmin()) return FB.pullAll();
+    if (this._isStaff()) return FB.pullBySupervisor(this._team);
+    return FB.pullBySurveyor(this._surveyorName);
+  },
 
   async init() {
     // แสดง loading ก่อน
@@ -20,17 +41,25 @@ const App = {
       .then(d => { this._clientIp = d.ip || ''; })
       .catch(() => {});
 
+
     // รอ Firebase Auth ตรวจสอบ session
     if (typeof firebase !== 'undefined' && firebase.apps?.length) {
-      FB.onAuthStateChanged(user => {
-        if (this._role) return; // เข้าระบบแล้ว ไม่ต้องทำซ้ำ
-        // user แบบ anonymous = ผู้สำรวจ/ยังไม่ login → ไปหน้าเลือกบทบาท (ไม่ใช่ admin)
-        if (user && !user.isAnonymous) {
-          // มี session admin อยู่ → เข้าเลย
-          this._adminUsername = user.email.replace(FB.EMAIL_DOMAIN, '');
-          this._role = 'admin';
+      FB.onAuthStateChanged(async user => {
+        // รายชื่อผู้ควบคุมสำหรับ dropdown — ต้องมี token ก่อนถึงอ่าน config ได้ (anonymous ก็พอ)
+        if (user) Supervisors.load(FB.db).catch(() => {});
+        if (this._role || this._bootHandled) return; // เข้าระบบแล้ว ไม่ต้องทำซ้ำ
+        // anonymous = ผู้สำรวจ/ยังไม่ login → ไปหน้าเลือกบทบาท
+        if (!user || user.isAnonymous) { this._showLoginGate(); return; }
+        this._bootHandled = true;   // ตั้งก่อน await — กัน event ยิงซ้ำระหว่างรออ่าน role
+        const r = await Role.resolve(user, FB.db);
+        if (r && (r.role === 'admin' || r.role === 'staff')) {
+          this._adminUsername = r.displayName || r.username;
+          this._role = r.role;
+          this._team = r.supervisorName || '';
           this._enterApp();
         } else {
+          // บัญชีจริงแต่ยังไม่ได้รับสิทธิ์ / ถูกปิด → ไม่ให้เข้าในฐานะผู้ดูแล
+          this._bootHandled = false;
           this._showLoginGate();
         }
       });
@@ -107,13 +136,14 @@ const App = {
     this._enterApp();
   },
 
-  // ---- ผู้ดูแลระบบ ----
+  // ---- ผู้ดูแลระบบ / ผู้ควบคุม ----
   loginAsAdmin() {
-    this.showModal('🔐 เข้าสู่ระบบ (ผู้ดูแลระบบ)', `
+    this.showModal('🔐 เข้าสู่ระบบ (ผู้ดูแล / ผู้ควบคุม)', `
       <div class="form-row">
-        <label class="form-label req">ชื่อผู้ใช้</label>
-        <input id="adm_user" class="form-input" autocomplete="off" placeholder="username"
+        <label class="form-label req">ชื่อผู้ใช้ หรือ อีเมล</label>
+        <input id="adm_user" class="form-input" autocomplete="username" placeholder="username หรือ email"
           onkeydown="if(event.key==='Enter')document.getElementById('adm_pass').focus()" />
+        <div class="form-hint">ผู้ดูแล = ชื่อผู้ใช้ · ผู้ควบคุม = อีเมลที่ลงทะเบียนไว้</div>
       </div>
       <div class="form-row">
         <label class="form-label req">รหัสผ่าน</label>
@@ -134,9 +164,20 @@ const App = {
     if (btn) { btn.textContent = '⌛ กำลังตรวจสอบ...'; btn.disabled = true; }
     try {
       if (!FB.db) FB.init();
-      await FB.loginAdmin(username, password);
-      this._adminUsername = username;
-      this._role = 'admin';
+      const user = await FB.loginAdmin(username, password);
+      // อ่านสิทธิ์สดจาก users/{uid} (ข้าม cache) — เพิ่งเปลี่ยน role ต้องเห็นผลทันที
+      const r = await Role.resolve(user, FB.db, true);
+      if (!r || (r.role !== 'admin' && r.role !== 'staff')) {
+        await FB.logoutAdmin().catch(() => {});
+        Role.clear();
+        if (btn) { btn.textContent = 'เข้าสู่ระบบ'; btn.disabled = false; }
+        this.toast('บัญชีนี้ยังไม่ได้รับสิทธิ์ หรือถูกปิดการใช้งาน — ติดต่อผู้ดูแลระบบ', 'error');
+        return;
+      }
+      this._bootHandled  = true;
+      this._adminUsername = r.displayName || r.username;
+      this._role = r.role;
+      this._team = r.supervisorName || '';
       this.closeModal();
       this._enterApp();
     } catch (e) {
@@ -154,7 +195,7 @@ const App = {
         <a class="tb-link" href="../index.html">◈ เมนูหลัก</a>
         <span class="tb-sep">|</span>
         <span class="tb-user">
-          ${this._role === 'admin' ? '🔐' : '👤'} ${this.esc(this._role === 'admin' ? this._adminUsername : this._surveyorName)}
+          ${this._isAdmin() ? '🔐' : this._isStaff() ? '🧑‍💼' : '👤'} ${this.esc(this._canManage() ? this._adminUsername : this._surveyorName)}${this._isStaff() ? ' · ผู้ควบคุม' : ''}
         </span>
         <button class="tb-logout" onclick="App.logout()">ออก</button>
       </div>`;
@@ -171,9 +212,7 @@ const App = {
       if (typeof firebase === 'undefined') return;
       if (!FB.db) FB.init();
       if (!FB.db) return;
-      const count = this._role === 'admin'
-        ? await FB.pullAll()
-        : await FB.pullBySurveyor(this._surveyorName);
+      const count = await this._pullScoped();
       localStorage.setItem('_hi_last_auto_pull', String(Date.now()));
       this.toast(`☁️ โหลดข้อมูลแล้ว ${count} ครัวเรือน`, 'success');
       this.render();
@@ -224,10 +263,13 @@ const App = {
   // ---- ออกจากระบบ ----
   logout() {
     if (!confirm('ออกจากระบบ?')) return;
-    if (this._role === 'admin') FB.logoutAdmin().catch(() => {});
+    if (this._canManage()) FB.logoutAdmin().catch(() => {});
+    Role.clear();
     this._role = null;
     this._surveyorName = '';
     this._adminUsername = '';
+    this._team = '';
+    this._bootHandled = false;
     // คืน topbar right เป็นลิงก์เมนูหลัก
     const right = document.getElementById('topbarRight');
     if (right) right.outerHTML = `<a class="tb-link" id="topbarRight" href="../index.html">◈ เมนูหลัก</a>`;
@@ -287,7 +329,7 @@ const App = {
 
   // ===================== PAGE: ถังขยะ (admin) =====================
   pageTrash() {
-    if (this._role !== 'admin') return `<div class="section"><p>เฉพาะผู้ดูแลระบบ</p></div>`;
+    if (!this._isAdmin()) return `<div class="section"><p>เฉพาะผู้ดูแลระบบ</p></div>`;
     const items = DB.getTrash();
     return `
       <div class="section">
@@ -330,9 +372,9 @@ const App = {
 
   // ===================== PAGE: HOME =====================
   pageHome() {
-    const isAdmin = this._role === 'admin';
+    const isAdmin = this._isAdmin();
     const allHhs  = DB.getHouseholds();
-    const hhs     = isAdmin ? allHhs : allHhs.filter(h => h.surveyorName === this._surveyorName);
+    const hhs     = this._visibleHouseholds(allHhs);
     const members = hhs.reduce((s, h) => s + h.members.length, 0);
     const trips   = hhs.reduce((s, h) => h.members.reduce((s2, m) => s2 + m.trips.length, s), 0);
     // ── ตัวกรอง: สถานะ (สมบูรณ์/ไม่สมบูรณ์) + ชื่อผู้สำรวจ + พิกัดไม่ครบ ──
@@ -364,10 +406,10 @@ const App = {
       <div class="sec-header">
         <div>
           <div class="sec-title">รายการครัวเรือน</div>
-          <div class="sec-sub">พบ ${hhs.length} ครัวเรือน${!isAdmin ? ' (ของคุณ)' : ''} · ${this._syncBadge()}</div>
+          <div class="sec-sub">พบ ${hhs.length} ครัวเรือน${isAdmin ? '' : this._isStaff() ? ` (ทีม ${this.esc(this._team)})` : ' (ของคุณ)'} · ${this._syncBadge()}</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          ${isAdmin && hhs.length > 0 ? `<button class="btn btn-ghost btn-sm" onclick="App.exportData()">⬇ Export Excel</button>` : ''}
+          ${this._canManage() && hhs.length > 0 ? `<button class="btn btn-ghost btn-sm" onclick="App.exportData()">⬇ Export Excel</button>` : ''}
           ${isAdmin ? (() => { const n = DB.getTrash().length;
             return `<button class="btn btn-ghost btn-sm" onclick="App.navigate('trash')">🗑 ถังขยะ${n ? ` (${n})` : ''}</button>`; })() : ''}
           ${hhs.length > 0 ? `<button class="btn btn-ghost btn-sm" id="syncBtn" onclick="App.syncToCloud()">☁️ Sync</button>` : ''}
@@ -901,7 +943,7 @@ const App = {
   // ===== SURVEYOR NAME MEMORY =====
   // identity ของบัญชีที่ login (ใช้ key ค่า default แยกตามคน)
   _identity() {
-    return this._role === 'admin' ? (this._adminUsername || 'admin') : (this._surveyorName || 'unknown');
+    return this._canManage() ? (this._adminUsername || 'admin') : (this._surveyorName || 'unknown');
   },
   _loadSurveyorNames() {
     const id = this._identity();
@@ -965,8 +1007,18 @@ const App = {
         </div>
         <div class="form-row">
           <label class="form-label req">ชื่อผู้ควบคุม</label>
-          <input id="m_supervisor" class="form-input" autocomplete="off" placeholder="ชื่อผู้ควบคุม"
-            value="${hh ? (hh.supervisorName||'') : names.supervisor}" />
+          ${(() => {
+            const cur = hh ? (hh.supervisorName || '') : (this._isStaff() ? this._team : names.supervisor);
+            // staff = ล็อกเป็นทีมตัวเอง · คนอื่น = เลือกจากรายชื่อที่ผู้ดูแลลงทะเบียนไว้
+            if (this._isStaff())
+              return `<input id="m_supervisor" class="form-input" value="${this.esc(this._team)}" readonly
+                        style="background:var(--gray-100);" />
+                      <div style="font-size:11px;color:var(--gray-400);margin-top:3px;">🔒 จากบัญชีที่เข้าสู่ระบบ</div>`;
+            const opts = Supervisors.optionsHTML(cur, s => this.esc(s));
+            const empty = Supervisors.list().length === 0;
+            return `<select id="m_supervisor" class="form-input">${opts}</select>
+                    ${empty ? '<div style="font-size:11px;color:var(--danger);margin-top:3px;">⚠ ยังไม่มีรายชื่อผู้ควบคุมในระบบ — ติดต่อผู้ดูแล</div>' : ''}`;
+          })()}
         </div>
         <div class="form-row">
           <label class="form-label req">วันที่เดินทาง</label>
@@ -1197,7 +1249,7 @@ const App = {
 
   confirmDeleteHousehold(id) {
     const hh = DB.getHousehold(id);
-    const isAdmin = this._role === 'admin';
+    const isAdmin = this._isAdmin();
     const label = `<strong>[${hh?.houseNo || hh?.id}]</strong> พร้อมสมาชิก ${hh?.members.length || 0} คน`;
     this.showModal('🗑 ลบครัวเรือน',
       `<p style="color:var(--gray-600)">จะลบครัวเรือน ${label}</p>
@@ -1221,7 +1273,7 @@ const App = {
 
   // ลบออกจากระบบ (soft delete) — ซ่อนทุกที่ + ส่งขึ้น cloud ทันที · กู้คืนได้จากถังขยะ
   systemDeleteHousehold(id) {
-    if (this._role !== 'admin') { this.toast('เฉพาะผู้ดูแลระบบเท่านั้น', 'error'); return; }
+    if (!this._isAdmin()) { this.toast('เฉพาะผู้ดูแลระบบเท่านั้น', 'error'); return; }
     const hh = DB.softDeleteHousehold(id, this._adminUsername || 'admin');
     if (!hh) { this.toast('ไม่พบครัวเรือน', 'error'); return; }
     this._autoPush(() => FB.pushHousehold(hh));
@@ -1843,10 +1895,11 @@ const App = {
 
   // ===================== FIREBASE SYNC / PULL =====================
   pullFromCloud() {
-    const isAdmin    = this._role === 'admin';
+    const isAdmin    = this._isAdmin();
     const localCount = DB.getHouseholds().length;
+    const scopeName  = this._isStaff() ? `ทีม "${this._team}"` : `"${this._surveyorName}"`;
     const filterNote = isAdmin ? '' :
-      `<br><span style="color:var(--primary);font-size:12px;">🔍 จะดึงเฉพาะข้อมูลของ "${this._surveyorName}" เท่านั้น</span>`;
+      `<br><span style="color:var(--primary);font-size:12px;">🔍 จะดึงเฉพาะข้อมูลของ ${this.esc(scopeName)} เท่านั้น</span>`;
     const msg = localCount > 0
       ? `<p style="font-size:14px;color:var(--gray-600);">จะดึงข้อมูลจาก Firebase มา<b>รวม</b>กับข้อมูลในเครื่อง ${localCount} ครัวเรือน<br>ข้อมูลที่ซ้ำ ID กันจะใช้ข้อมูลจาก Firebase แทน${filterNote}</p>`
       : `<p style="font-size:14px;color:var(--gray-600);">จะดึงข้อมูลจาก Firebase มาไว้ในเครื่องนี้${filterNote}</p>`;
@@ -1864,9 +1917,7 @@ const App = {
       if (typeof FB === 'undefined') throw new Error('firebase.js โหลดไม่สำเร็จ');
       if (!FB.db) FB.init();
       if (!FB.db) throw new Error('Firebase เชื่อมต่อไม่ได้ — ลองรีเฟรชหน้า');
-      const count = this._role === 'admin'
-        ? await FB.pullAll()
-        : await FB.pullBySurveyor(this._surveyorName);
+      const count = await this._pullScoped();
       this.toast(`☁️ ดึงข้อมูลสำเร็จ รวม ${count} ครัวเรือน`, 'success');
       this.navigate('home');
     } catch (e) {
@@ -1884,8 +1935,9 @@ const App = {
       if (typeof FB === 'undefined') throw new Error('firebase.js โหลดไม่สำเร็จ');
       if (!FB.db) FB.init();
       if (!FB.db) throw new Error('Firebase เชื่อมต่อไม่ได้ — ลองรีเฟรชหน้า');
-      const isAdmin = this._role === 'admin';
-      const summary = await FB.syncAll(isAdmin ? null : this._surveyorName);
+      const summary = this._isAdmin() ? await FB.syncAll(null)
+                    : this._isStaff() ? await FB.syncAll(this._team, 'supervisorName')
+                    :                   await FB.syncAll(this._surveyorName);
       const lastSync = FB.lastSync();
       const timeStr = lastSync ? new Date(lastSync).toLocaleTimeString('th-TH') : '';
       this.toast(`☁️ sync สำเร็จ · ${summary}${timeStr ? ' · ' + timeStr : ''}`, 'success');
@@ -1898,7 +1950,7 @@ const App = {
 
   // ===================== EXPORT / CLEAR =====================
   async exportData() {
-    if (this._role !== 'admin') { this.toast('เฉพาะผู้ดูแลระบบเท่านั้น', 'error'); return; }
+    if (!this._canManage()) { this.toast('เฉพาะผู้ดูแลระบบ / ผู้ควบคุมเท่านั้น', 'error'); return; }
     if (typeof XLSX === 'undefined') {
       this.toast('โหลด SheetJS ไม่สำเร็จ — ตรวจสอบอินเทอร์เน็ต', 'error');
       return;
@@ -1909,6 +1961,9 @@ const App = {
     const zone = c => ZoneService.assign(c);
 
     const data = JSON.parse(DB.exportJSON());
+    // staff ได้เฉพาะทีมตัวเอง (admin ได้ทั้งหมด)
+    data.households = this._visibleHouseholds(data.households || []);
+    if (!data.households.length) { this.toast('ไม่มีข้อมูลให้ export', 'warning'); return; }
     const wb   = XLSX.utils.book_new();
 
     // ===== Sheet 1: ครัวเรือน =====
@@ -2042,7 +2097,7 @@ const App = {
   },
 
   confirmClearAll() {
-    const isAdmin = this._role === 'admin';
+    const isAdmin = this._canManage();   // staff ล้าง cache ในเครื่องได้ (ไม่กระทบ cloud)
     const stats = DB.stats(isAdmin ? null : this._surveyorName);
     const title = isAdmin ? '🗑 ล้างข้อมูลทั้งหมดจากเครื่องนี้' : '🗑 ล้างข้อมูลของฉันจากเครื่องนี้';
     this.showModal(title,

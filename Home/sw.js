@@ -1,10 +1,11 @@
 // Service Worker — Home Interview
-const CACHE_VERSION = 'hi-v45-trashfix';
+const CACHE_VERSION = 'hi-v46-roles';
 const CORE_ASSETS = [
   './',
   './index.html',
   './css/style.css',
   './js/data.js',
+  './js/auth-role.js',
   './js/zone-service.js',
   './js/app.js',
   './js/firebase.js',

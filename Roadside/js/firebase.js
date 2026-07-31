@@ -38,9 +38,11 @@ const FB = {
   },
 
   // ===== AUTH =====
+  // รับได้ทั้ง username (admin — ต่อ @banphai.local ให้) และอีเมลจริง (staff/ผู้ควบคุม)
   async loginAdmin(username, password) {
     if (!this.auth) throw new Error('Firebase Auth ไม่พร้อม');
-    const email = username.trim().toLowerCase().replace(/\s+/g,'') + this.EMAIL_DOMAIN;
+    const u     = username.trim().toLowerCase().replace(/\s+/g,'');
+    const email = u.includes('@') ? u : u + this.EMAIL_DOMAIN;
     const cred  = await this.auth.signInWithEmailAndPassword(email, password);
     return cred.user;
   },
@@ -99,13 +101,17 @@ const FB = {
   // ===== SYNC =====
   // admin: sync ทุก station + interview ที่อยู่ใน local
   // surveyor: sync เฉพาะ interview ของตัวเอง (ไม่แตะ station)
-  async syncAll(surveyorName) {
+  // surveyorName = null → admin (ทั้งหมด)
+  // supervisorName ระบุ → staff: เขียน station+interview เฉพาะจุดของทีมตัวเอง
+  async syncAll(surveyorName, supervisorName) {
     if (!this.db) throw new Error('Firebase ไม่พร้อม');
-    const sts = DB.getStationsRaw();   // raw: ต้องส่ง flag _deleted ขึ้น cloud ด้วย
+    let sts = DB.getStationsRaw();   // raw: ต้องส่ง flag _deleted ขึ้น cloud ด้วย
+    if (supervisorName) sts = sts.filter(st => st.supervisorName === supervisorName);
     if (!sts.length) throw new Error('ไม่มีข้อมูลในเครื่อง');
     const device   = this.deviceId();
     const syncedAt = new Date().toISOString();
-    const isAdmin  = !surveyorName;
+    const isStaff  = !!supervisorName;
+    const isAdmin  = !surveyorName && !supervisorName;
     const CHUNK    = 400;
 
     let stCount = 0;
@@ -128,8 +134,8 @@ const FB = {
     for (const st of sts) {
       const stRef = this.db.collection(this.COLLECTION).doc(st.id);
 
-      // 1) เขียน station (เฉพาะ admin)
-      if (isAdmin) {
+      // 1) เขียน station (admin ทั้งหมด · staff เฉพาะจุดของทีมตัวเอง)
+      if (isAdmin || isStaff) {
         const { interviews, ...stData } = st;
         addOp(stRef, { ...stData, _device: device, _syncedAt: syncedAt });
         stCount++;
@@ -137,7 +143,7 @@ const FB = {
 
       // 2) เขียน interviews (idempotent — doc id = iv.id)
       for (const iv of (st.interviews || [])) {
-        if (!isAdmin && iv.surveyorName !== surveyorName) continue;
+        if (!isAdmin && !isStaff && iv.surveyorName !== surveyorName) continue;
         const ivRef = stRef.collection('interviews').doc(iv.id);
         addOp(ivRef, { ...iv, _device: device, _syncedAt: syncedAt });
         ivCount++;
@@ -191,6 +197,47 @@ const FB = {
     const stations = Object.values(stationMap);
     const newData  = { stations };
     await DB.replaceAll(newData);
+    return stations.length;
+  },
+
+  // ===== PULL: staff (ผู้ควบคุม) =====
+  // เฉพาะจุดสำรวจของทีมตัวเอง แต่ได้ interview ครบทุกคนในจุดนั้น (ต้องคุมงานลูกทีมทั้งทีม)
+  async pullBySupervisor(supervisorName) {
+    if (!this.db) throw new Error('Firebase ไม่พร้อม');
+    const stSnap = await this._withTimeout(
+      this.db.collection(this.COLLECTION)
+        .where('supervisorName', '==', supervisorName)
+        .get({ source: 'server' })
+    );
+    if (stSnap.empty) throw new Error('ยังไม่มีจุดสำรวจของทีมนี้ใน Firestore');
+
+    const stationMap = {};
+    stSnap.docs.forEach(doc => {
+      const d = this._stripInternal(doc.data());
+      d.interviews = [];
+      stationMap[doc.id] = d;
+    });
+    const ivSnaps = await Promise.all(stSnap.docs.map(doc =>
+      this._withTimeout(doc.ref.collection('interviews').get({ source: 'server' }))
+    ));
+    ivSnaps.forEach((snap, i) => {
+      const stId = stSnap.docs[i].id;
+      snap.docs.forEach(d => stationMap[stId].interviews.push(this._stripInternal(d.data())));
+    });
+
+    // merge: เก็บ interview ใน local ที่ยังไม่ได้ sync (ของจุดในทีมเดียวกัน) ไว้
+    const local = DB.load();
+    local.stations.forEach(ls => {
+      const remote = stationMap[ls.id];
+      if (!remote) return;
+      const ids = new Set(remote.interviews.map(iv => iv.id));
+      const localOnly = (ls.interviews || []).filter(iv => !ids.has(iv.id));
+      if (localOnly.length) remote.interviews = [...remote.interviews, ...localOnly];
+    });
+    Object.values(stationMap).forEach(st => st.interviews.sort((a,b) => (a.seq||0) - (b.seq||0)));
+
+    const stations = Object.values(stationMap);
+    await DB.replaceAll({ stations });
     return stations.length;
   },
 

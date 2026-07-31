@@ -225,10 +225,10 @@
   <div class="login-box">
     <div style="font-size:40px;margin-bottom:14px">📊</div>
     <h1>Survey Dashboard</h1>
-    <p class="subtitle">โครงการสำรวจการเดินทาง — ผังเมืองรวมบ้านไผ่<br>เข้าสู่ระบบด้วยบัญชี Admin เพื่อดูข้อมูลทั้งหมด</p>
+    <p class="subtitle">โครงการสำรวจการเดินทาง — ผังเมืองรวมบ้านไผ่<br>ผู้ดูแล = เห็นข้อมูลทั้งหมด · ผู้ควบคุม = เห็นเฉพาะทีมตัวเอง</p>
     <div class="form-group">
-      <label>ชื่อผู้ใช้</label>
-      <input type="text" id="loginUsername" placeholder="เช่น admin (ไม่ต้องใส่ @banphai.local)" autocomplete="username" />
+      <label>ชื่อผู้ใช้ หรือ อีเมล</label>
+      <input type="text" id="loginUsername" placeholder="ผู้ดูแล: ชื่อผู้ใช้ · ผู้ควบคุม: อีเมล" autocomplete="username" />
     </div>
     <div class="form-group">
       <label>รหัสผ่าน</label>
@@ -236,6 +236,10 @@
     </div>
     <button class="btn-primary" id="loginBtn" onclick="App.login()">เข้าสู่ระบบ</button>
     <div id="loginError"></div>
+    <div style="text-align:center;margin-top:14px">
+      <a href="#" onclick="App.forgotPassword();return false"
+         style="color:var(--muted);font-size:12px;text-decoration:none">ลืมรหัสผ่าน?</a>
+    </div>
     <a href="../index.html" style="display:inline-block;margin-top:18px;color:var(--muted);font-size:13px;text-decoration:none;">🏠 กลับเมนูหลัก</a>
   </div>
 </div>
@@ -256,6 +260,7 @@
       <span id="headerUser"></span>
       <button class="btn-sm" onclick="location.href='../index.html'">🏠 เมนูหลัก</button>
       <button class="btn-sm" onclick="App.refresh()">🔄 รีเฟรช</button>
+      <button class="btn-sm" onclick="App.changePassword()">🔑 เปลี่ยนรหัสผ่าน</button>
       <button class="btn-sm" onclick="App.logout()">ออกจากระบบ</button>
     </div>
   </div>
@@ -328,7 +333,7 @@
         </div>
       </div>
       <!-- ขวา: Home -->
-      <div style="display:flex;flex-direction:column;gap:20px">
+      <div style="display:flex;flex-direction:column;gap:20px" id="cardHomeSupervisor">
         <div class="card">
           <div class="card-title">🏠 Home — บ้านที่สำรวจแยกตามผู้ควบคุม <span class="badge" id="badgeHomeSurveyor"></span></div>
           <div class="chart-wrap"><canvas id="chartHomeBySupervisor"></canvas></div>
@@ -562,6 +567,6 @@
 <!-- Zone GeoJSON (defines ZONES_GEOJSON) -->
 <script src="js/zones.js"></script>
 <!-- Dashboard logic -->
-<script src="js/dashboard.js"></script>
+<script src="js/dashboard.js?v=roles1"></script>
 </body>
 </html>

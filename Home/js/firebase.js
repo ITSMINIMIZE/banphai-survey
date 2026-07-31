@@ -39,9 +39,11 @@ const FB = {
   },
 
   // ===== AUTH =====
+  // รับได้ทั้ง username (admin — ต่อ @banphai.local ให้) และอีเมลจริง (staff/ผู้ควบคุม)
   async loginAdmin(username, password) {
     if (!this.auth) throw new Error('Firebase Auth ไม่พร้อม');
-    const email = username.trim().toLowerCase().replace(/\s+/g, '') + this.EMAIL_DOMAIN;
+    const u     = username.trim().toLowerCase().replace(/\s+/g, '');
+    const email = u.includes('@') ? u : u + this.EMAIL_DOMAIN;
     const cred  = await this.auth.signInWithEmailAndPassword(email, password);
     return cred.user;
   },
@@ -93,10 +95,11 @@ const FB = {
   // ===== SYNC =====
   // admin: sync ทุก household ใน local (รวม nested) ขึ้น cloud
   // surveyor: sync เฉพาะ household ของตัวเอง
-  async syncAll(surveyorName) {
+  // value = null → ทั้งหมด (admin) · field: 'surveyorName' (ผู้สำรวจ) | 'supervisorName' (ผู้ควบคุม)
+  async syncAll(value, field = 'surveyorName') {
     if (!this.db) throw new Error('Firebase ไม่พร้อม');
     let hhs = DB.getHouseholdsRaw();   // raw: ต้องส่ง flag _deleted ขึ้น cloud ด้วย
-    if (surveyorName) hhs = hhs.filter(h => h.surveyorName === surveyorName);
+    if (value) hhs = hhs.filter(h => h[field] === value);
     if (!hhs.length) throw new Error('ไม่มีข้อมูลที่จะ sync');
 
     const device   = this.deviceId();
@@ -202,11 +205,15 @@ const FB = {
   },
 
   // surveyor: pull เฉพาะ household ของตัวเอง (where ที่ root)
-  async pullBySurveyor(surveyorName) {
+  pullBySurveyor(surveyorName) { return this._pullByField('surveyorName', surveyorName); },
+  // staff (ผู้ควบคุม): pull เฉพาะ household ของทีมตัวเอง
+  pullBySupervisor(supervisorName) { return this._pullByField('supervisorName', supervisorName); },
+
+  async _pullByField(field, value) {
     if (!this.db) throw new Error('Firebase ไม่พร้อม');
     const snap = await this._withTimeout(
       this.db.collection(this.COLLECTION)
-        .where('surveyorName', '==', surveyorName)
+        .where(field, '==', value)
         .get({ source: 'server' })
     );
     const remote = await this._loadNested(snap.docs);
@@ -216,7 +223,7 @@ const FB = {
     // merge: เก็บ local household/member/trip ที่ยังไม่ sync เพิ่มเข้า
     const local = DB.load();
     local.households.forEach(lh => {
-      if (lh.surveyorName !== surveyorName) return; // ของคนอื่น — ไม่ต้องเอามาด้วย
+      if (lh[field] !== value) return; // นอกขอบเขตของบทบาทนี้ — ไม่ต้องเอามาด้วย
       const r = remoteMap[lh.id];
       if (!r) { remoteMap[lh.id] = lh; return; }
       // merge members
