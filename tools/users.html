@@ -128,7 +128,9 @@
   <div class="card">
     <h2>🔧 ซ่อมบัญชีที่สร้างค้าง</h2>
     <div class="sub" style="margin-bottom:14px">
-      ใช้เมื่อสร้างบัญชีแล้วเน็ตหลุดกลางคัน — บัญชีเข้าระบบได้แต่ไม่มีสิทธิ์<br>
+      ⚠️ ฟอร์มนี้ <b>เขียนสิทธิ์ให้บัญชีที่มีอยู่แล้ว</b> เท่านั้น — <b>ไม่ได้สร้างบัญชีเข้าระบบใหม่</b><br>
+      ถ้าต้องการบัญชีใหม่ ให้ใช้กล่อง "➕ สร้างบัญชีใหม่" ด้านบน<br>
+      ใช้ฟอร์มนี้เมื่อ: บัญชีที่สร้างไว้ก่อนมีระบบนี้ (เช่น admin เดิม) หรือสร้างแล้วเน็ตหลุดกลางคัน<br>
       หา UID ได้จาก Firebase Console → Authentication หรือให้เจ้าตัวเปิดหน้านี้แล้วดูบรรทัด "UID ของฉัน"
     </div>
     <div class="grid2">
@@ -175,6 +177,15 @@ function normName(s){
 function secAuth(){
   const app = firebase.apps.find(a => a.name === SEC_APP) || firebase.initializeApp(cfg, SEC_APP);
   return app.auth();
+}
+
+// อีเมลนี้มีบัญชี Firebase Auth (login ได้) แล้วหรือยัง
+// ใช้กันพลาด: ฟอร์ม "ซ่อม" เขียนแค่สิทธิ์ ถ้าไม่มีบัญชีจริงจะ login ไม่ได้
+async function authAccountExists(email){
+  try {
+    const methods = await auth.fetchSignInMethodsForEmail(email);
+    return methods && methods.length > 0;
+  } catch(_) { return null; }   // ตรวจไม่ได้ → ไม่บล็อก
 }
 
 // ===== pending queue (กันเขียน Firestore ไม่สำเร็จหลังสร้าง Auth แล้ว) =====
@@ -225,7 +236,7 @@ function onRoleChange(){
   $('c_idLabel').textContent = isAdmin ? 'ชื่อผู้ใช้ (username)' : 'อีเมล (ใช้ login + กู้รหัสผ่าน)';
   $('c_email').placeholder   = isAdmin ? 'เช่น admin2' : 'เช่น somchai@gmail.com';
   $('c_idHint').innerHTML    = isAdmin
-    ? 'ระบบจะต่อ <code>@banphai.local</code> ให้เอง — ⚠️ ส่งอีเมลกู้รหัสไม่ได้'
+    ? 'ใส่<b>อีเมลจริง</b>ได้ (แนะนำ — กู้รหัสผ่านเองได้) · ถ้าใส่ชื่อผู้ใช้เฉยๆ ระบบจะต่อ <code>@banphai.local</code> ให้ ซึ่งจะส่งอีเมลกู้รหัสไม่ได้'
     : 'ต้องเป็นอีเมลจริงที่เปิดอ่านได้ — ใช้ตอนลืมรหัสผ่าน';
 }
 
@@ -291,16 +302,34 @@ async function loadUsers(){
              <td><b>${esc(u.displayName || u.username)}</b>${u.note ? `<div style="font-size:11px;color:#64748b">${esc(u.note)}</div>` : ''}</td>
              <td style="font-size:12px;color:#94a3b8">${esc(u.email)}</td>
              <td><span class="pill pill-${u.role}">${esc(u.role)}</span></td>
-             <td>${u.disabled ? '<span class="pill pill-off">ปิดใช้งาน</span>' : '<span style="color:#34d399">ใช้งานอยู่</span>'}</td>
+             <td id="st_${esc(u.uid)}">${u.disabled ? '<span class="pill pill-off">ปิดใช้งาน</span>' : '<span style="color:#34d399">ใช้งานอยู่</span>'}</td>
              <td style="white-space:nowrap;text-align:right">
                <button class="btn btn-ghost btn-sm" onclick="editUser('${u.uid}')">แก้ไข</button>
                <button class="btn btn-ghost btn-sm" onclick="toggleDisabled('${u.uid}')">${u.disabled ? 'เปิด' : 'ปิด'}</button>
              </td>
            </tr>`).join('')}</tbody>`;
     msg($('listMsg'), '', 'info');
+    flagOrphans();   // เช็คพื้นหลังว่ามี doc ที่ไม่มีบัญชีเข้าระบบจริงไหม
   } catch(e){
     msg($('listMsg'), 'โหลดรายชื่อไม่สำเร็จ: ' + esc(e.message) + (e.code === 'permission-denied' ? ' (ยังไม่ได้ publish rules เฟส 1 หรือบัญชีนี้ไม่ใช่ admin)' : ''), 'err');
   }
+}
+
+// doc ที่ไม่มีบัญชี Firebase Auth คู่กัน = login ไม่ได้ (มักเกิดจากใช้ฟอร์ม "ซ่อม" กับอีเมลใหม่)
+async function flagOrphans(){
+  let found = 0;
+  for (const u of USERS) {
+    if (!u.email) continue;
+    const ok = await authAccountExists(u.email);
+    if (ok === false) {
+      found++;
+      const td = $('st_' + u.uid);
+      if (td) td.innerHTML = '<span class="pill" style="background:rgba(239,68,68,.18);color:#fca5a5">⚠ ไม่มีบัญชีเข้าระบบ</span>';
+    }
+  }
+  if (found) msg($('listMsg'),
+    `⚠️ พบ <b>${found}</b> รายการที่มีสิทธิ์แต่<b>ไม่มีบัญชีเข้าระบบ</b> — login ไม่ได้<br>
+     แก้โดยสร้างบัญชีใหม่ด้วยอีเมลเดิมผ่านกล่อง "➕ สร้างบัญชีใหม่" แล้วปิดรายการเก่านี้ทิ้ง`, 'err');
 }
 
 async function editUser(uid){
@@ -360,6 +389,14 @@ async function doRepair(){
   const name = normName($('f_name').value), role = $('f_role').value;
   if (!uid || !rawEmail || !name) return msg($('repairMsg'), 'กรอก UID, อีเมล และชื่อให้ครบ', 'err');
   const email = rawEmail.includes('@') ? rawEmail : rawEmail + EMAIL_DOMAIN;
+  // กันพลาด: ฟอร์มนี้เขียนแค่สิทธิ์ ถ้ายังไม่มีบัญชี Auth จะ login ไม่ได้เลย
+  const exists = await authAccountExists(email);
+  if (exists === false) {
+    msg($('repairMsg'), `❌ ยังไม่มีบัญชีเข้าระบบสำหรับ <b>${esc(email)}</b><br>
+      ฟอร์มนี้ใช้ <b>เขียนสิทธิ์ให้บัญชีที่มีอยู่แล้ว</b> เท่านั้น (ไม่ได้สร้างบัญชีใหม่)<br>
+      ถ้าต้องการบัญชีใหม่ → ใช้กล่อง <b>"➕ สร้างบัญชีใหม่"</b> ด้านบนแทน`, 'err');
+    return;
+  }
   try {
     await writeUserDoc({ uid, email, role, name, note: '' });
     clearPending(uid); renderPending();
