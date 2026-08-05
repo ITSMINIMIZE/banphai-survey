@@ -131,6 +131,9 @@
 
     /* Grids */
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+    /* การ์ดที่เป็นลูกโดยตรงของ grid — ตัด margin ที่ซ้อนกับ gap ออก
+       (ความสูงเท่ากันได้เองจาก align-items: stretch ปริยายของ grid) */
+    .grid-2 > .card, .grid-3 > .card { margin-bottom: 0; }
     .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-bottom: 20px; }
     @media (max-width: 768px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
 
@@ -320,28 +323,26 @@
 
   <!-- ── Tab: ติดตามงาน ── (ซ้าย: Road · ขวา: Home) -->
   <div class="tab-panel active" id="panel-progress">
+    <!-- แถวกราฟ — แยกเป็น grid ของตัวเอง เพื่อให้การ์ดซ้าย-ขวาสูงเท่ากัน -->
     <div class="grid-2">
-      <!-- ซ้าย: Roadside -->
-      <div style="display:flex;flex-direction:column;gap:20px">
-        <div class="card">
-          <div class="card-title">🚗 Road — รถที่สำรวจแยกตามจุด <span class="badge" id="badgeRoadsideStation"></span></div>
-          <div class="chart-wrap"><canvas id="chartRoadByStation"></canvas></div>
-        </div>
-        <div class="card">
-          <div class="card-title">📋 สรุปตามจุดสำรวจ</div>
-          <div id="roadsideStationTable"><p style="color:var(--muted)">กำลังโหลด...</p></div>
-        </div>
+      <div class="card">
+        <div class="card-title">🚗 Road — รถที่สำรวจแยกตามจุด <span class="badge" id="badgeRoadsideStation"></span></div>
+        <div class="chart-wrap"><canvas id="chartRoadByStation"></canvas></div>
       </div>
-      <!-- ขวา: Home -->
-      <div style="display:flex;flex-direction:column;gap:20px" id="cardHomeSupervisor">
-        <div class="card">
-          <div class="card-title"><span id="titleHomeChart">🏠 Home — บ้านที่สำรวจแยกตามผู้ควบคุม</span> <span class="badge" id="badgeHomeSurveyor"></span></div>
-          <div class="chart-wrap"><canvas id="chartHomeBySupervisor"></canvas></div>
-        </div>
-        <div class="card">
-          <div class="card-title" id="titleHomeTable">📋 สรุปตามผู้ควบคุม (ทีม)</div>
-          <div id="homeSurveyorTable"><p style="color:var(--muted)">กำลังโหลด...</p></div>
-        </div>
+      <div class="card">
+        <div class="card-title"><span id="titleHomeChart">🏠 Home — บ้านที่สำรวจแยกตามผู้ควบคุม</span> <span class="badge" id="badgeHomeSurveyor"></span></div>
+        <div class="chart-wrap"><canvas id="chartHomeBySupervisor"></canvas></div>
+      </div>
+    </div>
+    <!-- แถวตารางสรุป -->
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title">📋 สรุปตามจุดสำรวจ</div>
+        <div id="roadsideStationTable"><p style="color:var(--muted)">กำลังโหลด...</p></div>
+      </div>
+      <div class="card">
+        <div class="card-title" id="titleHomeTable">📋 สรุปตามผู้ควบคุม (ทีม)</div>
+        <div id="homeSurveyorTable"><p style="color:var(--muted)">กำลังโหลด...</p></div>
       </div>
     </div>
     <div class="grid-2">
@@ -567,6 +568,6 @@
 <!-- Zone GeoJSON (defines ZONES_GEOJSON) -->
 <script src="js/zones.js"></script>
 <!-- Dashboard logic -->
-<script src="js/dashboard.js?v=staffhome"></script>
+<script src="js/dashboard.js?v=evenboxes"></script>
 </body>
 </html>
