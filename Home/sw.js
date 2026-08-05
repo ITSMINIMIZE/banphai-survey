@@ -1,5 +1,5 @@
 // Service Worker — Home Interview
-const CACHE_VERSION = 'hi-v50-fpbtn';
+const CACHE_VERSION = 'hi-v51-nocache';
 const CORE_ASSETS = [
   './',
   './index.html',
@@ -32,12 +32,17 @@ self.addEventListener('fetch', e => {
   const req = e.request;
   if (new URL(req.url).origin !== self.location.origin) return;
   if (req.method !== 'GET') return;
+  // ข้าม HTTP cache ของเบราว์เซอร์ — GitHub Pages ส่ง Cache-Control: max-age=600
+  // ถ้าไม่ข้าม เบราว์เซอร์จะคืนไฟล์เก่าให้ SW ได้นานถึง 10 นาทีหลัง deploy
+  // (แต่ sw.js เบราว์เซอร์เช็คใหม่เสมอ → ป้ายเวอร์ชันขึ้นเลขใหม่ทั้งที่ JS ยังเก่า)
+  const fresh = new Request(req.url, { cache: 'no-cache', credentials: 'same-origin' });
+
   e.respondWith(
-    fetch(req)
+    fetch(fresh)
       .then(res => {
         if (res.ok) {
           const copy = res.clone();
-          caches.open(CACHE_VERSION).then(c => c.put(req, copy));
+          caches.open(CACHE_VERSION).then(c => c.put(req, copy));   // key = req เดิม
         }
         return res;
       })
