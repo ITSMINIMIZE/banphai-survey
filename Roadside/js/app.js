@@ -163,9 +163,12 @@ const App = {
         <input id="adm_pass" class="form-input" type="password" placeholder="password"
           onkeydown="if(event.key==='Enter')App.doAdminLogin()" />
       </div>
-      <div style="text-align:right;margin-top:2px;">
-        <a href="#" id="fpLink" onclick="App.forgotPassword();return false;"
-           style="font-size:12px;color:var(--gray-500);text-decoration:none;">ลืมรหัสผ่าน?</a>
+      <div style="margin-top:10px;text-align:center;">
+        <button type="button" id="fpLink" onclick="App.forgotPassword()"
+          style="background:none;border:none;padding:8px 12px;font-family:inherit;font-size:14px;
+                 font-weight:600;color:var(--primary);text-decoration:underline;cursor:pointer;">
+          🔑 ลืมรหัสผ่าน?
+        </button>
       </div>`,
       `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
        <button class="btn btn-primary" id="adminLoginBtn" onclick="App.doAdminLogin()">เข้าสู่ระบบ</button>`
@@ -216,7 +219,7 @@ const App = {
       this.closeModal();
       this.toast('ส่งลิงก์ตั้งรหัสผ่านใหม่ไปที่อีเมลแล้ว · ถ้าไม่เจอ ให้ดูในจดหมายขยะ (spam)', 'success');
     } catch (e) {
-      if (link) link.textContent = 'ลืมรหัสผ่าน?';
+      if (link) link.textContent = '🔑 ลืมรหัสผ่าน?';
       this.toast('ส่งไม่สำเร็จ: ' + (e.message || e.code || ''), 'error');
     }
   },
@@ -2159,5 +2162,15 @@ document.addEventListener('DOMContentLoaded', () => {
       if (e.data && e.data.type === 'version') b.textContent = e.data.version;
     });
     swc.ready.then(reg => { if (reg.active) reg.active.postMessage('getVersion'); }).catch(() => {});
+
+    // SW ตัวใหม่เข้าคุมหน้าที่เปิดค้างอยู่ → ต้องโหลดหน้าใหม่ ไม่งั้นป้ายเวอร์ชันขึ้นเลขใหม่
+    // แต่ JS ที่รันอยู่ยังเป็นตัวเก่า (หน้างานจะเห็นว่า "อัปเดตแล้วแต่ของไม่เปลี่ยน")
+    const hadController = !!swc.controller;
+    let reloading = false;
+    swc.addEventListener('controllerchange', () => {
+      if (!hadController || reloading) return;   // ติดตั้งครั้งแรก ไม่ต้องรีโหลด
+      reloading = true;
+      location.reload();
+    });
   }
 });
