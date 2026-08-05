@@ -42,7 +42,7 @@
       '<div style="font-size:40px">🔒</div>' +
       '<div style="color:#f1f5f9;font-size:18px;font-weight:700">เครื่องมือสำหรับผู้ดูแล</div>' +
       '<div style="color:#94a3b8;font-size:13px">เข้าสู่ระบบด้วยบัญชี Admin</div>' +
-      '<input id="_agU" type="text" placeholder="ชื่อผู้ใช้" autocomplete="username" ' +
+      '<input id="_agU" type="text" placeholder="อีเมล" autocomplete="email" ' +
         'style="padding:12px 16px;border-radius:10px;border:1px solid #334155;background:#1e293b;color:#f1f5f9;font-size:15px;width:240px;outline:none" />' +
       '<input id="_agP" type="password" placeholder="รหัสผ่าน" autocomplete="current-password" ' +
         'style="padding:12px 16px;border-radius:10px;border:1px solid #334155;background:#1e293b;color:#f1f5f9;font-size:15px;width:240px;outline:none" />' +
@@ -58,7 +58,7 @@
       auth.signInWithEmailAndPassword(email, pw)
         .catch(function () {
           b.disabled = false; b.textContent = 'เข้าสู่ระบบ';
-          e.textContent = 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
+          e.textContent = 'อีเมลหรือรหัสผ่านไม่ถูกต้อง';
           p.value = ''; p.focus();
         });
       // สำเร็จ → onAuthStateChanged จะลบ overlay เอง

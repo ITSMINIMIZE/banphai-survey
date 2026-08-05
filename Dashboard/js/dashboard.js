@@ -1160,7 +1160,7 @@ const App = {
     const btn   = document.getElementById('loginBtn');
     errEl.style.display = 'none';
     if (!user || !pass) {
-      errEl.textContent = 'กรุณากรอกชื่อผู้ใช้และรหัสผ่าน';
+      errEl.textContent = 'กรุณากรอกอีเมลและรหัสผ่าน';
       errEl.style.display = 'block';
       return;
     }

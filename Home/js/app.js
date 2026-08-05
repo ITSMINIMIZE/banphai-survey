@@ -90,7 +90,7 @@ const App = {
           </button>
           <button class="btn btn-ghost" style="padding:14px;font-size:15px;"
             onclick="App.loginAsAdmin()">
-            🔐 เข้าสู่ระบบ (ผู้ดูแลระบบ)
+            🔐 เข้าสู่ระบบ (ผู้ดูแล / ผู้ควบคุม)
           </button>
         </div>
       </div>`;
@@ -140,15 +140,19 @@ const App = {
   loginAsAdmin() {
     this.showModal('🔐 เข้าสู่ระบบ (ผู้ดูแล / ผู้ควบคุม)', `
       <div class="form-row">
-        <label class="form-label req">ชื่อผู้ใช้ หรือ อีเมล</label>
-        <input id="adm_user" class="form-input" autocomplete="username" placeholder="username หรือ email"
+        <label class="form-label req">อีเมล</label>
+        <input id="adm_user" class="form-input" autocomplete="email" placeholder="อีเมลที่ลงทะเบียนไว้"
           onkeydown="if(event.key==='Enter')document.getElementById('adm_pass').focus()" />
-        <div class="form-hint">ผู้ดูแล = ชื่อผู้ใช้ · ผู้ควบคุม = อีเมลที่ลงทะเบียนไว้</div>
+        <div class="form-hint">ใช้อีเมลที่ผู้ดูแลระบบลงทะเบียนให้ — ทั้งผู้ดูแลและผู้ควบคุม</div>
       </div>
       <div class="form-row">
         <label class="form-label req">รหัสผ่าน</label>
         <input id="adm_pass" class="form-input" type="password" placeholder="password"
           onkeydown="if(event.key==='Enter')App.doAdminLogin()" />
+      </div>
+      <div style="text-align:right;margin-top:2px;">
+        <a href="#" id="fpLink" onclick="App.forgotPassword();return false;"
+           style="font-size:12px;color:var(--gray-500);text-decoration:none;">ลืมรหัสผ่าน?</a>
       </div>`,
       `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
        <button class="btn btn-primary" id="adminLoginBtn" onclick="App.doAdminLogin()">เข้าสู่ระบบ</button>`
@@ -182,7 +186,25 @@ const App = {
       this._enterApp();
     } catch (e) {
       if (btn) { btn.textContent = 'เข้าสู่ระบบ'; btn.disabled = false; }
-      this.toast('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง', 'error');
+      this.toast('อีเมลหรือรหัสผ่านไม่ถูกต้อง', 'error');
+    }
+  },
+
+  // ---- ลืมรหัสผ่าน — ส่งลิงก์ตั้งใหม่ไปที่อีเมล ----
+  async forgotPassword() {
+    const email = (document.getElementById('adm_user')?.value || '')
+      .trim().toLowerCase().replace(/\s+/g, '');
+    if (!email.includes('@')) { this.toast('กรอกอีเมลของคุณในช่องด้านบนก่อน', 'error'); return; }
+    const link = document.getElementById('fpLink');
+    if (link) link.textContent = '⌛ กำลังส่ง...';
+    try {
+      if (!FB.db) FB.init();
+      await FB.sendPasswordReset(email);
+      this.closeModal();
+      this.toast('ส่งลิงก์ตั้งรหัสผ่านใหม่ไปที่อีเมลแล้ว · ถ้าไม่เจอ ให้ดูในจดหมายขยะ (spam)', 'success');
+    } catch (e) {
+      if (link) link.textContent = 'ลืมรหัสผ่าน?';
+      this.toast('ส่งไม่สำเร็จ: ' + (e.message || e.code || ''), 'error');
     }
   },
 

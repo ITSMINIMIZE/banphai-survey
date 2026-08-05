@@ -166,7 +166,7 @@
     </div>
     <div class="grid2">
       <div class="field"><label>UID</label><input id="f_uid" type="text" placeholder="เช่น KqGWoPSj..." /></div>
-      <div class="field"><label>อีเมล/username</label><input id="f_email" type="text" /></div>
+      <div class="field"><label>อีเมล</label><input id="f_email" type="text" /></div>
     </div>
     <div class="grid2">
       <div class="field"><label>ชื่อ-นามสกุล</label><input id="f_name" type="text" /></div>
@@ -256,11 +256,10 @@ async function writeUserDoc(r){
 // ===== สร้างบัญชี =====
 function onRoleChange(){
   const isAdmin = $('c_role').value === 'admin';
-  $('c_idLabel').textContent = isAdmin ? 'ชื่อผู้ใช้ (username)' : 'อีเมล (ใช้ login + กู้รหัสผ่าน)';
-  $('c_email').placeholder   = isAdmin ? 'เช่น admin2' : 'เช่น somchai@gmail.com';
-  $('c_idHint').innerHTML    = isAdmin
-    ? 'ใส่<b>อีเมลจริง</b>ได้ (แนะนำ — กู้รหัสผ่านเองได้) · ถ้าใส่ชื่อผู้ใช้เฉยๆ ระบบจะต่อ <code>@banphai.local</code> ให้ ซึ่งจะส่งอีเมลกู้รหัสไม่ได้'
-    : 'ต้องเป็นอีเมลจริงที่เปิดอ่านได้ — ใช้ตอนลืมรหัสผ่าน';
+  $('c_idLabel').textContent = 'อีเมล (ใช้เข้าสู่ระบบ)';
+  $('c_email').placeholder   = isAdmin ? 'เช่น admin@gmail.com' : 'เช่น somchai@gmail.com';
+  $('c_idHint').innerHTML    = 'ต้องเป็นอีเมลจริงที่เปิดอ่านได้'
+    + (isAdmin ? ' — บัญชีผู้ดูแลก็ใช้อีเมลเหมือนกัน' : '');
 }
 
 async function doCreate(){
@@ -270,13 +269,14 @@ async function doCreate(){
   const pw   = $('c_pw').value, pw2 = $('c_pw2').value;
   const note = $('c_note').value.trim();
 
-  if (!raw)                 return msg($('createMsg'), role === 'admin' ? 'กรอกชื่อผู้ใช้' : 'กรอกอีเมล', 'err');
+  if (!raw)                 return msg($('createMsg'), 'กรอกอีเมล', 'err');
   if (!name)                return msg($('createMsg'), 'กรอกชื่อ-นามสกุล', 'err');
   if (pw.length < 8)        return msg($('createMsg'), 'รหัสผ่านต้องยาวอย่างน้อย 8 ตัว', 'err');
   if (pw !== pw2)           return msg($('createMsg'), 'รหัสผ่านสองช่องไม่ตรงกัน', 'err');
-  const email = raw.includes('@') ? raw : raw + EMAIL_DOMAIN;
-  if (role === 'staff' && email.endsWith(EMAIL_DOMAIN))
-    return msg($('createMsg'), 'บัญชี staff ต้องใช้อีเมลจริง (เช่น @gmail.com) เพื่อให้กู้รหัสผ่านเองได้', 'err');
+  // ทุกบัญชีต้องเป็นอีเมลจริง — รวมผู้ดูแล (บัญชี @banphai.local เดิมยัง login ได้ แต่สร้างใหม่ไม่ได้แล้ว)
+  const email = raw;
+  if (!/^[^@\s]+@[^@\s.]+\.[^@\s]+$/.test(email) || email.endsWith(EMAIL_DOMAIN))
+    return msg($('createMsg'), 'ต้องเป็นอีเมลจริงที่เปิดอ่านได้ (เช่น somchai@gmail.com)', 'err');
 
   $('createBtn').disabled = true;
   msg($('createMsg'), 'กำลังตรวจสอบ...', 'info');
@@ -298,7 +298,7 @@ async function doCreate(){
     msg($('createMsg'), `✅ สร้างบัญชี <b>${esc(email)}</b> (${role}) แล้ว — แจ้งรหัสผ่านให้เจ้าตัว`, 'ok');
     await loadUsers(); await rebuildSupervisors();
   } catch(e){
-    const m = e.code === 'auth/email-already-in-use' ? 'อีเมล/ชื่อผู้ใช้นี้ถูกใช้ไปแล้ว'
+    const m = e.code === 'auth/email-already-in-use' ? 'อีเมลนี้ถูกใช้ไปแล้ว'
             : e.code === 'auth/invalid-email'        ? 'รูปแบบอีเมลไม่ถูกต้อง'
             : e.code === 'auth/weak-password'        ? 'รหัสผ่านสั้นเกินไป'
             : e.code === 'permission-denied'         ? 'ไม่มีสิทธิ์เขียน users — ตรวจ Firestore rules'

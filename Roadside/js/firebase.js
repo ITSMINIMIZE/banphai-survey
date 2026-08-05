@@ -51,6 +51,12 @@ const FB = {
     if (this.auth) await this.auth.signOut();
   },
 
+  // ส่งลิงก์ตั้งรหัสผ่านใหม่ — ใช้ได้เฉพาะบัญชีที่เป็นอีเมลจริง
+  async sendPasswordReset(email) {
+    if (!this.auth) throw new Error('Firebase Auth ไม่พร้อม');
+    await this.auth.sendPasswordResetEmail(email);
+  },
+
   onAuthStateChanged(cb) {
     if (!this.auth) { cb(null); return; }
     return this.auth.onAuthStateChanged(cb);
