@@ -168,13 +168,13 @@ async function loadRound() {
   } catch (e) { ROUND = { since: '', label: '' }; }
 }
 
-// staff เห็นเฉพาะทีมตัวเอง → ซ่อนส่วนที่เทียบข้ามทีม (เหลือแถวเดียว ไม่มีประโยชน์)
+// staff เห็นทีมเดียว → เปลี่ยนมุมมองกราฟ Home เป็น "แยกตามผู้สำรวจ" แทนการเทียบข้ามทีม
+// (เดิมซ่อนทั้งคอลัมน์ ทำให้ข้อมูลฝั่ง Home หายไปหมด)
 function applyRoleUI() {
-  const hide = isStaff();
-  ['cardHomeSupervisor', 'cardHomeSurv', 'cardRoadSurv'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.style.display = (hide && id === 'cardHomeSupervisor') ? 'none' : '';
-  });
+  const staff = isStaff();
+  set('titleHomeChart', staff ? '🏠 Home — บ้านที่สำรวจแยกตามผู้สำรวจ'
+                              : '🏠 Home — บ้านที่สำรวจแยกตามผู้ควบคุม');
+  set('titleHomeTable', staff ? '📋 สรุปทีมของคุณ' : '📋 สรุปตามผู้ควบคุม (ทีม)');
 }
 
 async function loginAdmin(username, password) {
@@ -383,7 +383,8 @@ function renderProgress() {
     (hh.members || []).forEach(m => { t.members++; t.trips += (m.trips || []).length; });
   });
   const teamRows = Object.entries(teams).sort((a, b) => b[1].hhs - a[1].hhs);
-  set('badgeHomeSurveyor', teamRows.length + ' ทีม');
+  set('badgeHomeSurveyor', isStaff() ? teamRows.reduce((n, [, d]) => n + d.people.size, 0) + ' คน'
+                                     : teamRows.length + ' ทีม');
   set('homeSurveyorTable', `
     <table class="data-table">
       <thead><tr><th>ผู้ควบคุม</th><th>บ้าน</th><th>คน</th><th>เที่ยว</th><th>สถานะ</th></tr></thead>
@@ -422,10 +423,19 @@ function renderProgress() {
         </tr>`).join('')}</tbody>
     </table>`);
 
-  // ═══ กราฟ Home: บ้านแยกตามผู้ควบคุม ═══
+  // ═══ กราฟ Home: admin = แยกตามผู้ควบคุม · staff = แยกตามผู้สำรวจ (ทีมเดียวจะเหลือแท่งเดียว) ═══
+  let homeChartRows = teamRows.map(([n, d]) => [n, d.hhs]);
+  if (isStaff()) {
+    const per = {};
+    households.forEach(hh => {
+      const n = normName(hh.surveyorName) || '(ไม่ระบุผู้สำรวจ)';
+      per[n] = (per[n] || 0) + 1;
+    });
+    homeChartRows = Object.entries(per).sort((a, b) => b[1] - a[1]);
+  }
   makeChart('chartHomeBySupervisor', 'bar', {
-    labels: teamRows.map(([n]) => n),
-    datasets: [{ label: 'บ้าน', data: teamRows.map(([, d]) => d.hhs), backgroundColor: '#3b82f6' }]
+    labels: homeChartRows.map(r => r[0]),
+    datasets: [{ label: 'บ้าน', data: homeChartRows.map(r => r[1]), backgroundColor: '#3b82f6' }]
   }, { plugins: { legend: { display: false } } });
 
   // ═══ กราฟ Road: รถแยกตามจุดสำรวจ ═══

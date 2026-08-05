@@ -335,11 +335,11 @@
       <!-- ขวา: Home -->
       <div style="display:flex;flex-direction:column;gap:20px" id="cardHomeSupervisor">
         <div class="card">
-          <div class="card-title">🏠 Home — บ้านที่สำรวจแยกตามผู้ควบคุม <span class="badge" id="badgeHomeSurveyor"></span></div>
+          <div class="card-title"><span id="titleHomeChart">🏠 Home — บ้านที่สำรวจแยกตามผู้ควบคุม</span> <span class="badge" id="badgeHomeSurveyor"></span></div>
           <div class="chart-wrap"><canvas id="chartHomeBySupervisor"></canvas></div>
         </div>
         <div class="card">
-          <div class="card-title">📋 สรุปตามผู้ควบคุม (ทีม)</div>
+          <div class="card-title" id="titleHomeTable">📋 สรุปตามผู้ควบคุม (ทีม)</div>
           <div id="homeSurveyorTable"><p style="color:var(--muted)">กำลังโหลด...</p></div>
         </div>
       </div>
@@ -567,6 +567,6 @@
 <!-- Zone GeoJSON (defines ZONES_GEOJSON) -->
 <script src="js/zones.js"></script>
 <!-- Dashboard logic -->
-<script src="js/dashboard.js?v=login2"></script>
+<script src="js/dashboard.js?v=staffhome"></script>
 </body>
 </html>
