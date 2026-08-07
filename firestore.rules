@@ -1,0 +1,76 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function authed()   { return request.auth != null; }
+    function userPath() { return /databases/$(database)/documents/users/$(request.auth.uid); }
+    function active()   { return authed() && exists(userPath()) && get(userPath()).data.get('disabled', false) != true; }
+    function role()     { return active() ? get(userPath()).data.get('role', '') : 'none'; }
+    function team()     { return active() ? get(userPath()).data.get('supervisorName', '') : ''; }
+    function isRoot()   { return authed() && request.auth.uid in ['LFPDCVZ0onawZQfCuIERzyLiyfs1']; }
+    function isAdmin()  { return isRoot() || role() == 'admin'; }
+    function isStaff()  { return role() == 'staff'; }
+    function isSeed(id) { return id.matches('.*SEED.*'); }
+    function delFlag(m)     { return m.get('_deleted', false) == true; }
+    function notDeleted()   { return delFlag(request.resource.data) == false; }
+    function keepsDeleted() { return delFlag(request.resource.data) == delFlag(resource.data); }
+    function canWrite()     { return authed() && (notDeleted() || isAdmin()); }
+    function canEdit()      { return authed() && (keepsDeleted() || isAdmin()); }
+
+    // ═══ collection group — ให้ Dashboard ดึงทั้งโครงการด้วยคำขอเดียว ═══
+    // rule แบบซ้อนชั้นด้านล่างใช้กับ collection group query ไม่ได้ ต้องเขียนรูป {path=**} แยก
+    // • read อย่างเดียว — ไม่แตะสิทธิ์เขียน/ลบ ซึ่งยังคุมด้วย rule เดิมทุกประการ
+    // • จำกัดเฉพาะบัญชีจริง (ผู้ดูแล/ผู้ควบคุม) เพราะมีแค่ Dashboard ที่ใช้ทางนี้
+    //   แอปสำรวจ (ล็อกอินแบบ anonymous) ไม่ได้ใช้ และไม่ควรดึงทั้งฐานทีเดียวได้
+    match /{path=**}/members/{mId}     { allow read: if isAdmin() || isStaff(); }
+    match /{path=**}/trips/{tId}       { allow read: if isAdmin() || isStaff(); }
+    match /{path=**}/interviews/{ivId} { allow read: if isAdmin() || isStaff(); }
+
+    match /users/{userId} {
+      allow get: if authed() && (userId == request.auth.uid || isAdmin());
+      allow list, create, update, delete: if isAdmin();
+    }
+
+    match /households/{hhId} {
+      allow read: if authed();
+      allow create: if canWrite();
+      allow update: if canEdit();
+      allow delete: if isSeed(hhId) && isAdmin();
+      match /members/{mId} {
+        allow read: if authed();
+        allow create: if canWrite();
+        allow update: if canEdit();
+        allow delete: if isSeed(mId) && isAdmin();
+        match /trips/{tId} {
+          allow read: if authed();
+          allow create: if canWrite();
+          allow update: if canEdit();
+          allow delete: if isSeed(tId) && isAdmin();
+        }
+      }
+    }
+
+    match /roadside_stations/{stId} {
+      allow read: if authed();
+      allow create: if isAdmin() || (isStaff() && notDeleted() && request.resource.data.get('supervisorName', '') == team());
+      allow update: if isAdmin() || (isStaff() && keepsDeleted() && resource.data.get('supervisorName', '') == team() && request.resource.data.get('supervisorName', '') == team());
+      allow delete: if isSeed(stId) && isAdmin();
+      match /interviews/{ivId} {
+        allow read: if authed();
+        allow create: if canWrite();
+        allow update: if canEdit();
+        allow delete: if isSeed(ivId) && isAdmin();
+      }
+    }
+
+    match /places/{id} {
+      allow read: if authed();
+      allow create, update: if authed();
+      allow delete: if false;
+    }
+
+    match /config/{docId} {
+      allow read: if authed();
+      allow write: if isAdmin();
+    }
+  }
+}

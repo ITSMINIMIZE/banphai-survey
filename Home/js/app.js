@@ -27,7 +27,30 @@ const App = {
     return FB.pullBySurveyor(this._surveyorName);
   },
 
+  // ===================== ปุ่มย้อนกลับของเบราว์เซอร์ =====================
+  // เปิดผ่านเบราว์เซอร์ (ไม่ใช่ PWA) จะมีปุ่มย้อนกลับ ซึ่งเดิมพาออกจากแอปทันที
+  // → ทิ้งฟอร์มที่กรอกค้างไว้โดยไม่ผ่านการตรวจเงื่อนไข/ไม่ถามยืนยัน
+  // ดักไว้ให้ทำงานเหมือนปุ่มย้อนกลับในแอป แล้วค่อยยอมให้ออกเมื่อไม่มีอะไรค้าง
+  // (Android ในโหมด PWA ก็ยิง popstate เหมือนกัน — ได้พฤติกรรมเดียวกันทั้งสองแบบ)
+  _initBackGuard() {
+    history.pushState({ _guard: 1 }, '');
+    window.addEventListener('popstate', () => {
+      if (this._handleBack()) {
+        history.pushState({ _guard: 1 }, '');   // ยังมีอะไรค้าง — กันไว้อีกชั้น
+      } else {
+        history.back();                         // ไม่มีอะไรค้าง — ออกจากแอปจริง
+      }
+    });
+  },
+  // คืน true = จัดการเองแล้ว (ยังไม่ออกจากแอป)
+  _handleBack() {
+    if (document.getElementById('appModal')) { this.closeModal(); return true; }
+    if (this.page !== 'home') { this.goBack(); return true; }
+    return false;
+  },
+
   async init() {
+    this._initBackGuard();
     // แสดง loading ก่อน
     document.querySelector('.topbar').style.display = 'none';
     document.getElementById('app').innerHTML =
@@ -1460,12 +1483,13 @@ const App = {
       }
     }
 
-    // default departure = เวลาถึงปลายทางครั้งที่แล้ว
-    let defDepart = t?.departureTime || '';
+    // เวลาที่เริ่มเดินทาง: ให้ผู้สำรวจกรอกเองเสมอ — ไม่เติมให้อัตโนมัติ
+    // (เดิมเติมเวลาถึงปลายทางของเที่ยวก่อนหน้าให้ ทำให้เผลอกดผ่านโดยไม่ได้ถามจริง)
+    // ยังโชว์เวลาถึงครั้งก่อนไว้เป็นคำใบ้ และยังตรวจตอนบันทึกว่าต้องไม่ก่อนเวลานั้น
+    const defDepart = t?.departureTime || '';
     let prevArrival = '';
     if (!isEdit && m && m.trips.length > 0) {
       prevArrival = m.trips[m.trips.length - 1].arrivalTime || '';
-      defDepart   = prevArrival;
     }
 
     // กรอง tripMode ตามยานพาหนะที่ครัวเรือนมี
@@ -1894,15 +1918,16 @@ const App = {
       }
     }
 
-    // validate เวลาออกต้องมากกว่าครั้งก่อน
-    if (!this.editingTripId && departureTime) {
-      const m2 = DB.getMember(this.hhId, this.memberId);
-      if (m2 && m2.trips.length > 0) {
-        const prevArr = m2.trips[m2.trips.length - 1].arrivalTime;
-        if (prevArr && departureTime < prevArr) {
-          this.toast(`เวลาออก (${departureTime}) ต้องไม่ก่อนเวลาถึงครั้งที่แล้ว (${prevArr})`, 'error');
-          return;
-        }
+    // เวลาออกต้องไม่ก่อนเวลาถึงของเที่ยวก่อนหน้า
+    // ครอบคลุมตอนแก้ไขด้วย — หา "เที่ยวก่อนหน้า" จากลำดับ seq ไม่ใช่เที่ยวสุดท้ายเสมอไป
+    {
+      const m2    = DB.getMember(this.hhId, this.memberId);
+      const trips = (m2?.trips || []).slice().sort((a, b) => (a.seq || 0) - (b.seq || 0));
+      const idx   = this.editingTripId ? trips.findIndex(x => x.id === this.editingTripId) : trips.length;
+      const prevArr = idx > 0 ? trips[idx - 1].arrivalTime : '';
+      if (prevArr && departureTime < prevArr) {
+        this.toast(`เวลาออก (${departureTime}) ต้องไม่ก่อนเวลาถึงครั้งที่แล้ว (${prevArr})`, 'error');
+        return;
       }
     }
     const data = {

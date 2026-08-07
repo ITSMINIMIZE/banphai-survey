@@ -38,7 +38,10 @@ const Role = {
       email:          user.email || '',
       username:       d.username || (user.email || '').split('@')[0],
       role:           d.role || '',
-      supervisorName: d.supervisorName || '',
+      // normalize ตั้งแต่ต้นทาง — ระเบียนสำรวจเก็บชื่อผ่าน normName() เสมอ
+      // ถ้าปล่อยดิบไว้ ช่องว่างเกิน/อักขระล่องหนในบัญชีจะทำให้จับคู่ทีมไม่เจอแบบเงียบๆ
+      supervisorName: String(d.supervisorName ?? '').normalize('NFC')
+                        .replace(/[\u200B-\u200F\u202A-\u202E\u2060\uFEFF]/g,'').trim().replace(/\s+/g,' '),
       displayName:    d.displayName || d.username || ''
     };
     try {
@@ -101,16 +104,29 @@ const Supervisors = {
 
   // สร้าง <option> — currentValue ที่ไม่อยู่ในรายชื่อ (ข้อมูลเก่า) จะถูกใส่ไว้ให้ด้วย
   // เพื่อไม่ให้แก้ระเบียนเก่าแล้วชื่อผู้ควบคุมถูกเขียนทับเงียบๆ
+  //
+  // key  = ชื่อ-นามสกุล — ค่าที่บันทึกลงระเบียนจริง ใช้จับคู่ทีมทุกที่ (ห้ามเปลี่ยนตามชื่อเล่น)
+  // name = ชื่อเล่น (ถ้าไม่ได้ตั้ง = ชื่อ-นามสกุล) — ตัวที่ผู้สำรวจเห็นเท่านั้น
+  _key(x) { return x.key || x.name || ''; },
   optionsHTML(currentValue, escFn) {
     const esc  = escFn || (s => String(s ?? ''));
     const cur  = String(currentValue || '');
     const list = this.list();
-    const has  = list.some(x => x.name === cur);
+    const has  = list.some(x => this._key(x) === cur);
     let html = `<option value="">— เลือกผู้ควบคุม —</option>`;
-    html += list.map(x =>
-      `<option value="${esc(x.name)}"${x.name === cur ? ' selected' : ''}>${esc(x.name)}</option>`).join('');
+    html += list.map(x => {
+      const k = this._key(x);
+      return `<option value="${esc(k)}"${k === cur ? ' selected' : ''}>${esc(x.name || k)}</option>`;
+    }).join('');
     if (cur && !has) html += `<option value="${esc(cur)}" selected>${esc(cur)} (ข้อมูลเดิม)</option>`;
     return html;
+  },
+
+  // ชื่อเล่นของผู้ควบคุมคนหนึ่ง — ใช้ตอนแสดงผลอย่างเดียว ไม่ใช้บันทึก
+  displayName(fullName) {
+    const cur = String(fullName || '');
+    const hit = this.list().find(x => this._key(x) === cur);
+    return (hit && hit.name) || cur;
   }
 };
 

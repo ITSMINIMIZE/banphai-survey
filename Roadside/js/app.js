@@ -32,7 +32,32 @@ const App = {
   _wizardDone: false,
   _paxCustom: false,
 
+  // ===================== ปุ่มย้อนกลับของเบราว์เซอร์ =====================
+  // เปิดผ่านเบราว์เซอร์ (ไม่ใช่ PWA) จะมีปุ่มย้อนกลับ ซึ่งเดิมพาออกจากแอปทันที
+  // → ทิ้งฟอร์มที่กรอกค้างไว้โดยไม่ผ่านการตรวจเงื่อนไข/ไม่ถามยืนยัน
+  // ดักไว้ให้ทำงานเหมือนปุ่มย้อนกลับในแอป แล้วค่อยยอมให้ออกเมื่อไม่มีอะไรค้าง
+  // (Android ในโหมด PWA ก็ยิง popstate เหมือนกัน — ได้พฤติกรรมเดียวกันทั้งสองแบบ)
+  _initBackGuard() {
+    history.pushState({ _guard: 1 }, '');
+    window.addEventListener('popstate', () => {
+      if (this._handleBack()) {
+        history.pushState({ _guard: 1 }, '');   // ยังมีอะไรค้าง — กันไว้อีกชั้น
+      } else {
+        history.back();                         // ไม่มีอะไรค้าง — ออกจากแอปจริง
+      }
+    });
+  },
+  // คืน true = จัดการเองแล้ว (ยังไม่ออกจากแอป)
+  _handleBack() {
+    if (document.getElementById('appModal')) { this.closeModal(); return true; }
+    // หน้า wizard: ถอยทีละขั้น · ขั้นแรกจะเด้ง _wizardCancel() ที่ถามยืนยันถ้ากรอกไปแล้ว
+    if (this.page === 'wizard') { this._wizardPrev(); return true; }
+    if (this.page !== 'home') { this.goBack(); return true; }
+    return false;
+  },
+
   async init() {
+    this._initBackGuard();
     // แสดง loading ก่อน
     document.querySelector('.topbar').style.display = 'none';
     document.getElementById('app').innerHTML =
@@ -405,6 +430,27 @@ const App = {
   },
 
   // interview นี้พิมพ์ชื่อสถานที่เองโดยไม่มีพิกัด (ไม่ได้เลือกหมุด/ค้นหาจนพบ) หรือไม่
+  // ── นิยาม "สมบูรณ์" ที่เดียว — ใช้ทั้งตัวกรองและจุดสีสถานะ ──
+  // เดิมแยกกัน: ตัวกรองดูพิกัด แต่จุดสีดูชื่อสถานที่+วัตถุประสงค์
+  // → รายการที่กรอกชื่อครบแต่ไม่มีพิกัด ถูกกรองว่า "ไม่สมบูรณ์" แต่จุดกลับเป็นสีเขียว
+  _ivComplete(iv) {
+    return !!(iv && iv.originName && iv.destinationName && iv.purpose
+              && iv.originCoords && iv.destinationCoords);
+  },
+  // เขียว = ครบ · ส้ม = เริ่มกรอกแล้วแต่ยังขาด · เทา = ยังไม่ได้กรอก
+  _ivDotClass(iv) {
+    if (this._ivComplete(iv)) return 'dot-green';
+    if (iv && (iv.originName || iv.destinationName || iv.purpose)) return 'dot-amber';
+    return 'dot-gray';
+  },
+
+  // ผู้ควบคุมแก้จุดสำรวจของทีมตัวเองได้ (ตรงกับ firestore rules) · ลบยังเป็นของผู้ดูแลเท่านั้น
+  _canEditStation(st) {
+    if (this._isAdmin()) return true;
+    return this._isStaff() && !!st
+        && this._normName(st.supervisorName) === this._normName(this._team);
+  },
+
   _ivPlaceManual(iv) {
     if (!iv) return false;
     const originManual = !!iv.originName      && !iv.originCoords;
@@ -609,8 +655,12 @@ const App = {
     const st = DB.getStationView(this.stId);   // view: ไม่รวมรายการที่ลบออกจากระบบแล้ว
     if (!st) return '<div class="container"><p>ไม่พบข้อมูล</p></div>';
     const isAdmin = this._isAdmin();
-    // surveyor เห็นเฉพาะ interview ของตัวเอง (กรองตาม surveyorName ระดับ interview)
-    const myIvs   = isAdmin
+    // ใครเห็น interview ของทุกคนในจุดนี้ = admin + ผู้ควบคุม — ต้องตรงกับ pageHome() ที่ใช้ _canManage()
+    // (เดิมใช้ _isAdmin() ทำให้ผู้ควบคุมถูกกรองด้วย surveyorName === '' → เห็น 0 ราย
+    //  ทั้งที่หน้ารายการจุดขึ้นจำนวนถูกต้อง)
+    const seesAll = this._canManage();
+    // ผู้สำรวจเห็นเฉพาะ interview ของตัวเอง (กรองตาม surveyorName ระดับ interview)
+    const myIvs   = seesAll
       ? st.interviews
       : st.interviews.filter(iv => iv.surveyorName === this._surveyorName);
 
@@ -618,8 +668,8 @@ const App = {
     const status = this._filterStatus || 'all';
     const nameQ  = (this._filterName || '').trim().toLowerCase();
     let ivs = myIvs;
-    if (status === 'complete')        ivs = ivs.filter(iv => iv.originCoords && iv.destinationCoords);
-    else if (status === 'incomplete') ivs = ivs.filter(iv => !iv.originCoords || !iv.destinationCoords);
+    if (status === 'complete')        ivs = ivs.filter(iv => this._ivComplete(iv));
+    else if (status === 'incomplete') ivs = ivs.filter(iv => !this._ivComplete(iv));
     if (nameQ)                        ivs = ivs.filter(iv => (iv.surveyorName || '').toLowerCase().includes(nameQ));
     // ใหม่สุดอยู่บน
     ivs = ivs.slice().sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
@@ -639,15 +689,15 @@ const App = {
             ${st.coordinates   ? `<span class="tag tag-blue">📍 ${st.coordinates}</span>`              : ''}
           </div>
         </div>
-        ${isAdmin ? `<div style="display:flex;gap:6px;flex-shrink:0;">
-          <button class="btn btn-ghost btn-sm" onclick="App.openEditStation('${st.id}')">✏️ แก้ไข</button>
-          <button class="btn btn-danger btn-sm" onclick="App.confirmDeleteStation('${st.id}')">ลบ</button>
+        ${this._canEditStation(st) || isAdmin ? `<div style="display:flex;gap:6px;flex-shrink:0;">
+          ${this._canEditStation(st) ? `<button class="btn btn-ghost btn-sm" onclick="App.openEditStation('${st.id}')">✏️ แก้ไข</button>` : ''}
+          ${isAdmin ? `<button class="btn btn-danger btn-sm" onclick="App.confirmDeleteStation('${st.id}')">ลบ</button>` : ''}
         </div>` : ''}
       </div>
 
       <div class="sec-header">
         <div>
-          <div class="sec-title">รายการการสำรวจ${!isAdmin ? ' (ของฉัน)' : ''}</div>
+          <div class="sec-title">รายการการสำรวจ${!seesAll ? ' (ของฉัน)' : ''}</div>
           <div class="sec-sub">บันทึกทุกคัน/ทุกคนที่หยุดสำรวจ · พบ ${myIvs.length} ราย · ${this._syncBadge()}</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -669,7 +719,7 @@ const App = {
         <div style="display:inline-flex;gap:2px;background:var(--gray-100);padding:3px;border-radius:8px;flex-shrink:0;">
           ${this._segBtn('ทั้งหมด','all')}${this._segBtn('✅ สมบูรณ์','complete')}${this._segBtn('⚠️ ไม่สมบูรณ์','incomplete')}
         </div>
-        ${isAdmin ? `<input id="flt_name" value="${this.esc(this._filterName || '')}" oninput="App.setNameFilter(this.value)"
+        ${seesAll ? `<input id="flt_name" value="${this.esc(this._filterName || '')}" oninput="App.setNameFilter(this.value)"
           placeholder="🔍 ค้นหาชื่อผู้สำรวจ" autocomplete="off"
           style="flex:1;min-width:150px;padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-family:inherit;font-size:14px;background:var(--white);color:var(--gray-800);" />` : ''}
       </div>` : ''}
@@ -677,7 +727,7 @@ const App = {
       ${myIvs.length === 0 ? `
         <div class="empty">
           <span class="empty-icon">📋</span>
-          <h3>ยังไม่มีข้อมูลการสำรวจ${!isAdmin ? 'ของคุณ' : ''}</h3>
+          <h3>ยังไม่มีข้อมูลการสำรวจ${!seesAll ? 'ของคุณ' : ''}</h3>
           <p>เพิ่มข้อมูลยานพาหนะ / ผู้เดินทางที่ถูกสัมภาษณ์</p>
           <button class="btn btn-primary" onclick="App.openWizard()">+ เพิ่มการสำรวจ</button>
         </div>` :
@@ -687,7 +737,7 @@ const App = {
           <button class="btn btn-ghost" onclick="App.resetFilters()">ล้างตัวกรอง</button></div>` :
         `<div class="member-list">${ivs.map(iv => {
           const vt = OPT.vehicleTypes.find(v => v.key === iv.vehicleType) || { icon: '🚘', label: iv.vehicleType || 'ไม่ระบุ' };
-          const dotCls = (iv.originName && iv.destinationName && iv.purpose) ? 'dot-green' : (iv.originName || iv.destinationName) ? 'dot-amber' : 'dot-gray';
+          const dotCls = this._ivDotClass(iv);
           return `<div class="member-card" onclick="App.navigate('interview','${st.id}','${iv.id}')">
             <div class="member-avatar av-o" style="font-size:20px;">${vt.icon}</div>
             <div class="member-info">

@@ -88,12 +88,20 @@
       <div class="field">
         <label>ชื่อ-นามสกุล (ชื่อผู้ควบคุม)</label>
         <input id="c_name" type="text" autocomplete="off" placeholder="เช่น สมชาย ใจดี" />
-        <div class="hint">ชื่อนี้จะไปอยู่ในตัวเลือก "ผู้ควบคุม" ของแบบสอบถาม และใช้จับคู่ข้อมูลทีม</div>
+        <div class="hint">ใช้จับคู่ข้อมูลทีม — บันทึกลงทุกระเบียนที่ทีมนี้เก็บ เปลี่ยนภายหลังแล้วข้อมูลเก่าจะไม่ตามมา</div>
       </div>
+      <div class="field">
+        <label>ชื่อเล่น (ไม่บังคับ)</label>
+        <input id="c_nick" type="text" autocomplete="off" placeholder="เช่น พี่แตงโม" />
+        <div class="hint">ชื่อที่ผู้สำรวจเห็นในตัวเลือก "ผู้ควบคุม" — ไม่ใส่ก็ใช้ชื่อ-นามสกุลแทน</div>
+      </div>
+    </div>
+    <div class="grid2">
       <div class="field">
         <label>หมายเหตุ (ไม่บังคับ)</label>
         <input id="c_note" type="text" autocomplete="off" placeholder="เช่น เบอร์โทร / ทีม 2" />
       </div>
+      <div class="field"></div>
     </div>
     <div class="grid2">
       <div class="field">
@@ -135,6 +143,11 @@
         <label>ชื่อ-นามสกุล (ชื่อผู้ควบคุม)</label>
         <input id="e_name" type="text" />
         <div class="hint">⚠️ เปลี่ยนแล้วข้อมูลเก่าที่ผูกกับชื่อเดิมจะไม่ขึ้นใน Dashboard ของคนนี้</div>
+      </div>
+      <div class="field">
+        <label>ชื่อเล่น (ไม่บังคับ)</label>
+        <input id="e_nick" type="text" />
+        <div class="hint">ชื่อที่ผู้สำรวจเห็นในตัวเลือก "ผู้ควบคุม" — เปลี่ยนได้อิสระ ไม่กระทบข้อมูลเก่า</div>
       </div>
       <div class="grid2">
         <div class="field">
@@ -244,6 +257,7 @@ async function writeUserDoc(r){
     role:           r.role,
     supervisorName: normName(r.name),
     displayName:    normName(r.name),
+    nickname:       normName(r.nick || ''),
     note:           r.note || '',
     disabled:       false,
     createdAt:      new Date().toISOString(),
@@ -267,6 +281,7 @@ async function doCreate(){
   const raw  = $('c_email').value.trim().toLowerCase().replace(/\s+/g,'');
   const name = normName($('c_name').value);
   const pw   = $('c_pw').value, pw2 = $('c_pw2').value;
+  const nick = normName($('c_nick').value);
   const note = $('c_note').value.trim();
 
   if (!raw)                 return msg($('createMsg'), 'กรอกอีเมล', 'err');
@@ -287,14 +302,14 @@ async function doCreate(){
     msg($('createMsg'), 'กำลังสร้างบัญชี...', 'info');
     const cred = await secAuth().createUserWithEmailAndPassword(email, pw);
     const uid  = cred.user.uid;
-    const rec  = { uid, email, role, name, note };
+    const rec  = { uid, email, role, name, nick, note };
     queuePending(rec);                                  // กันเขียน Firestore พลาด
     try { await secAuth().signOut(); } catch(_) {}      // เคลียร์ session รอง
 
     await writeUserDoc(rec);
     clearPending(uid); renderPending();
 
-    ['c_email','c_name','c_pw','c_pw2','c_note'].forEach(id => $(id).value = '');
+    ['c_email','c_name','c_nick','c_pw','c_pw2','c_note'].forEach(id => $(id).value = '');
     msg($('createMsg'), `✅ สร้างบัญชี <b>${esc(email)}</b> (${role}) แล้ว — แจ้งรหัสผ่านให้เจ้าตัว`, 'ok');
     await loadUsers(); await rebuildSupervisors();
   } catch(e){
@@ -322,7 +337,7 @@ async function loadUsers(){
       : `<thead><tr><th>ชื่อ / ผู้ควบคุม</th><th>อีเมล</th><th>ระดับ</th><th>สถานะ</th><th></th></tr></thead>
          <tbody>${USERS.map(u => `
            <tr class="${u.disabled ? 'off' : ''}">
-             <td><b>${esc(u.displayName || u.username)}</b>${u.note ? `<div style="font-size:11px;color:#64748b">${esc(u.note)}</div>` : ''}</td>
+             <td><b>${esc(u.displayName || u.username)}</b>${u.nickname ? ` <span style="color:#64748b">(${esc(u.nickname)})</span>` : ''}${u.note ? `<div style="font-size:11px;color:#64748b">${esc(u.note)}</div>` : ''}</td>
              <td style="font-size:12px;color:#94a3b8">${esc(u.email)}</td>
              <td><span class="pill pill-${u.role}">${esc(u.role)}</span></td>
              <td id="st_${esc(u.uid)}">${u.disabled ? '<span class="pill pill-off">ปิดใช้งาน</span>' : '<span style="color:#34d399">ใช้งานอยู่</span>'}</td>
@@ -360,6 +375,7 @@ function openEdit(uid){
   const u = USERS.find(x => x.uid === uid); if (!u) return;
   EDITING = uid;
   $('e_name').value = u.displayName || '';
+  $('e_nick').value = u.nickname || '';
   $('e_role').value = u.role;
   $('e_note').value = u.note || '';
   $('e_disabled').value = u.disabled ? '1' : '0';
@@ -389,7 +405,7 @@ async function saveEdit(){
              + '⚠️ ข้อมูลเก่าที่บันทึกด้วยชื่อเดิมจะไม่ขึ้นใน Dashboard ของคนนี้อีก')) return;
   try {
     await db.collection('users').doc(u.uid).set({
-      displayName: name, supervisorName: name, role, disabled,
+      displayName: name, supervisorName: name, nickname: normName($('e_nick').value), role, disabled,
       note: $('e_note').value.trim(),
       updatedAt: new Date().toISOString(),
       updatedBy: auth.currentUser.email.replace(EMAIL_DOMAIN,'')
@@ -424,7 +440,7 @@ async function deleteUser(uid){
 async function rebuildSupervisors(){
   try {
     const list = USERS.filter(u => !u.disabled && u.supervisorName)
-      .map(u => ({ key: u.supervisorName, name: u.displayName || u.supervisorName }))
+      .map(u => ({ key: u.supervisorName, name: u.nickname || u.displayName || u.supervisorName }))
       .filter((v,i,a) => a.findIndex(x => x.key === v.key) === i)
       .sort((a,b) => a.name.localeCompare(b.name,'th'));
     await db.collection('config').doc('supervisors').set({

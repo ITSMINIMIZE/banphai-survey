@@ -153,7 +153,8 @@ async function resolveRole(user) {
     if (d.disabled === true) return null;
     if (d.role !== 'admin' && d.role !== 'staff') return null;
     return { uid: user.uid, email: user.email || '', username: d.username || '',
-             role: d.role, supervisorName: d.supervisorName || '', displayName: d.displayName || d.username || '' };
+             role: d.role, supervisorName: normName(d.supervisorName),   // ต้อง normalize — where() เทียบตรงตัว
+             displayName: d.displayName || d.username || '' };
   } catch (e) { return null; }
 }
 const isStaff = () => !!ME && ME.role === 'staff';
@@ -186,19 +187,88 @@ async function loginAdmin(username, password) {
 
 // ── DATA PULL ─────────────────────────────────────────────────────────────────
 // nested schema: households/{}/members/{}/trips/{} → ประกอบเป็น hh.members[].trips[]
+//
+// มีสองทาง:
+//   ทางเร็ว  — collectionGroup ดึง members/trips ทั้งฐานด้วยคำขอละ 1 ครั้ง (รวม 3 คำขอ)
+//   ทางถอย  — ยิง subcollection ทีละ doc (1 + บ้าน + สมาชิก คำขอ) ใช้เมื่อ rules ยังไม่เปิด
+// ทางถอยช้าแบบไม่เป็นเส้นตรง: วัดจริงไว้ที่ 2,001 คำขอ = 58 วินาที และงานจริง
+// 2,000 ครัวเรือนต้องใช้ราว 7,760 คำขอ — จึงต้องเปิดทางเร็วก่อนเก็บข้อมูลจริง
+let PULL_MODE = '';   // 'fast' | 'slow' — โชว์ในแถบสถานะเพื่อให้ตรวจได้ว่าใช้ทางไหนอยู่
+
+// collectionGroup ไม่บอกว่า doc อยู่ใต้ใคร — อ่านจาก path ของ doc เอง
+// households/{hhId}/members/{mId}/trips/{tId}
+function pathParts(ref) { return ref.path.split('/'); }
+
 async function pullHouseholds() {
   // staff = ดึงเฉพาะทีมตัวเอง (ประหยัดค่าอ่านจริง — เดิมดึงทุกบ้าน + subcollection ต่อบ้าน)
   let q = db.collection('households');
   if (isStaff()) q = q.where('supervisorName', '==', ME.supervisorName);
   const snap = await q.get({ source: 'server' });
+
+  const hhById = {};
   const households = snap.docs.map(d => {
     const x = d.data(); delete x._device; delete x._syncedAt;
-    x.members = []; return x;
+    x.members = [];
+    hhById[d.id] = x;
+    return x;
   });
 
-  // members ของแต่ละ household (parallel)
+  try {
+    // ── ทางเร็ว: 2 คำขอ ครอบคลุมสมาชิกและเที่ยวทั้งหมด ──
+    const [memSnap, tripSnap] = await Promise.all([
+      db.collectionGroup('members').get({ source: 'server' }),
+      db.collectionGroup('trips').get({ source: 'server' })
+    ]);
+
+    // สมาชิก — ผูกกลับเข้าบ้านด้วย hhId จาก path
+    // (ผู้ควบคุมจะได้สมาชิกของทุกทีมมาด้วย ตัวที่ไม่ใช่ทีมตัวเองจะไม่มีบ้านรองรับ → ตกไปเอง)
+    const memById = {};
+    memSnap.docs.forEach(d => {
+      const [, hhId] = pathParts(d.ref);
+      const hh = hhById[hhId];
+      if (!hh) return;
+      const m = d.data(); delete m._device; delete m._syncedAt;
+      m.trips = [];
+      hh.members.push(m);
+      memById[hhId + '/' + d.id] = m;
+    });
+
+    // เที่ยว — ผูกกลับเข้าสมาชิกด้วย hhId + mId จาก path
+    tripSnap.docs.forEach(d => {
+      const p = pathParts(d.ref);              // [households, hhId, members, mId, trips, tId]
+      const m = memById[p[1] + '/' + p[3]];
+      if (!m) return;
+      const t = d.data(); delete t._device; delete t._syncedAt;
+      m.trips.push(t);
+    });
+    PULL_MODE = 'fast';
+  } catch (e) {
+    // permission-denied = rules ยังไม่มีบล็อก {path=**} · failed-precondition = ยังไม่มี index
+    console.warn('[Dashboard] collectionGroup ใช้ไม่ได้ ใช้วิธีเดิมแทน:', e.code || e.message);
+    PULL_MODE = 'slow';
+    households.forEach(hh => { hh.members = []; });   // ล้างของค้างจากทางเร็วที่ล้มกลางคัน
+    await fillNestedSlow(snap.docs, households);
+  }
+
+  // เรียงด้วย seq แล้วตัดสินเสมอด้วย id — ข้อมูลจริงมี seq ซ้ำ (สมาชิกคนเดียวมีเที่ยว seq=1 สองอัน
+  // จากการ merge ตอน pull) ถ้าเทียบแค่ seq ลำดับจะขึ้นกับลำดับที่ Firestore ส่งมา = ไม่นิ่งข้ามการโหลด
+  const bySeq = (a, b) => (a.seq || 0) - (b.seq || 0) || String(a.id).localeCompare(String(b.id));
+  households.forEach(hh => {
+    hh.members.sort(bySeq);
+    hh.members.forEach(m => m.trips.sort(bySeq));
+  });
+  // ตัดรายการที่ admin ลบออกจากระบบแล้ว (_deleted) ออกทุกระดับ — ครอบคลุมทุกแท็บในหน้าเดียว
+  return households.filter(hh => !hh._deleted && !isOldRec(hh)).map(hh => {
+    hh.members = hh.members.filter(m => !m._deleted);
+    hh.members.forEach(m => { m.trips = m.trips.filter(t => !t._deleted); });
+    return hh;
+  });
+}
+
+// ทางถอย — ยิง subcollection ทีละ doc (พฤติกรรมเดิมก่อนมี collectionGroup)
+async function fillNestedSlow(hhDocs, households) {
   const memSnaps = await Promise.all(
-    snap.docs.map(d => d.ref.collection('members').get({ source: 'server' }))
+    hhDocs.map(d => d.ref.collection('members').get({ source: 'server' }))
   );
   const memberRefs = [];
   memSnaps.forEach((mSnap, i) => {
@@ -209,8 +279,6 @@ async function pullHouseholds() {
       memberRefs.push({ ref: md.ref, member: m });
     });
   });
-
-  // trips ของแต่ละ member (parallel)
   const tripSnaps = await Promise.all(
     memberRefs.map(mr => mr.ref.collection('trips').get({ source: 'server' }))
   );
@@ -219,17 +287,6 @@ async function pullHouseholds() {
       const t = td.data(); delete t._device; delete t._syncedAt;
       memberRefs[i].member.trips.push(t);
     });
-  });
-
-  households.forEach(hh => {
-    hh.members.sort((a, b) => (a.seq || 0) - (b.seq || 0));
-    hh.members.forEach(m => m.trips.sort((a, b) => (a.seq || 0) - (b.seq || 0)));
-  });
-  // ตัดรายการที่ admin ลบออกจากระบบแล้ว (_deleted) ออกทุกระดับ — ครอบคลุมทุกแท็บในหน้าเดียว
-  return households.filter(hh => !hh._deleted && !isOldRec(hh)).map(hh => {
-    hh.members = hh.members.filter(m => !m._deleted);
-    hh.members.forEach(m => { m.trips = m.trips.filter(t => !t._deleted); });
-    return hh;
   });
 }
 
@@ -242,16 +299,32 @@ async function pullRoadside() {
     const x = d.data(); delete x._device; delete x._syncedAt;
     x.interviews = []; map[d.id] = x;
   });
-  const ivSnaps = await Promise.all(
-    stSnap.docs.map(d => d.ref.collection('interviews').get({ source: 'server' }))
-  );
-  ivSnaps.forEach((snap, i) => {
-    const stId = stSnap.docs[i].id;
-    snap.docs.forEach(d => {
+
+  try {
+    // ── ทางเร็ว: 1 คำขอ ครอบคลุมสัมภาษณ์ทุกจุด ──
+    const ivSnap = await db.collectionGroup('interviews').get({ source: 'server' });
+    ivSnap.docs.forEach(d => {
+      const [, stId] = pathParts(d.ref);       // [roadside_stations, stId, interviews, ivId]
+      const st = map[stId];
+      if (!st) return;                         // จุดสำรวจนอกขอบเขตของบทบาทนี้
       const x = d.data(); delete x._device; delete x._syncedAt;
-      map[stId].interviews.push(x);
+      st.interviews.push(x);
     });
-  });
+  } catch (e) {
+    console.warn('[Dashboard] collectionGroup(interviews) ใช้ไม่ได้ ใช้วิธีเดิมแทน:', e.code || e.message);
+    PULL_MODE = 'slow';
+    Object.values(map).forEach(st => { st.interviews = []; });
+    const ivSnaps = await Promise.all(
+      stSnap.docs.map(d => d.ref.collection('interviews').get({ source: 'server' }))
+    );
+    ivSnaps.forEach((snap, i) => {
+      const stId = stSnap.docs[i].id;
+      snap.docs.forEach(d => {
+        const x = d.data(); delete x._device; delete x._syncedAt;
+        map[stId].interviews.push(x);
+      });
+    });
+  }
   // ตัดรายการที่ admin ลบออกจากระบบแล้ว (_deleted) ออก
   return Object.values(map).filter(st => !st._deleted && !isOldRec(st)).map(st => {
     st.interviews = st.interviews.filter(iv => !iv._deleted && !isOldRec(iv));
@@ -1226,7 +1299,9 @@ const App = {
       const ivCnt = allInterviews().length;
       this._setStatus(`✓ ${households.length} ครัวเรือน · ${stations.length} จุดสำรวจ · ${ivCnt} สัมภาษณ์`
         + (isStaff() ? ' · เฉพาะทีมของคุณ' : '')
-        + (ROUND.since ? ` · รอบ: ${ROUND.label || new Date(ROUND.since).toLocaleDateString('th-TH')}` : ''));
+        + (ROUND.since ? ` · รอบ: ${ROUND.label || new Date(ROUND.since).toLocaleDateString('th-TH')}` : '')
+        // เตือนให้เห็นชัดว่ายังใช้ทางถอยอยู่ — ที่ปริมาณงานจริงทางถอยจะช้าจนใช้ไม่ได้
+        + (PULL_MODE === 'slow' ? ' · ⚠️ โหลดแบบเดิม (ยังไม่เปิด collection group ใน rules)' : ''));
       this._statusDot(true);
       this._hideLoading();
       this._renderAll();
