@@ -72,7 +72,11 @@ const App = {
         if (user) { Supervisors.load(FB.db).catch(() => {}); DataRound.load(FB.db).then(() => this.render && this._role && this.render()).catch(() => {}); }
         if (this._role || this._bootHandled) return; // เข้าระบบแล้ว ไม่ต้องทำซ้ำ
         // anonymous = ผู้สำรวจ/ยังไม่ login → ไปหน้าเลือกบทบาท
-        if (!user || user.isAnonymous) { this._showLoginGate(); return; }
+        if (!user || user.isAnonymous) {
+          // รีเฟรชกลางงาน → กลับเข้าใช้งานต่อเลย ไม่ต้องพิมพ์ชื่อใหม่ (กันพิมพ์ผิดจนชื่อแตก)
+          if (this._restoreSession()) { this._bootHandled = true; this._enterApp(); return; }
+          this._showLoginGate(); return;
+        }
         this._bootHandled = true;   // ตั้งก่อน await — กัน event ยิงซ้ำระหว่างรออ่าน role
         const r = await Role.resolve(user, FB.db);
         if (r && (r.role === 'admin' || r.role === 'staff')) {
@@ -92,6 +96,61 @@ const App = {
   },
 
   // ===================== LOGIN GATE =====================
+  // ===================== จำสถานะการใช้งาน (ในเครื่องล้วน) =====================
+  // ไม่แตะเครือข่ายเลย — ทำงานได้เหมือนเดิมตอนออฟไลน์ และช่วยตอนออฟไลน์มากที่สุด
+  // เพราะหน้างานคือตอนที่ต้องรีเฟรชบ่อย
+  //
+  // แยกสองชั้นโดยตั้งใจ:
+  //   sessionStorage = "กำลังใช้งานอยู่ตอนนี้" → รีเฟรชแล้วเข้าเองเงียบๆ
+  //                    (แท็บเดิม คนเดิม ไม่มีทางสวมชื่อผิดคน)
+  //   localStorage   = "จำชื่อไว้เฉยๆ" → เปิดแอปใหม่แค่เติมชื่อให้ในฟอร์ม ยังต้องกดยืนยัน
+  //                    (เครื่องใช้ร่วมกัน/ส่งเวร จะเห็นชื่อก่อนเสมอ แล้วเปลี่ยนได้)
+  //
+  // เก็บเฉพาะ "ผู้สำรวจ" ซึ่งเป็นแค่ป้ายชื่อ ไม่มีสิทธิ์อะไรกับเซิร์ฟเวอร์
+  // ผู้ดูแล/ผู้ควบคุมใช้ Firebase Auth ที่จำ session ให้เองอยู่แล้ว และสิทธิ์จริงบังคับที่ rules
+  SS_SESSION: '_hi_session_v1',
+  SS_VIEW:    '_hi_view_v1',
+  LS_NAME:    '_hi_last_surveyor_v1',
+
+  _jget(store, k) { try { return JSON.parse(store.getItem(k) || 'null'); } catch (_) { return null; } },
+  _jset(store, k, v) { try { store.setItem(k, JSON.stringify(v)); } catch (_) { /* โหมดส่วนตัว/โควตาเต็ม */ } },
+  _jdel(store, k) { try { store.removeItem(k); } catch (_) {} },
+
+  _saveSession() {
+    if (this._role !== 'surveyor' || !this._surveyorName) return;
+    this._jset(sessionStorage, this.SS_SESSION, { role: 'surveyor', name: this._surveyorName });
+    this._jset(localStorage,   this.LS_NAME,    { name: this._surveyorName });
+  },
+
+  // คืน true ถ้ากลับเข้าใช้งานได้เลย (รีเฟรชระหว่างทำงาน)
+  _restoreSession() {
+    const s = this._jget(sessionStorage, this.SS_SESSION);
+    if (!s || s.role !== 'surveyor' || !s.name) return false;
+    this._surveyorName = this._normName(s.name);
+    this._role = 'surveyor';
+    return true;
+  },
+
+  _clearSession() {
+    this._jdel(sessionStorage, this.SS_SESSION);
+    this._jdel(sessionStorage, this.SS_VIEW);
+  },
+
+  _saveView() { this._jset(sessionStorage, this.SS_VIEW, { page: this.page, hhId: this.hhId, memberId: this.memberId }); },
+
+  // กลับไปหน้าเดิมหลังรีเฟรช — ตรวจก่อนว่าระเบียนยังอยู่จริง
+  // (ถ้า admin ล้างข้อมูล หรือ pull ทับจนระเบียนหาย จะตกกลับหน้าแรกแทนที่จะขึ้น "ไม่พบข้อมูล")
+  _restoreView() {
+    const v = this._jget(sessionStorage, this.SS_VIEW);
+    if (!v || !v.page || v.page === 'home') return false;
+    try {
+    if (v.page === 'household' && DB.getHousehold(v.hhId)) { this.navigate('household', v.hhId); return true; }
+    if (v.page === 'member' && DB.getMember(v.hhId, v.memberId)) { this.navigate('member', v.hhId, v.memberId); return true; }
+    if (v.page === 'trash' && this._canManage()) { this.navigate('trash'); return true; }
+    } catch (_) { /* ข้อมูลเพี้ยน → กลับหน้าแรก */ }
+    return false;
+  },
+
   _showLoginGate() {
     document.querySelector('.topbar').style.display = 'none';
     document.getElementById('app').innerHTML = this._loginGateHTML();
@@ -121,15 +180,20 @@ const App = {
 
   // ---- ผู้สำรวจ ----
   loginAsSurveyor() {
+    // เติมชื่อครั้งล่าสุดให้ แต่ยังต้องกดยืนยัน — เครื่องใช้ร่วมกัน/ส่งเวรจะได้เห็นชื่อก่อน
+    const saved = (this._jget(localStorage, this.LS_NAME) || {}).name || '';
+    const sp    = saved.lastIndexOf(' ');
+    const last  = sp > 0 ? { fname: saved.slice(0, sp), lname: saved.slice(sp + 1) }
+                         : { fname: saved, lname: '' };
     this.showModal('📋 เข้าใช้งานเป็นผู้สำรวจ', `
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
         <div class="form-row">
           <label class="form-label req">ชื่อ</label>
-          <input id="sv_fname" class="form-input" autocomplete="off" placeholder="ชื่อจริง" />
+          <input id="sv_fname" class="form-input" autocomplete="given-name" placeholder="ชื่อจริง" value="${this.esc(last.fname)}" />
         </div>
         <div class="form-row">
           <label class="form-label req">นามสกุล</label>
-          <input id="sv_lname" class="form-input" autocomplete="off" placeholder="นามสกุล" />
+          <input id="sv_lname" class="form-input" autocomplete="family-name" placeholder="นามสกุล" value="${this.esc(last.lname)}" />
         </div>
       </div>
       <p style="font-size:12px;color:var(--gray-400);margin-top:6px;">ไม่ต้องใส่คำนำหน้า · ต้องพิมพ์ชื่อให้ตรงกันทุกครั้งเพื่อดึงข้อมูลของคุณ</p>`,
@@ -155,6 +219,7 @@ const App = {
     if (!lname) { this.toast('กรุณากรอกนามสกุล', 'error'); return; }
     this._surveyorName = this._normName(`${fname} ${lname}`);
     this._role = 'surveyor';
+    this._saveSession();
     this.closeModal();
     this._enterApp();
   },
@@ -248,7 +313,7 @@ const App = {
         <button class="tb-logout" onclick="App.logout()">ออก</button>
       </div>`;
     }
-    this.navigate('home');
+    if (!this._restoreView()) this.navigate('home');
     this._silentPull();
   },
 
@@ -314,6 +379,7 @@ const App = {
     if (this._canManage()) FB.logoutAdmin().catch(() => {});
     Role.clear();
     this._role = null;
+    this._clearSession();
     this._surveyorName = '';
     this._adminUsername = '';
     this._team = '';
@@ -328,6 +394,7 @@ const App = {
     this.page = page;
     if (hhId !== undefined) this.hhId = hhId;
     if (memberId !== undefined) this.memberId = memberId;
+    this._saveView();
     this.render();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   },
