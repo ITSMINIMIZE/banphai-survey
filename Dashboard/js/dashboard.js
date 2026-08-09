@@ -154,12 +154,35 @@ async function resolveRole(user) {
     if (d.role !== 'admin' && d.role !== 'staff') return null;
     return { uid: user.uid, email: user.email || '', username: d.username || '',
              role: d.role, supervisorName: normName(d.supervisorName),   // ต้อง normalize — where() เทียบตรงตัว
-             displayName: d.displayName || d.username || '' };
+             displayName: d.displayName || d.username || '',
+             nickname: normName(d.nickname) };   // ชื่อเล่น — แสดงผลอย่างเดียว
   } catch (e) { return null; }
 }
 const isStaff = () => !!ME && ME.role === 'staff';
 // ระเบียนเก่ากว่ารอบเก็บข้อมูลปัจจุบัน → ไม่นับเข้ารายงาน
 const isOldRec = r => !!ROUND.since && String(r.createdAt || '') < ROUND.since;
+
+// ═══ ชื่อเล่นผู้ควบคุม — ใช้ "แสดงผล" อย่างเดียว ═══
+// ระเบียนทุกใบเก็บชื่อ-นามสกุลเต็มเสมอ (เป็นคีย์จับคู่ทีม) ตรงนี้แค่แปลงตอนเอาขึ้นจอ
+// Dashboard ไม่ได้ include auth-role.js เลยต้องอ่าน config/supervisors เอง
+let SUPNICK = {};
+async function loadSupNicks() {
+  try {
+    const snap = await db.collection('config').doc('supervisors').get();
+    const list = (snap.exists && snap.data().list) || [];
+    SUPNICK = {};
+    list.forEach(x => {
+      const full = normName(x.key || x.name);
+      if (full) SUPNICK[nameKey(full)] = normName(x.name) || full;
+    });
+  } catch (_) { SUPNICK = {}; }   // อ่านไม่ได้ → ใช้ชื่อเต็มไปก่อน ไม่ทำหน้าพัง
+}
+// ชื่อที่เอาขึ้นจอ — ไม่รู้จักก็คืนชื่อเดิม (ระเบียนเก่าที่ชื่อหลุดจากรายชื่อ)
+function supLabel(s) {
+  const n = normName(s);
+  if (!n) return '';
+  return SUPNICK[nameKey(n)] || n;
+}
 
 async function loadRound() {
   try {
@@ -466,7 +489,7 @@ function renderProgress() {
         const target = HOME_QUOTA_PER_PERSON * people;
         const pct = Math.round(d.hhs / target * 100);
         return `<tr>
-          <td>${esc(name)} <span style="color:var(--muted);font-size:11px">(${d.people.size} คน)</span></td>
+          <td>${esc(supLabel(name))} <span style="color:var(--muted);font-size:11px">(${d.people.size} คน)</span></td>
           <td style="font-weight:700">${d.hhs}</td><td>${d.members}</td><td>${d.trips}</td>
           <td>${statusChip(pct, d.hhs, target)}</td>
         </tr>`;
@@ -489,7 +512,7 @@ function renderProgress() {
       <tbody>${stRows.map(r => `
         <tr>
           <td>${esc(r.st.stationName || r.st.stationCode || r.st.id)} <span style="color:var(--muted);font-size:11px">(${r.people} คน)</span></td>
-          <td>${esc(r.st.supervisorName || '—')}</td>
+          <td>${esc(supLabel(r.st.supervisorName) || '—')}</td>
           <td style="font-weight:700">${r.count}</td>
           <td>${r.pax}</td>
           <td>${statusChip(r.pct, r.count, r.target)}</td>
@@ -497,7 +520,7 @@ function renderProgress() {
     </table>`);
 
   // ═══ กราฟ Home: admin = แยกตามผู้ควบคุม · staff = แยกตามผู้สำรวจ (ทีมเดียวจะเหลือแท่งเดียว) ═══
-  let homeChartRows = teamRows.map(([n, d]) => [n, d.hhs]);
+  let homeChartRows = teamRows.map(([n, d]) => [supLabel(n), d.hhs]);
   if (isStaff()) {
     const per = {};
     households.forEach(hh => {
@@ -536,9 +559,10 @@ function renderProgress() {
         <thead><tr><th>ผู้สำรวจ</th><th>ผู้ควบคุม</th><th>บ้าน</th><th>คน</th><th>เที่ยว</th><th>สถานะ</th></tr></thead>
         <tbody>${homeSurvRows.map(s => {
           const pct = Math.round(s.hhs / HOME_QUOTA_PER_PERSON * 100);
-          return `<tr data-name="${esc((s.name + ' ' + s.sup).toLowerCase())}">
+          // ค้นหาให้เจอทั้งชื่อเล่นและชื่อ-นามสกุลเต็ม
+          return `<tr data-name="${esc((s.name + ' ' + s.sup + ' ' + supLabel(s.sup)).toLowerCase())}">
             <td style="font-weight:600">${esc(s.name)}</td>
-            <td style="color:var(--muted)">${esc(s.sup || '—')}</td>
+            <td style="color:var(--muted)">${esc(supLabel(s.sup) || '—')}</td>
             <td style="font-weight:700">${s.hhs}</td><td>${s.members}</td><td>${s.trips}</td>
             <td>${statusChip(pct, s.hhs, HOME_QUOTA_PER_PERSON)}</td>
           </tr>`;
@@ -562,9 +586,10 @@ function renderProgress() {
         <thead><tr><th>ผู้สำรวจ</th><th>ผู้ควบคุม</th><th>คัน</th><th>คนในรถ</th><th>สถานะ</th></tr></thead>
         <tbody>${roadSurvRows.map(s => {
           const pct = Math.round(s.ivs / ROAD_QUOTA_PER_PERSON * 100);
-          return `<tr data-name="${esc((s.name + ' ' + s.sup).toLowerCase())}">
+          // ค้นหาให้เจอทั้งชื่อเล่นและชื่อ-นามสกุลเต็ม
+          return `<tr data-name="${esc((s.name + ' ' + s.sup + ' ' + supLabel(s.sup)).toLowerCase())}">
             <td style="font-weight:600">${esc(s.name)}</td>
-            <td style="color:var(--muted)">${esc(s.sup || '—')}</td>
+            <td style="color:var(--muted)">${esc(supLabel(s.sup) || '—')}</td>
             <td style="font-weight:700">${s.ivs}</td><td>${s.pax}</td>
             <td>${statusChip(pct, s.ivs, ROAD_QUOTA_PER_PERSON)}</td>
           </tr>`;
@@ -1218,7 +1243,8 @@ const App = {
       ME = me;
       document.getElementById('loginOverlay').style.display = 'none';
       document.getElementById('dashboardMain').style.display = 'block';
-      set('headerUser', (me.displayName || me.username) + (me.role === 'staff' ? ' · ผู้ควบคุม' : ''));
+      // ผู้ควบคุมเห็นชื่อเล่นตัวเอง (ตอนนี้ SUPNICK ยังไม่โหลด ใช้ค่าจากบัญชีตรงๆ)
+      set('headerUser', (me.nickname || me.displayName || me.username) + (me.role === 'staff' ? ' · ผู้ควบคุม' : ''));
       applyRoleUI();
       this.loadData();
     });
@@ -1293,6 +1319,7 @@ const App = {
     try {
       await loadCloudZones();   // โซนจากระบบ (ถ้าเคยอัปโหลดผ่าน import-zones)
       await loadRound();        // รอบเก็บข้อมูล — กรองข้อมูลเก่าออกจากรายงาน
+      await loadSupNicks();     // ชื่อเล่นผู้ควบคุม (แสดงผลอย่างเดียว)
       households = await pullHouseholds();
       this._setStatus('โหลด Home แล้ว · กำลังโหลด Roadside...');
       stations   = await pullRoadside();

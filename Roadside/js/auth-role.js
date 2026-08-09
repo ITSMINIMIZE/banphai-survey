@@ -9,7 +9,7 @@
 const Role = {
   CACHE_KEY: '_role_cache_v1',
   TTL_MS: 6 * 60 * 60 * 1000,   // 6 ชม. — เปลี่ยน role แล้วมีผลภายในกะงาน
-  current: null,                // { uid, email, username, role, supervisorName, displayName }
+  current: null,                // { uid, email, username, role, supervisorName, displayName, nickname }
 
   // คืน object สิทธิ์ หรือ null ถ้าไม่ใช่บัญชีจริง / ไม่มีสิทธิ์ / ถูกปิด
   // fresh = true → ข้าม cache (ใช้ตอนเพิ่ง login เพื่อให้เห็นสิทธิ์ล่าสุดทันที)
@@ -42,7 +42,9 @@ const Role = {
       // ถ้าปล่อยดิบไว้ ช่องว่างเกิน/อักขระล่องหนในบัญชีจะทำให้จับคู่ทีมไม่เจอแบบเงียบๆ
       supervisorName: String(d.supervisorName ?? '').normalize('NFC')
                         .replace(/[\u200B-\u200F\u202A-\u202E\u2060\uFEFF]/g,'').trim().replace(/\s+/g,' '),
-      displayName:    d.displayName || d.username || ''
+      displayName:    d.displayName || d.username || '',
+      // ชื่อเล่น — ใช้แสดงผลอย่างเดียว ไม่เคยเอาไปบันทึกลงระเบียน
+      nickname:       d.nickname || ''
     };
     try {
       localStorage.setItem(this.CACHE_KEY, JSON.stringify({ ...this.current, at: Date.now() }));

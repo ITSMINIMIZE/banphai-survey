@@ -219,6 +219,15 @@ const App = {
     setTimeout(() => document.getElementById('sv_fname')?.focus(), 50);
   },
 
+  // ชื่อผู้ควบคุมสำหรับ 'แสดงบนจอ' — คืนชื่อเล่นถ้ามี
+  // ห้ามใช้ตอนบันทึก/กรอง/ส่งออก Excel ตรงนั้นต้องเป็นชื่อ-นามสกุลเต็มเสมอ
+  _supLabel(fullName) {
+    const n = this._normName(fullName);
+    if (!n) return '';
+    return (typeof Supervisors !== 'undefined' && Supervisors.displayName)
+      ? Supervisors.displayName(n) : n;
+  },
+
   // รวมชื่อให้เป็นรูปแบบเดียว — NFC + ตัดอักขระล่องหน (zero-width) + ยุบช่องว่างซ้อน
   _normName(s) {
     return String(s ?? '')
@@ -322,7 +331,7 @@ const App = {
         <a class="tb-link" href="../index.html">◈ เมนูหลัก</a>
         <span class="tb-sep">|</span>
         <span class="tb-user">
-          ${this._isAdmin() ? '🔐' : this._isStaff() ? '🧑‍💼' : '👤'} ${this.esc(this._canManage() ? this._adminUsername : this._surveyorName)}${this._isStaff() ? ' · ผู้ควบคุม' : ''}
+          ${this._isAdmin() ? '🔐' : this._isStaff() ? '🧑‍💼' : '👤'} ${this.esc(this._canManage() ? (this._isStaff() ? this._supLabel(this._team) || this._adminUsername : this._adminUsername) : this._surveyorName)}${this._isStaff() ? ' · ผู้ควบคุม' : ''}
         </span>
         <button class="tb-logout" onclick="App.logout()">ออก</button>
       </div>`;
@@ -654,7 +663,7 @@ const App = {
       <div class="sec-header">
         <div>
           <div class="sec-title">รายการจุดสำรวจ</div>
-          <div class="sec-sub">พบ ${allSts.length} จุดสำรวจ${this._isStaff() ? ` (ทีม ${this.esc(this._team)})` : !isAdmin ? ` · ของฉัน ${mySts.length} จุด` : ''} · ${this._syncBadge()}</div>
+          <div class="sec-sub">พบ ${allSts.length} จุดสำรวจ${this._isStaff() ? ` (ทีม ${this.esc(this._supLabel(this._team))})` : !isAdmin ? ` · ของฉัน ${mySts.length} จุด` : ''} · ${this._syncBadge()}</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           ${noCoordSts.length > 0 ? `<button class="btn btn-sm ${this._filterNoCoords ? 'btn-danger' : 'btn-ghost'}" onclick="App.toggleNoCoords()">📍 พิกัดไม่ครบ ${noCoordSts.length}</button>` : ''}
@@ -752,7 +761,7 @@ const App = {
             ${st.stationCode   ? `<span class="tag tag-gray">รหัส: ${st.stationCode}</span>`           : ''}
             <span class="tag tag-gray">📅 ${st.surveyDate}</span>
             ${st.surveyorName  ? `<span class="tag tag-gray">🧑‍💼 ${this.esc(st.surveyorName)}</span>`          : ''}
-            ${st.supervisorName? `<span class="tag tag-gray">👔 ${this.esc(st.supervisorName)}</span>`           : ''}
+            ${st.supervisorName? `<span class="tag tag-gray">👔 ${this.esc(this._supLabel(st.supervisorName))}</span>`           : ''}
             ${st.coordinates   ? `<span class="tag tag-blue">📍 ${st.coordinates}</span>`              : ''}
           </div>
         </div>
