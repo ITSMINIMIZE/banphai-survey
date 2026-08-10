@@ -76,6 +76,24 @@ const FB = {
 
   _strip(d) { delete d._device; delete d._syncedAt; return d; },
 
+  // ระเบียนนี้เป็นของรอบก่อนหรือไม่
+  // เฉพาะ household เท่านั้นที่มี createdAt — member/trip ไม่มี จึงต้องดูที่บ้านต้นสังกัด
+  _isOldHH(hh) {
+    return typeof DataRound !== 'undefined' && !!DataRound.since() && DataRound.isOld(hh);
+  },
+  _isOldById(hhId) {
+    if (typeof DataRound === 'undefined' || !DataRound.since()) return false;
+    return DataRound.isOld(DB.getHousehold(hhId));
+  },
+  // แจ้งครั้งเดียวพอ ไม่ให้ toast ถล่มตอนแก้หลายช่องติดกัน
+  _warnOld() {
+    const now = Date.now();
+    if (this._warnedAt && now - this._warnedAt < 8000) return;
+    this._warnedAt = now;
+    if (typeof App !== 'undefined' && App.toast)
+      App.toast('ระเบียนนี้เป็นข้อมูลรอบก่อน — แก้ในเครื่องได้ แต่จะไม่ส่งขึ้นระบบ', 'warning');
+  },
+
   // ===== AUTO-PUSH (per-doc, บันทึกทีละรายการ) =====
   // เขียน doc เดียวแบบ fire-and-forget — ไม่มี _withTimeout เพื่อให้ offline persistence
   // คิวงานเองตอนเน็ตหลุด (promise ค้าง ส่งเมื่อออนไลน์) แล้ว badge อัปเดตเมื่อ server ack จริง
@@ -96,9 +114,21 @@ const FB = {
   // หมายเหตุ: auto-push (แก้ไขทีละรายการ) ส่งขึ้นเสมอ แม้เป็นระเบียนรอบก่อน
   // — การแก้ไขคือเจตนาชัดเจนของผู้ใช้ ต้อง sync ทับใน DB ได้
   // ส่วนการกด Sync ทั้งก้อนยังกรองข้อมูลเก่าออก (กันข้อมูลทดสอบไหลกลับทีละมากๆ)
-  pushHousehold(hh)      { if (hh) this._pushDoc(this.db.collection(this.COLLECTION).doc(hh.id), this._hhData(hh)); },
-  pushMember(hhId, m)    { if (m)  this._pushDoc(this.db.collection(this.COLLECTION).doc(hhId).collection('members').doc(m.id), this._memberData(m)); },
-  pushTrip(hhId, mId, t) { if (t)  this._pushDoc(this.db.collection(this.COLLECTION).doc(hhId).collection('members').doc(mId).collection('trips').doc(t.id), t); },
+  pushHousehold(hh) {
+    if (!hh) return;
+    if (this._isOldHH(hh)) { this._warnOld(); return; }
+    this._pushDoc(this.db.collection(this.COLLECTION).doc(hh.id), this._hhData(hh));
+  },
+  pushMember(hhId, m) {
+    if (!m) return;
+    if (this._isOldById(hhId)) { this._warnOld(); return; }
+    this._pushDoc(this.db.collection(this.COLLECTION).doc(hhId).collection('members').doc(m.id), this._memberData(m));
+  },
+  pushTrip(hhId, mId, t) {
+    if (!t) return;
+    if (this._isOldById(hhId)) { this._warnOld(); return; }
+    this._pushDoc(this.db.collection(this.COLLECTION).doc(hhId).collection('members').doc(mId).collection('trips').doc(t.id), t);
+  },
 
   // ===== SYNC =====
   // admin: sync ทุก household ใน local (รวม nested) ขึ้น cloud
@@ -166,6 +196,14 @@ const FB = {
 
   // ===== PULL =====
   // โหลด household + nested members + nested trips
+  // ตัดระเบียนของรอบก่อนออกตั้งแต่ต้นทาง — ไม่ให้เข้ามาในเครื่องเลย
+  // ถ้าไม่ตัด กด "ดึงข้อมูล" ทีเดียวข้อมูลเก่าจะกลับเข้ามาทั้งชุด
+  _filterRound(docs) {
+    if (typeof DataRound === 'undefined' || !DataRound.since()) return { docs, skipped: 0 };
+    const keep = docs.filter(d => !DataRound.isOld(d.data()));
+    return { docs: keep, skipped: docs.length - keep.length };
+  },
+
   async _loadNested(hhDocs) {
     const hhMap = {};
     hhDocs.forEach(doc => {
@@ -215,7 +253,9 @@ const FB = {
       this.db.collection(this.COLLECTION).get({ source: 'server' })
     );
     if (snap.empty) throw new Error('ไม่มีข้อมูลใน Firestore');
-    const households = await this._loadNested(snap.docs);
+    const f = this._filterRound(snap.docs);
+    this.lastSkippedOld = f.skipped;
+    const households = await this._loadNested(f.docs);
     const newData = { households };
     await DB.replaceAll(newData);
     return households.length;
@@ -233,7 +273,9 @@ const FB = {
         .where(field, '==', value)
         .get({ source: 'server' })
     );
-    const remote = await this._loadNested(snap.docs);
+    const f = this._filterRound(snap.docs);
+    this.lastSkippedOld = f.skipped;
+    const remote = await this._loadNested(f.docs);
     const remoteMap = {};
     remote.forEach(h => { remoteMap[h.id] = h; });
 

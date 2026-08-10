@@ -106,8 +106,26 @@ const FB = {
     return typeof DataRound !== 'undefined' && DataRound.since() && DataRound.isOld(rec);
   },
 
-  pushStation(st)         { if (st) this._pushDoc(this.db.collection(this.COLLECTION).doc(st.id), this._stData(st)); },
-  pushInterview(stId, iv) { if (iv) this._pushDoc(this.db.collection(this.COLLECTION).doc(stId).collection('interviews').doc(iv.id), iv); },
+  // แจ้งครั้งเดียวพอ ไม่ให้ toast ถล่มตอนแก้หลายช่องติดกัน
+  _warnOld() {
+    const now = Date.now();
+    if (this._warnedAt && now - this._warnedAt < 8000) return;
+    this._warnedAt = now;
+    if (typeof App !== 'undefined' && App.toast)
+      App.toast('ระเบียนนี้เป็นข้อมูลรอบก่อน — แก้ในเครื่องได้ แต่จะไม่ส่งขึ้นระบบ', 'warning');
+  },
+
+  pushStation(st) {
+    if (!st) return;
+    if (this._isOld(st)) { this._warnOld(); return; }
+    this._pushDoc(this.db.collection(this.COLLECTION).doc(st.id), this._stData(st));
+  },
+  pushInterview(stId, iv) {
+    if (!iv) return;
+    // ดูทั้งตัว interview และจุดต้นสังกัด — จุดเก่าก็ไม่ควรมีรายการใหม่ไปเกาะ
+    if (this._isOld(iv) || this._isOld(DB.getStation(stId))) { this._warnOld(); return; }
+    this._pushDoc(this.db.collection(this.COLLECTION).doc(stId).collection('interviews').doc(iv.id), iv);
+  },
 
   // ===== SYNC =====
   // admin: sync ทุก station + interview ที่อยู่ใน local
@@ -207,21 +225,28 @@ const FB = {
     );
     if (stSnap.empty) throw new Error('ไม่มีข้อมูลใน Firestore');
 
+    // ตัดของรอบก่อนออกตั้งแต่ต้นทาง ไม่ให้เข้ามาในเครื่องเลย
+    // ถ้าไม่ตัด กด "ดึงข้อมูล" ทีเดียวข้อมูลเก่าจะกลับเข้ามาทั้งชุด
+    const stDocs = stSnap.docs.filter(d => !this._isOld(d.data()));
+    this.lastSkippedOld = stSnap.docs.length - stDocs.length;
+
     const stationMap = {};
-    stSnap.docs.forEach(doc => {
+    stDocs.forEach(doc => {
       const d = this._stripInternal(doc.data());
       d.interviews = [];
       stationMap[doc.id] = d;
     });
 
     // 2) ดึง interview ของแต่ละ station แบบ parallel (ไม่ใช้ collectionGroup กัน index)
-    const ivSnaps = await Promise.all(stSnap.docs.map(doc =>
+    const ivSnaps = await Promise.all(stDocs.map(doc =>
       this._withTimeout(doc.ref.collection('interviews').get({ source: 'server' }))
     ));
     ivSnaps.forEach((snap, i) => {
-      const stId = stSnap.docs[i].id;
+      const stId = stDocs[i].id;
       snap.docs.forEach(d => {
-        stationMap[stId].interviews.push(this._stripInternal(d.data()));
+        const iv = d.data();
+        if (this._isOld(iv)) { this.lastSkippedOld++; return; }
+        stationMap[stId].interviews.push(this._stripInternal(iv));
       });
     });
 
@@ -246,18 +271,26 @@ const FB = {
     );
     if (stSnap.empty) throw new Error('ยังไม่มีจุดสำรวจของทีมนี้ใน Firestore');
 
+    // ตัดจุดของรอบก่อนออก ไม่ให้เข้ามาในเครื่อง
+    const stDocs = stSnap.docs.filter(d => !this._isOld(d.data()));
+    this.lastSkippedOld = stSnap.docs.length - stDocs.length;
+
     const stationMap = {};
-    stSnap.docs.forEach(doc => {
+    stDocs.forEach(doc => {
       const d = this._stripInternal(doc.data());
       d.interviews = [];
       stationMap[doc.id] = d;
     });
-    const ivSnaps = await Promise.all(stSnap.docs.map(doc =>
+    const ivSnaps = await Promise.all(stDocs.map(doc =>
       this._withTimeout(doc.ref.collection('interviews').get({ source: 'server' }))
     ));
     ivSnaps.forEach((snap, i) => {
-      const stId = stSnap.docs[i].id;
-      snap.docs.forEach(d => stationMap[stId].interviews.push(this._stripInternal(d.data())));
+      const stId = stDocs[i].id;
+      snap.docs.forEach(d => {
+        const iv = d.data();
+        if (this._isOld(iv)) { this.lastSkippedOld++; return; }
+        stationMap[stId].interviews.push(this._stripInternal(iv));
+      });
     });
 
     // merge: เก็บ interview ใน local ที่ยังไม่ได้ sync (ของจุดในทีมเดียวกัน) ไว้
@@ -290,8 +323,12 @@ const FB = {
     );
     if (stSnap.empty) throw new Error('ไม่มีข้อมูลใน Firestore');
 
+    // ตัดจุดของรอบก่อนออก ไม่ให้เข้ามาในเครื่อง
+    const stDocs = stSnap.docs.filter(d => !this._isOld(d.data()));
+    this.lastSkippedOld = stSnap.docs.length - stDocs.length;
+
     const stationMap = {};
-    stSnap.docs.forEach(doc => {
+    stDocs.forEach(doc => {
       const d = this._stripInternal(doc.data());
       d.interviews = [];
       stationMap[doc.id] = d;
@@ -299,7 +336,7 @@ const FB = {
 
     // ดึง interview subcollection ของแต่ละ station แบบ parallel
     // ใช้ where ที่ระดับ subcollection (single-collection query — ไม่ต้องสร้าง composite index)
-    const ivSnaps = await Promise.all(stSnap.docs.map(doc =>
+    const ivSnaps = await Promise.all(stDocs.map(doc =>
       this._withTimeout(
         doc.ref.collection('interviews')
           .where('surveyorName', '==', surveyorName)
@@ -307,7 +344,7 @@ const FB = {
       )
     ));
     ivSnaps.forEach((snap, i) => {
-      const stId = stSnap.docs[i].id;
+      const stId = stDocs[i].id;
       snap.docs.forEach(d => {
         stationMap[stId].interviews.push(this._stripInternal(d.data()));
       });
