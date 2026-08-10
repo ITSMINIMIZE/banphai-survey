@@ -261,7 +261,8 @@ async function loginAdmin(username, password) {
 //   ทางถอย  — ยิง subcollection ทีละ doc (1 + บ้าน + สมาชิก คำขอ) ใช้เมื่อ rules ยังไม่เปิด
 // ทางถอยช้าแบบไม่เป็นเส้นตรง: วัดจริงไว้ที่ 2,001 คำขอ = 58 วินาที และงานจริง
 // 2,000 ครัวเรือนต้องใช้ราว 7,760 คำขอ — จึงต้องเปิดทางเร็วก่อนเก็บข้อมูลจริง
-let PULL_MODE = '';   // 'fast' | 'slow' — โชว์ในแถบสถานะเพื่อให้ตรวจได้ว่าใช้ทางไหนอยู่
+let PULL_MODE = '';
+let ORPHAN_IV = 0;   // interview ที่จุดสำรวจต้นสังกัดถูกลบไปแล้ว (มองไม่เห็นจากที่อื่น)   // 'fast' | 'slow' — โชว์ในแถบสถานะเพื่อให้ตรวจได้ว่าใช้ทางไหนอยู่
 
 // collectionGroup ไม่บอกว่า doc อยู่ใต้ใคร — อ่านจาก path ของ doc เอง
 // households/{hhId}/members/{mId}/trips/{tId}
@@ -371,8 +372,15 @@ async function pullRoadside() {
   try {
     // ── ทางเร็ว: 1 คำขอ ครอบคลุมสัมภาษณ์ทุกจุด ──
     const ivSnap = await db.collectionGroup('interviews').get({ source: 'server' });
+    // ─ ข้อมูลผี: interview ที่อยู่ใต้จุดสำรวจซึ่งไม่มี document แล้ว ─
+    // Firestore ยอมให้เขียน subcollection ใต้ doc ที่ไม่มีตัวตน
+    // collection().get() ไม่คืน parent พวกนี้ แอปกับหน้าอื่นจึงมองไม่เห็น
+    // ก่อนหน้านี้เราทิ้งเงียบ — ตอนนี้นับไว้แล้วขึ้นเตือน จะได้รู้ว่ามีของค้าง
+    const liveIds = new Set(stSnap.docs.map(d => d.id));
+    ORPHAN_IV = 0;
     ivSnap.docs.forEach(d => {
       const [, stId] = pathParts(d.ref);       // [roadside_stations, stId, interviews, ivId]
+      if (!liveIds.has(stId)) { ORPHAN_IV++; return; }   // จุดถูกลบไปแล้ว = ข้อมูลผี
       const st = map[stId];
       if (!st) return;                         // จุดสำรวจนอกขอบเขตของบทบาทนี้
       const x = d.data(); delete x._device; delete x._syncedAt;
@@ -1450,7 +1458,9 @@ const App = {
         + (isStaff() ? ' · เฉพาะทีมของคุณ' : '')
         + (ROUND.since ? ` · รอบ: ${ROUND.label || new Date(ROUND.since).toLocaleDateString('th-TH')}` : '')
         // เตือนให้เห็นชัดว่ายังใช้ทางถอยอยู่ — ที่ปริมาณงานจริงทางถอยจะช้าจนใช้ไม่ได้
-        + (PULL_MODE === 'slow' ? ' · ⚠️ โหลดแบบเดิม (ยังไม่เปิด collection group ใน rules)' : ''));
+        + (PULL_MODE === 'slow' ? ' · ⚠️ โหลดแบบเดิม (ยังไม่เปิด collection group ใน rules)' : '')
+        // ข้อมูลผีไม่ขึ้นที่ไหนเลยถ้าไม่บอกตรงนี้
+        + (ORPHAN_IV ? ` · 👻 พบข้อมูลผี ${ORPHAN_IV} ราย (จุดสำรวจถูกลบแล้ว)` : ''));
       resetODCache();                 // ข้อมูลชุดใหม่ → ต้องหาโซนใหม่
       const imEl = document.getElementById('odInternalMax');
       if (imEl && !imEl.value) imEl.value = ZONE_INTERNAL_MAX;

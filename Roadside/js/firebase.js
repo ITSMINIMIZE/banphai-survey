@@ -106,6 +106,21 @@ const FB = {
     return typeof DataRound !== 'undefined' && DataRound.since() && DataRound.isOld(rec);
   },
 
+  // รายชื่อจุดสำรวจที่มีอยู่จริงบน cloud — เก็บไว้ตอน pull/sync แล้วใช้กับ auto-push
+  // ถ้าจุดถูกลบไปแล้วแต่ยังเขียน interview ใต้มัน จะกลายเป็น "ข้อมูลผี":
+  // อยู่ใน Firestore จริง แต่ collection('roadside_stations').get() ไม่คืน parent ที่ไม่มีตัวตน
+  // → แอปและ Dashboard มองไม่เห็น ไม่ขึ้นใน export ด้วย กินที่เปล่าๆ
+  _liveStations: null,
+  _rememberLive(ids) { this._liveStations = new Set(ids); },
+
+  _warnGone() {
+    const now = Date.now();
+    if (this._warnedGoneAt && now - this._warnedGoneAt < 8000) return;
+    this._warnedGoneAt = now;
+    if (typeof App !== 'undefined' && App.toast)
+      App.toast('จุดสำรวจนี้ถูกลบออกจากระบบแล้ว — บันทึกในเครื่องได้ แต่จะไม่ส่งขึ้นระบบ', 'error');
+  },
+
   // แจ้งครั้งเดียวพอ ไม่ให้ toast ถล่มตอนแก้หลายช่องติดกัน
   _warnOld() {
     const now = Date.now();
@@ -124,6 +139,9 @@ const FB = {
     if (!iv) return;
     // ดูทั้งตัว interview และจุดต้นสังกัด — จุดเก่าก็ไม่ควรมีรายการใหม่ไปเกาะ
     if (this._isOld(iv) || this._isOld(DB.getStation(stId))) { this._warnOld(); return; }
+    // จุดถูกลบไปแล้ว → ไม่เขียน ไม่งั้นได้ข้อมูลผีที่ไม่มีใครมองเห็น
+    // (รู้เฉพาะเมื่อเคย pull/sync มาแล้ว — ถ้ายังไม่รู้ ปล่อยผ่าน ดีกว่าบล็อกงานหน้างาน)
+    if (this._liveStations && !this._liveStations.has(stId)) { this._warnGone(); return; }
     this._pushDoc(this.db.collection(this.COLLECTION).doc(stId).collection('interviews').doc(iv.id), iv);
   },
 
@@ -155,6 +173,7 @@ const FB = {
       try {
         const snap = await this._withTimeout(this.db.collection(this.COLLECTION).get({ source: 'server' }));
         liveStationIds = new Set(snap.docs.map(d => d.id));
+        this._rememberLive(snap.docs.map(d => d.id));
       } catch (_) { liveStationIds = null; }   // เช็คไม่ได้ → ไม่บล็อก (ดีกว่าหยุดงานหน้างาน)
     }
 
@@ -227,6 +246,7 @@ const FB = {
 
     // ตัดของรอบก่อนออกตั้งแต่ต้นทาง ไม่ให้เข้ามาในเครื่องเลย
     // ถ้าไม่ตัด กด "ดึงข้อมูล" ทีเดียวข้อมูลเก่าจะกลับเข้ามาทั้งชุด
+    this._rememberLive(stSnap.docs.map(d => d.id));   // จำไว้ใช้กับ auto-push
     const stDocs = stSnap.docs.filter(d => !this._isOld(d.data()));
     this.lastSkippedOld = stSnap.docs.length - stDocs.length;
 
@@ -272,6 +292,7 @@ const FB = {
     if (stSnap.empty) throw new Error('ยังไม่มีจุดสำรวจของทีมนี้ใน Firestore');
 
     // ตัดจุดของรอบก่อนออก ไม่ให้เข้ามาในเครื่อง
+    this._rememberLive(stSnap.docs.map(d => d.id));   // จำไว้ใช้กับ auto-push
     const stDocs = stSnap.docs.filter(d => !this._isOld(d.data()));
     this.lastSkippedOld = stSnap.docs.length - stDocs.length;
 
@@ -324,6 +345,7 @@ const FB = {
     if (stSnap.empty) throw new Error('ไม่มีข้อมูลใน Firestore');
 
     // ตัดจุดของรอบก่อนออก ไม่ให้เข้ามาในเครื่อง
+    this._rememberLive(stSnap.docs.map(d => d.id));   // จำไว้ใช้กับ auto-push
     const stDocs = stSnap.docs.filter(d => !this._isOld(d.data()));
     this.lastSkippedOld = stSnap.docs.length - stDocs.length;
 
