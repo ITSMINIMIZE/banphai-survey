@@ -2102,6 +2102,18 @@ const App = {
 
     const data = JSON.parse(DB.exportJSON());
     data.stations = this._visibleStations(data.stations || []);   // staff = เฉพาะทีมตัวเอง
+    // ตัดของรอบก่อนออกจากไฟล์ — ไฟล์นี้เอาไปวิเคราะห์ต่อ ต้องเป็นรอบเดียวกันทั้งหมด
+    // เผื่อมีเครื่องเวอร์ชันเก่าดันข้อมูลเก่าขึ้นมาปน จะได้ไม่หลุดเข้าไฟล์
+    let exOld = 0;
+    if (typeof DataRound !== 'undefined' && DataRound.since()) {
+      const b0 = data.stations.length;
+      data.stations = data.stations.filter(st => !DataRound.isOld(st)).map(st => {
+        const keep = st.interviews.filter(iv => !DataRound.isOld(iv));
+        exOld += st.interviews.length - keep.length;
+        return { ...st, interviews: keep };
+      });
+      exOld += (b0 - data.stations.length);
+    }
     // กรอง interview ตาม filter
     let totalKept = 0;
     data.stations = data.stations.map(st => {
@@ -2115,7 +2127,11 @@ const App = {
       return { ...st, interviews: filtered };
     });
 
-    if (totalKept === 0) { this.toast('ไม่มีข้อมูลตรงกับตัวกรอง', 'warning'); return; }
+    if (totalKept === 0) {
+      this.toast(exOld ? `ข้อมูลทั้งหมดเป็นของรอบก่อน (${exOld} รายการ) — ไม่มีอะไรให้ export`
+                       : 'ไม่มีข้อมูลตรงกับตัวกรอง', 'warning');
+      return;
+    }
 
     const wb = XLSX.utils.book_new();
 
@@ -2297,9 +2313,10 @@ const App = {
     if (fFrom || fTo) parts.push(`${fFrom||'..'}_${fTo||'..'}`);
     XLSX.writeFile(wb, parts.join('-') + '.xlsx');
     const nHard = issueRows.filter(r => r['ความรุนแรง'].startsWith('🔴')).length;
-    this.toast(nHard
+    const oldNote = exOld ? ` · ไม่รวมข้อมูลรอบก่อน ${exOld} รายการ` : '';
+    this.toast((nHard
       ? `Export สำเร็จ · ${totalKept} ราย · ⚠️ มี ${nHard} รายการต้องแก้ ดูชีต "ปัญหาข้อมูล"`
-      : `Export สำเร็จ · ${totalKept} ราย · ข้อมูลครบทุกรายการ`, nHard ? 'warning' : 'success');
+      : `Export สำเร็จ · ${totalKept} ราย · ข้อมูลครบทุกรายการ`) + oldNote, nHard ? 'warning' : 'success');
   },
 
   // ช่องพิมพ์ "delete" เพื่อกันการลบพลาด — ปุ่มลบ (btnId) เริ่มต้น disabled จนกว่าจะพิมพ์ถูก

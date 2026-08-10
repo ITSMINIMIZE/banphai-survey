@@ -2202,7 +2202,19 @@ const App = {
     const data = JSON.parse(DB.exportJSON());
     // staff ได้เฉพาะทีมตัวเอง (admin ได้ทั้งหมด)
     data.households = this._visibleHouseholds(data.households || []);
-    if (!data.households.length) { this.toast('ไม่มีข้อมูลให้ export', 'warning'); return; }
+    // ตัดระเบียนของรอบก่อนออกจากไฟล์ — ไฟล์นี้เอาไปวิเคราะห์ต่อ ต้องเป็นรอบเดียวกันทั้งหมด
+    // เผื่อมีเครื่องเวอร์ชันเก่าดันข้อมูลเก่าขึ้นมาปน จะได้ไม่หลุดเข้าไฟล์
+    let exOld = 0;
+    if (typeof DataRound !== 'undefined' && DataRound.since()) {
+      const before = data.households.length;
+      data.households = data.households.filter(hh => !DataRound.isOld(hh));
+      exOld = before - data.households.length;
+    }
+    if (!data.households.length) {
+      this.toast(exOld ? `ข้อมูลทั้งหมดเป็นของรอบก่อน (${exOld} หลัง) — ไม่มีอะไรให้ export`
+                       : 'ไม่มีข้อมูลให้ export', 'warning');
+      return;
+    }
     const wb   = XLSX.utils.book_new();
 
     // ===== Sheet 1: ครัวเรือน =====
@@ -2374,9 +2386,10 @@ const App = {
     const filename = `home-interview-banphai-${new Date().toISOString().split('T')[0]}.xlsx`;
     XLSX.writeFile(wb, filename);
     const nHard = issueRows.filter(r => r['ความรุนแรง'].startsWith('🔴')).length;
-    this.toast(nHard
+    const oldNote = exOld ? ` · ไม่รวมข้อมูลรอบก่อน ${exOld} หลัง` : '';
+    this.toast((nHard
       ? `Export สำเร็จ · ⚠️ มี ${nHard} รายการต้องแก้ ดูชีต "ปัญหาข้อมูล"`
-      : 'Export Excel สำเร็จ · ข้อมูลครบทุกรายการ', nHard ? 'warning' : 'success');
+      : 'Export Excel สำเร็จ · ข้อมูลครบทุกรายการ') + oldNote, nHard ? 'warning' : 'success');
   },
 
   // ช่องพิมพ์ "delete" เพื่อกันการลบพลาด — ปุ่มลบ (btnId) เริ่มต้น disabled จนกว่าจะพิมพ์ถูก
