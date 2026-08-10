@@ -2102,7 +2102,9 @@ const App = {
       'Longitude':          coordsLon(st.coordinates),
       'โซนจุดสำรวจ':        zone(st.coordinates),
       'ผู้สำรวจ (สร้าง)':  st.surveyorName,
+      'ผู้ควบคุม':          st.supervisorName || '',
       'วันที่สร้าง':         st.surveyDate,
+      'บันทึกเมื่อ':         st.createdAt || '',
       'จำนวนการสำรวจ':      st.interviews.length,
       'ID':                 st.id,
       'Device ID':          st.deviceId || '',
@@ -2127,6 +2129,7 @@ const App = {
           'วันที่สำรวจ':          iv.interviewDate || '',
           'เวลาสำรวจ':            iv.interviewTime || '',
           'ผู้สำรวจ':             iv.surveyorName || '',
+          'ผู้ควบคุม':            st.supervisorName || '',
           'ทิศการเดินทาง':        iv.travelDirection || '',
           // ยานพาหนะ
           'ประเภทยานพาหนะ':       v.label,
@@ -2155,8 +2158,9 @@ const App = {
           // รายได้
           'รายได้ผู้ขับ (บาท/เดือน)': iv.driverIncome || '',
           // อ้างอิง
+          'บันทึกเมื่อ':          iv.createdAt || '',
           'ID จุดสำรวจ':          st.id,
-          'ID การสำรวจ':          iv.id
+          'ID การสำรวจ':          iv.id || ''
         };
       })
     );
@@ -2169,6 +2173,9 @@ const App = {
       OPT.vehicleTypes.forEach(vt => {
         vcol[vt.label] = ivs.filter(iv => iv.vehicleType === vt.key).length;
       });
+      // ระเบียนที่ยังไม่ได้เลือกประเภทรถ (บันทึกค้างไว้) ต้องมีคอลัมน์ลง
+      // ไม่งั้นผลรวมของคอลัมน์ประเภทรถจะไม่เท่า "รวมทั้งหมด" แล้วคนอ่านจะงงว่าหายไปไหน
+      const noType = ivs.filter(iv => !OPT.vehicleTypes.some(v => v.key === iv.vehicleType)).length;
       return {
         'ลำดับ':           i + 1,
         'รหัสจุดสำรวจ':    st.stationCode || st.stationName,
@@ -2176,6 +2183,7 @@ const App = {
         'แกนถนน':          st.direction,
         'รวมทั้งหมด':       ivs.length,
         ...vcol,
+        '⚠️ ไม่ระบุประเภท': noType,
         'มีสินค้า':        ivs.filter(iv => iv.hasCargo === 'มีสินค้า').length,
         'ไม่มีสินค้า':     ivs.filter(iv => iv.hasCargo === 'ไม่มีสินค้า').length
       };

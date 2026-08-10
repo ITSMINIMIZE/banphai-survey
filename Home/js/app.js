@@ -2163,6 +2163,7 @@ const App = {
       });
       return {
         'ID':                        hh.id,
+        'บันทึกเมื่อ':                hh.createdAt || '',
         'วันที่เดินทาง':             hh.travelDate,
         'วันที่บันทึก':              hh.surveyDate,
         'ผู้สำรวจ':                  hh.surveyorName,
@@ -2173,6 +2174,7 @@ const App = {
         'ถนน':                       hh.road,
         'โทรศัพท์':                  hh.phone,
         'พิกัด':                     hh.coordinates,
+        'ที่มาของพิกัด':             hh.coordsSource || '',
         'โซนบ้าน':                   zone(hh.coordinates),
         'ตำบล':                      hh.subdistrict,
         'อำเภอ':                     hh.district,
@@ -2210,14 +2212,26 @@ const App = {
         'พิกัดที่ทำงาน':      m.workplaceCoords || '',
         'โซนที่ทำงาน':        zone(m.workplaceCoords),
         'รายได้':             m.income,
+        'บันทึกเมื่อ':        m.createdAt || '',
       }))
     );
 
     // ===== Sheet 3: การเดินทาง =====
+    // ดูก่อนว่าทั้งชุดมีเที่ยวที่ต่อรถมากสุดกี่ช่วง แล้วออกคอลัมน์ให้พอ (อย่างน้อย 3 ช่วงเหมือนเดิม)
+    const maxSeg = Math.max(3, ...data.households.flatMap(hh =>
+      hh.members.flatMap(m => m.trips.map(t => (t.segments || []).length))), 0);
     const tripRows = data.households.flatMap(hh =>
       hh.members.flatMap(m =>
         m.trips.map(t => {
           const segs = t.segments || [];
+          // คอลัมน์ช่วงเดินทางสร้างตามจำนวนจริงที่มากสุดในชุดข้อมูล
+          // เดิมตายตัวที่ 3 ช่วง ใครต่อรถ 4 ทอดขึ้นไปข้อมูลจะหายเงียบ (ปุ่มเพิ่มช่วงในแอปไม่จำกัดจำนวน)
+          const segCols = {};
+          for (let i = 0; i < maxSeg; i++) {
+            segCols[`รูปแบบ_${i + 1}`]         = segs[i]?.mode     || '';
+            segCols[`ระยะเวลา_${i + 1}(นาที)`] = segs[i]?.duration || '';
+            segCols[`ค่าโดยสาร_${i + 1}(บาท)`] = segs[i]?.fare     || '';
+          }
           return {
             'ID_ครัวเรือน':       hh.id,
             'ID_สมาชิก':         m.id,
@@ -2235,17 +2249,11 @@ const App = {
             'ประเภทปลายทาง':     t.destinationType,
             'เวลาถึงปลายทาง':    t.arrivalTime,
             'วัตถุประสงค์':       t.purpose,
-            'รูปแบบ_1':          segs[0]?.mode     || '',
-            'ระยะเวลา_1(นาที)':  segs[0]?.duration || '',
-            'ค่าโดยสาร_1(บาท)':  segs[0]?.fare     || '',
-            'รูปแบบ_2':          segs[1]?.mode     || '',
-            'ระยะเวลา_2(นาที)':  segs[1]?.duration || '',
-            'ค่าโดยสาร_2(บาท)':  segs[1]?.fare     || '',
-            'รูปแบบ_3':          segs[2]?.mode     || '',
-            'ระยะเวลา_3(นาที)':  segs[2]?.duration || '',
-            'ค่าโดยสาร_3(บาท)':  segs[2]?.fare     || '',
+            'จำนวนช่วง':          segs.length,
+            ...segCols,
             'สถานที่จอด':         t.parkingLocation,
             'ค่าจอด(บาท)':       t.parkingFee,
+            'บันทึกเมื่อ':        t.createdAt || '',
           };
         })
       )
