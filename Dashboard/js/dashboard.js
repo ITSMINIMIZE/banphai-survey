@@ -64,6 +64,9 @@ async function loadCloudZones() {
   try {
     const meta = await db.collection('config').doc('zones').get();
     if (!meta.exists || !(meta.data().chunks > 0)) return false;
+    // เส้นแบ่ง "ในพื้นที่ / นอกพื้นที่" เก็บคู่กับชุดโซน — ไม่ตั้งไว้ก็ใช้ค่าปริยาย
+    const im = +meta.data().internalMax;
+    if (im > 0) ZONE_INTERNAL_MAX = im;
     const n = meta.data().chunks;
     const docs = await Promise.all(
       Array.from({ length: n }, (_, i) => db.collection('config').doc('zones_c' + i).get())
@@ -72,6 +75,7 @@ async function loadCloudZones() {
     const parsed = JSON.parse(docs.map(d => d.data().data).join(''));
     if (!parsed.features || !parsed.features.length) return false;
     ZONES_CLOUD = parsed;
+    resetZoneCaches();              // โซนชุดใหม่ → เลขโซน/ชื่ออำเภอที่ cache ไว้ใช้ไม่ได้แล้ว
     didFitZones = false;            // ให้แผนที่ fit รอบโซนชุดใหม่
     return true;
   } catch (e) {
@@ -92,6 +96,32 @@ function assignZone(coords) {
   }
   return '(นอกพื้นที่)';                          // มีพิกัดแต่อยู่นอกโซนที่กำหนด
 }
+
+// ═══ ในพื้นที่ / นอกพื้นที่ ═══
+// shp ใส่เลขโซนไว้ที่ properties.N — โซนเลขน้อยคือพื้นที่ศึกษา เลขมากคือจังหวัดรอบนอก
+// เส้นแบ่งตั้งเองได้ที่แท็บ OD (เก็บใน config/zones.internalMax) เผื่อชุดโซนเปลี่ยน
+let ZONE_INTERNAL_MAX = 131;
+
+// ชื่อโซน → เลขโซน (สร้างครั้งเดียว ล้างเมื่อโหลดโซนชุดใหม่)
+function zNum(zoneName) {
+  if (!zNum._map) {
+    const m = {};
+    zFeatures().forEach(f => {
+      const n = +((f.properties || {}).N);
+      if (!isNaN(n)) m[zName(f)] = n;
+    });
+    zNum._map = m;
+  }
+  return zNum._map[zoneName] || 0;
+}
+// โซนนอกพื้นที่ศึกษา (จังหวัดรอบนอก) — ไม่ใช่ '(นอกพื้นที่)' ที่แปลว่าตกนอกทุกโซน
+function isExternalZone(z) { const n = zNum(z); return n > 0 && n > ZONE_INTERNAL_MAX; }
+// อยู่ในพื้นที่ศึกษาจริงหรือไม่ — ต้องตัดทั้งโซนรอบนอกและกรณีไม่มีพิกัดออก
+function isInStudyArea(z) {
+  return z !== '(นอกพื้นที่)' && z !== '(ไม่มีพิกัด)' && !isExternalZone(z);
+}
+// ล้าง cache ที่ผูกกับชุดโซน — เรียกเมื่อโหลดโซนใหม่
+function resetZoneCaches() { zNum._map = null; zDistrict._map = null; }
 
 // ชื่อแสดงระดับอำเภอของโซน — ใช้ field DISTRICT/D_NAME ถ้ามีใน shp
 // ไม่งั้น fallback เป็นชื่อโซน (เช่น "โซน 5") ตามข้อมูลปัจจุบัน
@@ -649,28 +679,69 @@ function buildODPairs(source) {
   return pairs;
 }
 
-function renderODMatrix(source) {
-  const features = zFeatures();
-  const zNames   = features.map(f => zName(f));
-  const allZones = ['(ไม่มีพิกัด)', '(นอกพื้นที่)', ...zNames];
+const NO_COORD = '(ไม่มีพิกัด)', OUT_AREA = '(นอกพื้นที่)';
 
-  const pairs = buildODPairs(source);
+// แกนของตาราง OD ตามระดับที่เลือก
+//   'zone'  = ทีละโซน (โซน 1..N)
+//   'group' = รวมเป็นกลุ่ม — ในพื้นที่รวมตาม อปท. · นอกพื้นที่รวมตามจังหวัด (ใช้ D_NAME)
+// เรียง: ในพื้นที่ (ตามเลขโซน) → นอกพื้นที่ (ตามเลขโซน) → นอกทุกโซน → ไม่มีพิกัด
+function odAxis(level) {
+  const seen = new Map();                       // label -> เลขโซนน้อยสุดที่เจอ (ใช้เรียง)
+  zFeatures().forEach(f => {
+    const zn    = zName(f);
+    const label = level === 'group' ? zDistrict(zn) : zn;
+    const n     = zNum(zn) || 9e6;
+    if (!seen.has(label) || n < seen.get(label)) seen.set(label, n);
+  });
+  const labels = [...seen.keys()].sort((a, b) => seen.get(a) - seen.get(b));
+  return [...labels, OUT_AREA, NO_COORD];
+}
+// แปลงชื่อโซนของ pair ให้เป็น label บนแกน
+function odLabel(z, level) {
+  if (z === NO_COORD || z === OUT_AREA) return z;
+  return level === 'group' ? zDistrict(z) : z;
+}
+// label นี้อยู่ในพื้นที่ศึกษาไหม (ใช้กับ label ทั้งสองระดับ)
+function odInStudy(label, level) {
+  if (label === NO_COORD || label === OUT_AREA) return false;
+  if (level !== 'group') return isInStudyArea(label);
+  // ระดับกลุ่ม: ดูจากโซนแรกที่อยู่ในกลุ่มนั้น
+  if (!odInStudy._m) {
+    const m = {};
+    zFeatures().forEach(f => {
+      const zn = zName(f), g = zDistrict(zn);
+      if (!(g in m)) m[g] = isInStudyArea(zn);
+    });
+    odInStudy._m = m;
+  }
+  return !!odInStudy._m[label];
+}
+
+function renderODMatrix(source, level) {
+  level = level || 'group';
+  odInStudy._m = null;                         // ผูกกับชุดโซน/เส้นแบ่งปัจจุบัน
+  const allZones = odAxis(level);              // ไม่ซ้ำแล้ว — โซนหนึ่งมีได้หลายรูปใน shp
+
+  const pairs = buildODPairs(source).map(({ o, d }) => ({
+    o: odLabel(o, level), d: odLabel(d, level),
+    oRaw: o, dRaw: d
+  }));
 
   // Build matrix
   const matrix = {};
   allZones.forEach(o => { matrix[o] = {}; allZones.forEach(d => { matrix[o][d] = 0; }); });
   pairs.forEach(({ o, d }) => {
-    const oz = matrix[o] ? o : '(นอกพื้นที่)';
-    const dz = matrix[d] ? d : '(นอกพื้นที่)';
+    const oz = matrix[o] ? o : OUT_AREA;
+    const dz = matrix[d] ? d : OUT_AREA;
     matrix[oz][dz]++;
   });
 
-  // Summary — แยก "ไม่มีพิกัด" (ข้อมูลไม่ครบ) ออกจากการจัดประเภท in/out
+  // Summary — "ในพื้นที่" นับเฉพาะโซน 1..ZONE_INTERNAL_MAX
+  // โซนรอบนอก (จังหวัดอื่น) ต้องนับเป็นนอกพื้นที่ ไม่งั้นขอนแก่น→ขอนแก่น จะกลายเป็น Internal
   let internal = 0, incoming = 0, outgoing = 0, passthrough = 0, noCoord = 0;
-  const inArea = z => z !== '(นอกพื้นที่)' && z !== '(ไม่มีพิกัด)';
-  pairs.forEach(({ o, d }) => {
-    if (o === '(ไม่มีพิกัด)' || d === '(ไม่มีพิกัด)') { noCoord++; return; }
-    const oi = inArea(o), di = inArea(d);
+  pairs.forEach(({ oRaw, dRaw }) => {
+    if (oRaw === NO_COORD || dRaw === NO_COORD) { noCoord++; return; }
+    const oi = isInStudyArea(oRaw), di = isInStudyArea(dRaw);
     if (oi && di) internal++;
     else if (!oi && di) incoming++;
     else if (oi && !di) outgoing++;
@@ -689,40 +760,66 @@ function renderODMatrix(source) {
       <tr><td><strong>รวมทั้งหมด</strong></td><td style="text-align:right;font-weight:700">${pairs.length} <span style="color:var(--muted);font-weight:400;font-size:11px">(มีพิกัด ${withCoord})</span></td></tr>
     </table>`);
 
-  // Top 10 pairs — รวมระดับอำเภอ (DISTRICT/D_NAME) ถ้า shp มี field; ไม่งั้นใช้ชื่อโซน
+  // Top 10 pairs — ตัดรายการที่ไม่มีพิกัดออก เพราะไม่ใช่การเดินทางจริง เป็นข้อมูลไม่ครบ
+  // (ถ้าไม่ตัด "(ไม่มีพิกัด) → (ไม่มีพิกัด)" จะขึ้นเป็นอันดับต้นๆ แล้วบังคู่จริง)
   const pairCounts = {};
+  let top10Skipped = 0;
   pairs.forEach(({ o, d }) => {
-    const k = `${zDistrict(o)} → ${zDistrict(d)}`;
+    if (o === NO_COORD || d === NO_COORD) { top10Skipped++; return; }
+    const k = `${o} → ${d}`;
     pairCounts[k] = (pairCounts[k] || 0) + 1;
   });
   const top10 = topN(pairCounts, 10);
   set('odTop10', `
     <table class="data-table">
-      <thead><tr><th>#</th><th>คู่ อำเภอ (O-D)</th><th>จำนวน</th></tr></thead>
+      <thead><tr><th>#</th><th>คู่ ${level === 'group' ? 'กลุ่ม' : 'โซน'} (O-D)</th><th>จำนวน</th></tr></thead>
       <tbody>${top10.map(([pair, cnt], i) => `
         <tr>
           <td style="color:var(--muted)">${i + 1}</td>
           <td style="font-size:12px">${esc(pair)}</td>
           <td style="font-weight:700;color:#3b82f6">${cnt}</td>
         </tr>`).join('')}</tbody>
-    </table>`);
+    </table>
+    ${top10Skipped ? `<p style="color:var(--muted);font-size:11px;margin-top:8px">
+       ไม่นับ ${top10Skipped} คู่ที่ยังไม่มีพิกัด</p>` : ''}`);
 
-  // Matrix table — only zones with any activity
-  const maxVal = Math.max(1, ...Object.values(matrix).flatMap(row => Object.values(row)));
+  // Matrix table — แสดงเฉพาะแกนที่มีข้อมูล
   const active = allZones.filter(z =>
     Object.values(matrix[z] || {}).some(v => v > 0) ||
     allZones.some(o => (matrix[o] || {})[z] > 0)
   );
 
+  // สเกลสี: คิดจากช่องที่เป็นการเดินทางจริงเท่านั้น
+  // ถ้าเอาช่อง "ไม่มีพิกัด" มาคิดด้วย ช่องนั้นมักใหญ่สุดจนช่องอื่นจางหมดทั้งตาราง
+  // และใช้สเกล log เพราะช่อง internal ของเมืองมักโตกว่าคู่อื่นหลายเท่า
+  const realVals = [];
+  active.forEach(o => active.forEach(d => {
+    if (o === NO_COORD || d === NO_COORD) return;
+    const v = matrix[o][d] || 0;
+    if (v > 0) realVals.push(v);
+  }));
+  const maxVal = Math.max(1, ...realVals);
   const cellCls = v => {
     if (!v) return 'od-cell-0';
-    const r = v / maxVal;
-    if (r < 0.1) return 'od-cell-low';
-    if (r < 0.4) return 'od-cell-mid';
+    const r = Math.log(v + 1) / Math.log(maxVal + 1);
+    if (r < 0.34) return 'od-cell-low';
+    if (r < 0.67) return 'od-cell-mid';
     return 'od-cell-high';
   };
 
-  const shortName = (s, max = 14) => s.length > max ? s.slice(0, max) + '…' : s;
+  // ย่อคำนำหน้าหน่วยราชการ ไม่งั้นหัวคอลัมน์จะขึ้น "องค์การบริหารส…" เหมือนกันหมดจนแยกไม่ออก
+  const ABBR = [
+    ['องค์การบริหารส่วนตำบล', 'อบต.'],
+    ['องค์การบริหารส่วนจังหวัด', 'อบจ.'],
+    ['เทศบาลตำบล', 'ทต.'],
+    ['เทศบาลเมือง', 'ทม.'],
+    ['เทศบาลนคร', 'ทน.'],
+  ];
+  const abbrev = s => ABBR.reduce((t, [long, sh]) => t.replace(long, sh), String(s));
+  const shortName = (s, max = 16) => {
+    const t = abbrev(s).replace(/\s*\(\d+\)\s*$/, '');   // ตัดรหัสท้ายชื่อออก (ยังดูได้จาก tooltip)
+    return t.length > max ? t.slice(0, max) + '…' : t;
+  };
 
   set('odMatrixWrap', active.length === 0
     ? '<p style="color:var(--muted);padding:12px">ยังไม่มีข้อมูล OD</p>'
@@ -730,7 +827,7 @@ function renderODMatrix(source) {
         <thead>
           <tr>
             <th style="min-width:100px">ต้นทาง ╲ ปลายทาง</th>
-            ${active.map(z => `<th title="${esc(z)}">${esc(shortName(z))}</th>`).join('')}
+            ${active.map(z => `<th title="${esc(z)}" class="${odInStudy(z, level) ? '' : 'od-ext'}">${esc(shortName(z))}</th>`).join('')}
             <th>รวม</th>
           </tr>
         </thead>
@@ -738,7 +835,7 @@ function renderODMatrix(source) {
           ${active.map(o => {
             const rowTotal = active.reduce((s, d) => s + (matrix[o][d] || 0), 0);
             return `<tr>
-              <td class="od-row-header" title="${esc(o)}">${esc(shortName(o, 16))}</td>
+              <td class="od-row-header ${odInStudy(o, level) ? '' : 'od-ext'}" title="${esc(o)}">${esc(shortName(o, 16))}</td>
               ${active.map(d => { const v = matrix[o][d] || 0; return `<td class="${cellCls(v)}">${v || ''}</td>`; }).join('')}
               <td style="font-weight:700">${rowTotal || ''}</td>
             </tr>`;
@@ -1215,6 +1312,7 @@ function renderStats() {
 const App = {
   _tab:        'progress',
   _odSrc:      'home',
+  _odLevel:    'group',   // 'group' = รวมตาม อปท./จังหวัด · 'zone' = ทีละโซน
   _mapMode:    'desire',
   _mapSrc:     'home',
   _peakSrc:    'home',
@@ -1329,6 +1427,8 @@ const App = {
         + (ROUND.since ? ` · รอบ: ${ROUND.label || new Date(ROUND.since).toLocaleDateString('th-TH')}` : '')
         // เตือนให้เห็นชัดว่ายังใช้ทางถอยอยู่ — ที่ปริมาณงานจริงทางถอยจะช้าจนใช้ไม่ได้
         + (PULL_MODE === 'slow' ? ' · ⚠️ โหลดแบบเดิม (ยังไม่เปิด collection group ใน rules)' : ''));
+      const imEl = document.getElementById('odInternalMax');
+      if (imEl && !imEl.value) imEl.value = ZONE_INTERNAL_MAX;
       this._statusDot(true);
       this._hideLoading();
       this._renderAll();
@@ -1345,7 +1445,7 @@ const App = {
   _renderAll() {
     renderKPIs();
     renderProgress();
-    renderODMatrix(this._odSrc);
+    renderODMatrix(this._odSrc, this._odLevel);
     renderPeakHour(this._peakSrc);
     renderStats();
     if (this._tab === 'map') renderMap(this._mapMode, this._mapSrc);
@@ -1379,13 +1479,44 @@ const App = {
     });
   },
 
+  // สลับระดับตาราง OD — กลุ่ม (อปท./จังหวัด) หรือ ทีละโซน
+  setODLevel(level) {
+    this._odLevel = level;
+    ['group', 'zone'].forEach(l =>
+      document.getElementById('odLevel' + l[0].toUpperCase() + l.slice(1))
+        ?.classList.toggle('active', l === level));
+    renderODMatrix(this._odSrc, level);
+  },
+
+  // เส้นแบ่ง "ในพื้นที่ / นอกพื้นที่" — เก็บคู่กับชุดโซนใน config/zones
+  // เขียนได้เฉพาะผู้ดูแล (rules) · ผู้ควบคุมกดแล้วจะขึ้นว่าไม่มีสิทธิ์
+  async saveInternalMax() {
+    const el  = document.getElementById('odInternalMax');
+    const msg = document.getElementById('odInternalMsg');
+    const v   = parseInt(el?.value, 10);
+    if (!(v > 0)) { if (msg) { msg.textContent = 'ใส่เลขโซนที่มากกว่า 0'; msg.style.color = '#ef4444'; } return; }
+    if (msg) { msg.textContent = 'กำลังบันทึก...'; msg.style.color = 'var(--muted)'; }
+    try {
+      await db.collection('config').doc('zones').set({ internalMax: v }, { merge: true });
+      ZONE_INTERNAL_MAX = v;
+      if (msg) { msg.textContent = `✓ โซน 1–${v} = ในพื้นที่`; msg.style.color = '#22c55e'; }
+      this._renderAll();
+    } catch (e) {
+      if (msg) {
+        msg.textContent = e.code === 'permission-denied'
+          ? 'เฉพาะผู้ดูแลระบบเท่านั้นที่ตั้งค่านี้ได้' : 'บันทึกไม่สำเร็จ: ' + (e.message || '');
+        msg.style.color = '#ef4444';
+      }
+    }
+  },
+
   setODSource(src) {
     this._odSrc = src;
     ['home','roadside','all'].forEach(s => {
       const btn = document.getElementById('odToggle' + s[0].toUpperCase() + s.slice(1));
       btn?.classList.toggle('active', s === src);
     });
-    renderODMatrix(src);
+    renderODMatrix(src, this._odLevel);
   },
 
   selectZone(zoneName) {

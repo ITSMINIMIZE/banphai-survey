@@ -154,6 +154,8 @@
     .od-table th, .od-table td { padding: 5px 8px; white-space: nowrap; border: 1px solid var(--border); }
     .od-table th { background: var(--bg); font-weight: 700; color: var(--muted); position: sticky; top: 0; z-index: 1; }
     .od-table td { text-align: right; }
+    /* หัวแถว/คอลัมน์ของโซนนอกพื้นที่ศึกษา — แยกให้เห็นด้วยตาว่าอันไหนในอันไหนนอก */
+    .od-table th.od-ext, .od-table td.od-row-header.od-ext { color: #f59e0b; }
     .od-cell-0 { color: var(--border); }
     .od-cell-low  { background: rgba(59,130,246,.12); }
     .od-cell-mid  { background: rgba(59,130,246,.35); }
@@ -377,6 +379,20 @@
           <button class="toggle-btn" id="odToggleRoadside" onclick="App.setODSource('roadside')">🚗 Roadside</button>
           <button class="toggle-btn" id="odToggleAll" onclick="App.setODSource('all')">📊 ทั้งหมด</button>
         </div>
+
+        <span style="font-size:13px;font-weight:700;color:var(--muted);margin-left:8px">ระดับ:</span>
+        <div class="toggle-group">
+          <button class="toggle-btn active" id="odLevelGroup" onclick="App.setODLevel('group')">🧩 กลุ่ม</button>
+          <button class="toggle-btn" id="odLevelZone" onclick="App.setODLevel('zone')">🔢 โซน</button>
+        </div>
+
+        <span style="font-size:13px;font-weight:700;color:var(--muted);margin-left:8px"
+              title="โซนที่เลขไม่เกินค่านี้ = ในพื้นที่ศึกษา · เลขมากกว่านี้ = นอกพื้นที่">โซนภายใน: 1 –</span>
+        <input id="odInternalMax" type="number" min="1" max="9999"
+               style="width:74px;padding:6px 8px;background:var(--bg);border:1px solid var(--border);
+                      border-radius:6px;color:var(--text);font:inherit;font-size:13px" />
+        <button class="btn-sm" id="odInternalSave" onclick="App.saveInternalMax()">บันทึก</button>
+        <span id="odInternalMsg" style="font-size:12px;color:var(--muted)"></span>
       </div>
     </div>
     <div class="grid-2">
@@ -568,6 +584,6 @@
 <!-- Zone GeoJSON (defines ZONES_GEOJSON) -->
 <script src="js/zones.js"></script>
 <!-- Dashboard logic -->
-<script src="js/dashboard.js?v=nickname"></script>
+<script src="js/dashboard.js?v=odlevel"></script>
 </body>
 </html>
