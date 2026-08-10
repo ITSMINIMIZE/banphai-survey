@@ -510,14 +510,14 @@ const App = {
   // เดิมแยกกัน: ตัวกรองดูพิกัด แต่จุดสีดูชื่อสถานที่+วัตถุประสงค์
   // → รายการที่กรอกชื่อครบแต่ไม่มีพิกัด ถูกกรองว่า "ไม่สมบูรณ์" แต่จุดกลับเป็นสีเขียว
   _ivComplete(iv) {
-    return !!(iv && iv.originName && iv.destinationName && iv.purpose
-              && iv.originCoords && iv.destinationCoords);
+    return Issues.forInterview(iv).total === 0;
   },
   // เขียว = ครบ · ส้ม = เริ่มกรอกแล้วแต่ยังขาด · เทา = ยังไม่ได้กรอก
   _ivDotClass(iv) {
-    if (this._ivComplete(iv)) return 'dot-green';
-    if (iv && (iv.originName || iv.destinationName || iv.purpose)) return 'dot-amber';
-    return 'dot-gray';
+    const q = Issues.forInterview(iv);
+    if (!q.total) return 'dot-green';               // ครบทุกช่อง
+    if (q.hard)   return 'dot-amber';               // ยังขาดของที่ต้องมี
+    return 'dot-amber';                             // ขาดแค่ของรอง ก็ยังไม่ถือว่าเขียว
   },
 
   // ผู้ควบคุมแก้จุดสำรวจของทีมตัวเองได้ (ตรงกับ firestore rules) · ลบยังเป็นของผู้ดูแลเท่านั้น
@@ -784,6 +784,25 @@ const App = {
         </div>
       </div>
 
+      ${(() => {
+        const q = Issues.forStation(st, myIvs);
+        if (!q.total) return '';
+        const tone = q.hard ? { bg:'#fef2f2', bd:'#fca5a5', fg:'#b91c1c' }
+                            : { bg:'#fffbeb', bd:'#fcd34d', fg:'#b45309' };
+        return `<div style="background:${tone.bg};border:1.5px solid ${tone.bd};border-radius:10px;
+                    padding:12px 16px;margin-bottom:16px;font-size:13px;">
+          <div style="font-weight:700;color:${tone.fg};">
+            ⚠️ ข้อมูลยังไม่ครบ${q.badRows ? ` · ${q.badRows} รายการต้องแก้` : ''}
+          </div>
+          ${q.station.hard.length || q.station.soft.length ? `<div style="margin-top:4px;color:var(--gray-600);">
+            ตัวจุดสำรวจ: ${[...q.station.hard, ...q.station.soft].map(t => this.esc(t)).join(' · ')}
+          </div>` : ''}
+          ${q.badRows ? `<button class="btn btn-sm ${this._filterStatus === 'incomplete' ? 'btn-danger' : 'btn-ghost'}"
+             style="margin-top:8px;" onclick="App.setStatus('${this._filterStatus === 'incomplete' ? 'all' : 'incomplete'}')">
+             ${this._filterStatus === 'incomplete' ? '← ดูทั้งหมด' : '🔍 ดูเฉพาะที่ยังไม่ครบ'}</button>` : ''}
+        </div>`;
+      })()}
+
       ${myIvs.length > 0 ? `
       <div style="background:#fefce8;border:1.5px solid #d97706;border-radius:10px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
         <div style="font-size:13px;color:#92400e;font-weight:600;">✅ บันทึกแล้ว ${myIvs.length} ราย</div>
@@ -820,6 +839,14 @@ const App = {
               <div class="member-name">รายที่ ${iv.seq} · ${vt.label}</div>
               <div class="member-detail">${iv.originName && iv.destinationName ? this.esc(iv.originName) + ' → ' + this.esc(iv.destinationName) : 'ยังไม่กรอกข้อมูล'}</div>
               <div style="font-size:11px;color:var(--gray-400);margin-top:2px;">👤 ผู้สำรวจ: ${this.esc(iv.surveyorName) || 'ไม่ระบุ'}</div>
+            ${(() => {
+              const q = Issues.forInterview(iv);
+              if (!q.total) return '';
+              const txt = [...q.hard, ...q.soft].slice(0, 2).join(' · ')
+                        + (q.total > 2 ? ` · +${q.total - 2}` : '');
+              return `<div style="font-size:11px;margin-top:3px;color:${q.hard.length ? '#b91c1c' : '#b45309'};">
+                ${q.hard.length ? '🔴' : '🟠'} ${this.esc(txt)}</div>`;
+            })()}
             </div>
             <div class="member-right">
               ${iv.interviewDate ? `<span class="tag tag-gray">📅 ${iv.interviewDate}</span>` : ''}
@@ -2207,40 +2234,17 @@ const App = {
         'ปัญหา':      problems.join(' · ')
       });
     };
-    const isTruck = key => ['truck4', 'truck6'].includes(key);
-
     data.stations.forEach(st => {
       const where = st.stationName || st.stationCode || st.id;
-      const hard = [], soft = [];
-      if (!st.coordinates)    hard.push('ไม่มีพิกัดจุดสำรวจ');
-      if (!st.supervisorName) hard.push('ไม่มีชื่อผู้ควบคุม');
-      if (!st.interviews.length) hard.push('ยังไม่มีการสำรวจเลย');
-      if (!st.direction)      soft.push('ไม่ระบุแกนถนน');
-      if (!st.road)           soft.push('ไม่ระบุถนน/ทางหลวง');
-      addIssue('🔴 ต้องแก้', 'จุดสำรวจ', st.id, where, st.surveyorName, st.supervisorName, hard);
-      addIssue('🟠 ควรแก้', 'จุดสำรวจ', st.id, where, st.surveyorName, st.supervisorName, soft);
+      const r = Issues.station(st);
+      addIssue('🔴 ต้องแก้', 'จุดสำรวจ', st.id, where, st.surveyorName, st.supervisorName, r.hard);
+      addIssue('🟠 ควรแก้', 'จุดสำรวจ', st.id, where, st.surveyorName, st.supervisorName, r.soft);
 
       st.interviews.forEach((iv, idx) => {
-        const w  = `${where} · รายที่ ${idx + 1}`;
-        const h2 = [], s2 = [];
-        if (!iv.id)              h2.push('ระเบียนไม่มี ID (บันทึกค้าง)');
-        if (!iv.vehicleType)     h2.push('ไม่ระบุประเภทรถ');
-        if (!iv.originCoords)      h2.push('ไม่มีพิกัดต้นทาง');
-        if (!iv.destinationCoords) h2.push('ไม่มีพิกัดปลายทาง');
-        if (!iv.purpose)         h2.push('ไม่ระบุวัตถุประสงค์');
-        if (!iv.travelDirection) h2.push('ไม่ระบุทิศการเดินทาง');
-        if (!iv.passengerCount)  s2.push('ไม่ระบุจำนวนผู้โดยสาร');
-        if (!iv.originName)      s2.push('ไม่มีชื่อสถานที่ต้นทาง');
-        if (!iv.destinationName) s2.push('ไม่มีชื่อสถานที่ปลายทาง');
-        if (!iv.originType)      s2.push('ไม่ระบุลักษณะสถานที่ต้นทาง');
-        if (!iv.destinationType) s2.push('ไม่ระบุลักษณะสถานที่ปลายทาง');
-        // รถบรรทุกต้องตอบเรื่องสินค้า — ข้อนี้เป็นหัวใจของแบบฟอร์ม RS
-        if (isTruck(iv.vehicleType)) {
-          if (!iv.hasCargo) h2.push('รถบรรทุกแต่ไม่ได้ระบุว่ามีสินค้าหรือไม่');
-          else if (iv.hasCargo === 'มีสินค้า' && !iv.cargoType) h2.push('มีสินค้าแต่ไม่ระบุชนิด');
-        }
-        addIssue('🔴 ต้องแก้', 'การสำรวจ', iv.id, w, iv.surveyorName, st.supervisorName, h2);
-        addIssue('🟠 ควรแก้', 'การสำรวจ', iv.id, w, iv.surveyorName, st.supervisorName, s2);
+        const w = `${where} · รายที่ ${idx + 1}`;
+        const ri = Issues.interview(iv);
+        addIssue('🔴 ต้องแก้', 'การสำรวจ', iv.id, w, iv.surveyorName, st.supervisorName, ri.hard);
+        addIssue('🟠 ควรแก้', 'การสำรวจ', iv.id, w, iv.surveyorName, st.supervisorName, ri.soft);
       });
     });
     issueRows.sort((a, b) =>

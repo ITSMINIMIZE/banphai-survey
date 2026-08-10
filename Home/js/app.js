@@ -629,7 +629,7 @@ const App = {
           const totM = Object.values(hh.memberGrid || {}).reduce((s, v) => s + (+v || 0), 0);
           const addr = [hh.houseNo ? 'บ้านเลขที่ ' + hh.houseNo : '', hh.moo ? 'ม.' + hh.moo : '', hh.road].filter(Boolean).join(' ');
           // แยกประเด็นให้ชัด: ไม่มีคนเดินทาง / บ้านไม่มีพิกัด / เที่ยวไม่มีพิกัด / พิกัดจากแผนที่ (มีพิกัดแต่ควรตรวจ)
-          const noTraveler = !this._hhComplete(hh);
+          const noTraveler = Issues.forHousehold(hh).hard > 0;   // การ์ดแดง = มีปัญหาที่ต้องแก้จริง
           const homeNoCo   = !hh.coordinates;
           const tripNoCo   = !homeNoCo && (hh.members || []).some(m => (m.trips || []).some(t => !t.originCoords || !t.destinationCoords));
           const mapCo      = this._hhMapCoords(hh);
@@ -639,7 +639,14 @@ const App = {
               <div class="hh-card-id">${this.esc(addr) || 'ไม่ระบุที่อยู่'}</div>
               <div class="hh-card-addr">${hh.surveyorName ? 'ผู้สำรวจ: ' + this.esc(hh.surveyorName) : ''}</div>
               <div class="hh-card-tags">
-                ${noTraveler ? '<span class="tag" style="background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;">⚠️ ยังไม่สมบูรณ์</span>' : ''}
+                ${(() => {
+                  const q = Issues.forHousehold(hh);
+                  if (!q.total) return '<span class="tag" style="background:#dcfce7;color:#15803d;border:1px solid #86efac;">✅ ครบ</span>';
+                  const t = [];
+                  if (q.hard) t.push(`<span class="tag" style="background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;">🔴 ต้องแก้ ${q.hard}</span>`);
+                  if (q.soft) t.push(`<span class="tag" style="background:#fef3c7;color:#b45309;border:1px solid #fcd34d;">🟠 ควรแก้ ${q.soft}</span>`);
+                  return t.join('');
+                })()}
                 ${homeNoCo ? '<span class="tag" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;">📍 บ้านไม่มีพิกัด</span>' : ''}
                 ${tripNoCo ? '<span class="tag" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;">📍 เที่ยวไม่มีพิกัด</span>' : ''}
                 ${(typeof DataRound !== 'undefined' && DataRound.isOld(hh)) ? '<span class="tag" style="background:#e5e7eb;color:#4b5563;border:1px solid #9ca3af;">📦 รอบก่อน</span>' : ''}
@@ -706,6 +713,38 @@ const App = {
     this.render();
   },
 
+  // แผงสรุปปัญหาของบ้านหลังนี้ — ใช้กฎเดียวกับที่ออกในไฟล์ Excel (Issues ใน data.js)
+  // บอกให้ครบว่าขาดอะไรตรงไหน แต่ไม่บล็อกการทำงาน ผู้สำรวจตัดสินใจเองว่าจะกลับไปแก้ตอนไหน
+  _issuePanel(q) {
+    if (!q || !q.total) return `
+      <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;
+                  padding:10px 14px;margin-bottom:16px;font-size:13px;color:#15803d;font-weight:600;">
+        ✅ ข้อมูลครบทุกช่องที่จำเป็น
+      </div>`;
+    const tone = q.hard ? { bg:'#fef2f2', bd:'#fca5a5', fg:'#b91c1c' }
+                        : { bg:'#fffbeb', bd:'#fcd34d', fg:'#b45309' };
+    const line = d => {
+      const items = [
+        ...d.hard.map(t => `<span style="color:#b91c1c;">🔴 ${this.esc(t)}</span>`),
+        ...d.soft.map(t => `<span style="color:#b45309;">🟠 ${this.esc(t)}</span>`)
+      ].join(' · ');
+      return `<div style="padding:4px 0;border-top:1px solid ${tone.bd}55;">
+        <span style="font-weight:600;color:var(--gray-700);">${this.esc(d.where)}</span> — ${items}
+      </div>`;
+    };
+    return `
+      <div style="background:${tone.bg};border:1.5px solid ${tone.bd};border-radius:10px;
+                  padding:12px 14px;margin-bottom:16px;font-size:13px;">
+        <div style="font-weight:700;color:${tone.fg};margin-bottom:6px;">
+          ⚠️ ข้อมูลยังไม่ครบ ${q.hard ? `· ต้องแก้ ${q.hard}` : ''}${q.soft ? ` · ควรแก้ ${q.soft}` : ''}
+        </div>
+        ${q.details.map(line).join('')}
+        <div style="margin-top:8px;font-size:11px;color:var(--gray-500);">
+          🔴 = ต้องแก้ก่อนส่งงาน (ใช้วิเคราะห์ไม่ได้) · 🟠 = ควรแก้ (ใช้ได้แต่คุณภาพลด)
+        </div>
+      </div>`;
+  },
+
   // ===================== PAGE: HOUSEHOLD =====================
   pageHousehold() {
     const hh = DB.getHouseholdView(this.hhId);   // view: ไม่รวมสมาชิก/เที่ยวที่ลบออกจากระบบแล้ว
@@ -757,6 +796,8 @@ const App = {
           <button class="btn btn-danger btn-sm" onclick="App.confirmDeleteHousehold('${hh.id}')">ลบ</button>
         </div>
       </div>
+
+      ${this._issuePanel(Issues.forHousehold(hh))}
 
       ${totalM > 0 ? `<div class="card-box" style="margin-bottom:20px;">
         <div class="card-box-title">📊 ส่วนที่ 1 — สรุปข้อมูลครัวเรือน</div>
@@ -2281,43 +2322,21 @@ const App = {
 
     data.households.forEach(hh => {
       const where = hh.houseNo ? `บ้านเลขที่ ${hh.houseNo}` : (hh.id || '');
-      const hard = [], soft = [];
-      if (!hh.coordinates)      hard.push('ไม่มีพิกัดบ้าน');
-      if (!hh.surveyorName)     hard.push('ไม่มีชื่อผู้สำรวจ');
-      if (!hh.supervisorName)   hard.push('ไม่มีชื่อผู้ควบคุม');
-      if (!hh.houseNo)          soft.push('ไม่มีบ้านเลขที่');
-      if (!(hh.members || []).length)                        hard.push('ยังไม่มีสมาชิกเลย');
-      else if (!hh.members.some(m => (m.trips || []).length)) hard.push('ไม่มีสมาชิกคนไหนเดินทางเลย');
-      if (!hh.householdIncome)  soft.push('ไม่มีรายได้ครัวเรือน');
-      if (!hh.residentialType)  soft.push('ไม่มีประเภทที่อยู่อาศัย');
-      addIssue('🔴 ต้องแก้', 'ครัวเรือน', hh.id, where, hh.surveyorName, hh.supervisorName, hard);
-      addIssue('🟠 ควรแก้', 'ครัวเรือน', hh.id, where, hh.surveyorName, hh.supervisorName, soft);
+      const r = Issues.household(hh);
+      addIssue('🔴 ต้องแก้', 'ครัวเรือน', hh.id, where, hh.surveyorName, hh.supervisorName, r.hard);
+      addIssue('🟠 ควรแก้', 'ครัวเรือน', hh.id, where, hh.surveyorName, hh.supervisorName, r.soft);
 
       (hh.members || []).forEach(m => {
         const w = `${where} · คนที่ ${m.seq || '?'}`;
-        const h2 = [], s2 = [];
-        if (!m.gender) h2.push('ไม่ระบุเพศ');
-        if (!m.age)    h2.push('ไม่ระบุอายุ');
-        if (!m.occupation)   s2.push('ไม่ระบุอาชีพ');
-        if (!m.education)    s2.push('ไม่ระบุการศึกษา');
-        if (m.workStatus === 'ทำงาน' && !m.workplaceCoords) s2.push('ทำงานแต่ไม่มีพิกัดที่ทำงาน');
-        addIssue('🔴 ต้องแก้', 'สมาชิก', m.id, w, hh.surveyorName, hh.supervisorName, h2);
-        addIssue('🟠 ควรแก้', 'สมาชิก', m.id, w, hh.surveyorName, hh.supervisorName, s2);
+        const rm = Issues.member(m);
+        addIssue('🔴 ต้องแก้', 'สมาชิก', m.id, w, hh.surveyorName, hh.supervisorName, rm.hard);
+        addIssue('🟠 ควรแก้', 'สมาชิก', m.id, w, hh.surveyorName, hh.supervisorName, rm.soft);
 
         (m.trips || []).forEach(t => {
           const wt = `${where} · คนที่ ${m.seq || '?'} · เที่ยวที่ ${t.seq || '?'}`;
-          const h3 = [], s3 = [];
-          if (!t.originCoords)      h3.push('ไม่มีพิกัดต้นทาง');
-          if (!t.destinationCoords) h3.push('ไม่มีพิกัดปลายทาง');
-          if (!t.purpose)           h3.push('ไม่ระบุวัตถุประสงค์');
-          if (!t.departureTime)     h3.push('ไม่ระบุเวลาออกเดินทาง');
-          if (!(t.segments || []).some(g => g && g.mode)) h3.push('ไม่ระบุวิธีเดินทาง');
-          if (!t.origin)            s3.push('ไม่มีชื่อสถานที่ต้นทาง');
-          if (!t.destination)       s3.push('ไม่มีชื่อสถานที่ปลายทาง');
-          if (!t.originType)        s3.push('ไม่ระบุลักษณะสถานที่ต้นทาง');
-          if (!t.destinationType)   s3.push('ไม่ระบุลักษณะสถานที่ปลายทาง');
-          addIssue('🔴 ต้องแก้', 'การเดินทาง', t.id, wt, hh.surveyorName, hh.supervisorName, h3);
-          addIssue('🟠 ควรแก้', 'การเดินทาง', t.id, wt, hh.surveyorName, hh.supervisorName, s3);
+          const rt = Issues.trip(t);
+          addIssue('🔴 ต้องแก้', 'การเดินทาง', t.id, wt, hh.surveyorName, hh.supervisorName, rt.hard);
+          addIssue('🟠 ควรแก้', 'การเดินทาง', t.id, wt, hh.surveyorName, hh.supervisorName, rt.soft);
         });
       });
     });

@@ -324,6 +324,67 @@ const DB = {
   exportJSON() { return JSON.stringify({ ...this.load(), stations: this.getStations() }, null, 2); }
 };
 
+
+// ===== ปัญหาข้อมูล — นิยามที่เดียว ใช้ทั้งหน้าจอและไฟล์ Excel =====
+// ถ้าแยกกันเขียน หน้าจอกับไฟล์จะบอกไม่ตรงกัน แล้วไม่มีใครรู้ว่าอันไหนถูก
+//   hard = ทำให้ใช้วิเคราะห์ไม่ได้ · soft = ใช้ได้แต่คุณภาพลด
+const Issues = {
+  _isTruck: key => ['truck4', 'truck6'].includes(key),
+
+  station(st) {
+    const hard = [], soft = [];
+    if (!st) return { hard, soft };
+    if (!st.coordinates)      hard.push('ไม่มีพิกัดจุดสำรวจ');
+    if (!st.supervisorName)   hard.push('ไม่มีชื่อผู้ควบคุม');
+    if (!(st.interviews || []).length) hard.push('ยังไม่มีการสำรวจเลย');
+    if (!st.direction) soft.push('ไม่ระบุแกนถนน');
+    if (!st.road)      soft.push('ไม่ระบุถนน/ทางหลวง');
+    return { hard, soft };
+  },
+
+  interview(iv) {
+    const hard = [], soft = [];
+    if (!iv) return { hard, soft };
+    if (!iv.id)              hard.push('ระเบียนไม่มี ID (บันทึกค้าง)');
+    if (!iv.vehicleType)     hard.push('ไม่ระบุประเภทรถ');
+    if (!iv.originCoords)      hard.push('ไม่มีพิกัดต้นทาง');
+    if (!iv.destinationCoords) hard.push('ไม่มีพิกัดปลายทาง');
+    if (!iv.purpose)         hard.push('ไม่ระบุวัตถุประสงค์');
+    if (!iv.travelDirection) hard.push('ไม่ระบุทิศการเดินทาง');
+    // รถบรรทุกต้องตอบเรื่องสินค้า — เป็นหัวใจของแบบฟอร์ม RS
+    if (this._isTruck(iv.vehicleType)) {
+      if (!iv.hasCargo) hard.push('รถบรรทุกแต่ไม่ได้ระบุว่ามีสินค้าหรือไม่');
+      else if (iv.hasCargo === 'มีสินค้า' && !iv.cargoType) hard.push('มีสินค้าแต่ไม่ระบุชนิด');
+    }
+    if (!iv.passengerCount)  soft.push('ไม่ระบุจำนวนผู้โดยสาร');
+    if (!iv.originName)      soft.push('ไม่มีชื่อสถานที่ต้นทาง');
+    if (!iv.destinationName) soft.push('ไม่มีชื่อสถานที่ปลายทาง');
+    if (!iv.originType)      soft.push('ไม่ระบุลักษณะสถานที่ต้นทาง');
+    if (!iv.destinationType) soft.push('ไม่ระบุลักษณะสถานที่ปลายทาง');
+    return { hard, soft };
+  },
+
+  // สรุปของ interview รายการเดียว — ใช้ทำจุดสีและป้ายบนการ์ด
+  forInterview(iv) {
+    const r = this.interview(iv);
+    return { hard: r.hard.length, soft: r.soft.length, total: r.hard.length + r.soft.length, ...r };
+  },
+
+  // สรุปทั้งจุด (นับเฉพาะรายการที่ส่งเข้ามา — ผู้สำรวจเห็นเฉพาะของตัวเอง)
+  forStation(st, ivs) {
+    const list = ivs || st?.interviews || [];
+    let hard = 0, soft = 0, badRows = 0;
+    list.forEach(iv => {
+      const r = this.interview(iv);
+      hard += r.hard.length; soft += r.soft.length;
+      if (r.hard.length) badRows++;
+    });
+    const sr = this.station(st);
+    return { hard: hard + sr.hard.length, soft: soft + sr.soft.length,
+             badRows, station: sr, total: hard + soft + sr.hard.length + sr.soft.length };
+  }
+};
+
 // ===== OPTION LISTS =====
 const OPT = {
 

@@ -382,6 +382,67 @@ const DB = {
   exportJSON() { return JSON.stringify({ ...this.load(), households: this.getHouseholds() }, null, 2); }
 };
 
+
+// ===== ปัญหาข้อมูล — นิยามที่เดียว ใช้ทั้งหน้าจอและไฟล์ Excel =====
+// ถ้าแยกกันเขียน หน้าจอกับไฟล์จะบอกไม่ตรงกัน แล้วไม่มีใครรู้ว่าอันไหนถูก
+//   hard = ทำให้ใช้วิเคราะห์ไม่ได้ (ต้องแก้ก่อนส่งงาน)
+//   soft = ใช้ได้แต่คุณภาพลด
+const Issues = {
+  household(hh) {
+    const hard = [], soft = [];
+    if (!hh) return { hard, soft };
+    if (!hh.coordinates)    hard.push('ไม่มีพิกัดบ้าน');
+    if (!hh.surveyorName)   hard.push('ไม่มีชื่อผู้สำรวจ');
+    if (!hh.supervisorName) hard.push('ไม่มีชื่อผู้ควบคุม');
+    if (!(hh.members || []).length)                          hard.push('ยังไม่มีสมาชิกเลย');
+    else if (!hh.members.some(m => (m.trips || []).length))   hard.push('ไม่มีสมาชิกคนไหนเดินทางเลย');
+    if (!hh.houseNo)         soft.push('ไม่มีบ้านเลขที่');
+    if (!hh.householdIncome) soft.push('ไม่มีรายได้ครัวเรือน');
+    if (!hh.residentialType) soft.push('ไม่มีประเภทที่อยู่อาศัย');
+    return { hard, soft };
+  },
+  member(m) {
+    const hard = [], soft = [];
+    if (!m) return { hard, soft };
+    if (!m.gender) hard.push('ไม่ระบุเพศ');
+    if (!m.age)    hard.push('ไม่ระบุอายุ');
+    if (!m.occupation) soft.push('ไม่ระบุอาชีพ');
+    if (!m.education)  soft.push('ไม่ระบุการศึกษา');
+    if (m.workStatus === 'ทำงาน' && !m.workplaceCoords) soft.push('ทำงานแต่ไม่มีพิกัดที่ทำงาน');
+    return { hard, soft };
+  },
+  trip(t) {
+    const hard = [], soft = [];
+    if (!t) return { hard, soft };
+    if (!t.originCoords)      hard.push('ไม่มีพิกัดต้นทาง');
+    if (!t.destinationCoords) hard.push('ไม่มีพิกัดปลายทาง');
+    if (!t.purpose)           hard.push('ไม่ระบุวัตถุประสงค์');
+    if (!t.departureTime)     hard.push('ไม่ระบุเวลาออกเดินทาง');
+    if (!(t.segments || []).some(g => g && g.mode)) hard.push('ไม่ระบุวิธีเดินทาง');
+    if (!t.origin)          soft.push('ไม่มีชื่อสถานที่ต้นทาง');
+    if (!t.destination)     soft.push('ไม่มีชื่อสถานที่ปลายทาง');
+    if (!t.originType)      soft.push('ไม่ระบุลักษณะสถานที่ต้นทาง');
+    if (!t.destinationType) soft.push('ไม่ระบุลักษณะสถานที่ปลายทาง');
+    return { hard, soft };
+  },
+
+  // รวมทั้งบ้าน (รวมสมาชิกและเที่ยวข้างใน) — ใช้ทำป้ายบนการ์ดและแผงสรุปในหน้าบ้าน
+  forHousehold(hh) {
+    let hard = 0, soft = 0;
+    const details = [];
+    const push = (where, r) => {
+      hard += r.hard.length; soft += r.soft.length;
+      if (r.hard.length || r.soft.length) details.push({ where, ...r });
+    };
+    push('ข้อมูลบ้าน', this.household(hh));
+    (hh?.members || []).forEach(m => {
+      push(`คนที่ ${m.seq || '?'}`, this.member(m));
+      (m.trips || []).forEach(t => push(`คนที่ ${m.seq || '?'} · เที่ยวที่ ${t.seq || '?'}`, this.trip(t)));
+    });
+    return { hard, soft, total: hard + soft, details };
+  }
+};
+
 // ===== OPTION LISTS =====
 const OPT = {
 
