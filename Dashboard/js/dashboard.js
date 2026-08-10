@@ -89,10 +89,25 @@ function zName(f) {
   return p.name || p.Name || p.NAME || p.TAMBON_T || p.tambon || 'ไม่ระบุ';
 }
 
+// กรอบสี่เหลี่ยมของแต่ละ feature — เช็คก่อน point-in-polygon
+// shp มี 232 รูป ถ้าไล่จุดยอดทุกรูปทุกครั้งจะช้ามาก (วัดได้ ~10 วิ ต่อการคำนวณ 1 รอบ)
+function featureBBox(f) {
+  if (f.__bbox) return f.__bbox;
+  let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
+  featureRings(f).forEach(ring => ring.forEach(([lon, lat]) => {
+    if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat;
+    if (lon < minLon) minLon = lon; if (lon > maxLon) maxLon = lon;
+  }));
+  return (f.__bbox = { minLat, maxLat, minLon, maxLon });
+}
+
 function assignZone(coords) {
   if (!coords) return '(ไม่มีพิกัด)';            // ข้อมูลไม่มีพิกัด — แยกจาก "นอกพื้นที่" จริง
+  const { lat, lon } = coords;
   for (const f of zFeatures()) {
-    if (ptInFeature(coords.lat, coords.lon, f)) return zName(f);
+    const b = featureBBox(f);
+    if (lat < b.minLat || lat > b.maxLat || lon < b.minLon || lon > b.maxLon) continue;
+    if (ptInFeature(lat, lon, f)) return zName(f);
   }
   return '(นอกพื้นที่)';                          // มีพิกัดแต่อยู่นอกโซนที่กำหนด
 }
@@ -121,7 +136,7 @@ function isInStudyArea(z) {
   return z !== '(นอกพื้นที่)' && z !== '(ไม่มีพิกัด)' && !isExternalZone(z);
 }
 // ล้าง cache ที่ผูกกับชุดโซน — เรียกเมื่อโหลดโซนใหม่
-function resetZoneCaches() { zNum._map = null; zDistrict._map = null; }
+function resetZoneCaches() { zNum._map = null; zDistrict._map = null; resetODCache(); }
 
 // ชื่อแสดงระดับอำเภอของโซน — ใช้ field DISTRICT/D_NAME ถ้ามีใน shp
 // ไม่งั้น fallback เป็นชื่อโซน (เช่น "โซน 5") ตามข้อมูลปัจจุบัน
@@ -658,7 +673,13 @@ function renderProgress() {
 }
 
 // ── TAB: OD MATRIX ─────────────────────────────────────────────────────────────
+// ผลการหาโซนเปลี่ยนก็ต่อเมื่อข้อมูลหรือชุดโซนเปลี่ยน — ไม่ใช่ตอนสลับระดับตาราง
+// ถ้าไม่ cache ไว้ ทุกครั้งที่กดปุ่มจะคำนวณ point-in-polygon ใหม่ทั้งชุด (วัดได้ ~10 วิ)
+let OD_CACHE = {};
+function resetODCache() { OD_CACHE = {}; }
+
 function buildODPairs(source) {
+  if (OD_CACHE[source]) return OD_CACHE[source];
   const pairs = [];
   if (source === 'home' || source === 'all') {
     allTrips().forEach(t => {
@@ -676,6 +697,7 @@ function buildODPairs(source) {
       });
     });
   }
+  OD_CACHE[source] = pairs;
   return pairs;
 }
 
@@ -717,7 +739,7 @@ function odInStudy(label, level) {
   return !!odInStudy._m[label];
 }
 
-function renderODMatrix(source, level) {
+function renderODMatrix(source, level, onlyActive) {
   level = level || 'group';
   odInStudy._m = null;                         // ผูกกับชุดโซน/เส้นแบ่งปัจจุบัน
   const allZones = odAxis(level);              // ไม่ซ้ำแล้ว — โซนหนึ่งมีได้หลายรูปใน shp
@@ -783,11 +805,12 @@ function renderODMatrix(source, level) {
     ${top10Skipped ? `<p style="color:var(--muted);font-size:11px;margin-top:8px">
        ไม่นับ ${top10Skipped} คู่ที่ยังไม่มีพิกัด</p>` : ''}`);
 
-  // Matrix table — แสดงเฉพาะแกนที่มีข้อมูล
-  const active = allZones.filter(z =>
+  // Matrix table — ปริยายแสดงทุกโซน (ตารางต้องครบเพื่อเอาไปใช้ต่อ)
+  // ติ๊ก "เฉพาะที่มีข้อมูล" เพื่อซ่อนแถว/คอลัมน์ที่ยังว่าง ตอนอยากดูเฉพาะที่เก็บแล้ว
+  const hasData = z =>
     Object.values(matrix[z] || {}).some(v => v > 0) ||
-    allZones.some(o => (matrix[o] || {})[z] > 0)
-  );
+    allZones.some(o => (matrix[o] || {})[z] > 0);
+  const active = onlyActive ? allZones.filter(hasData) : allZones;
 
   // สเกลสี: คิดจากช่องที่เป็นการเดินทางจริงเท่านั้น
   // ถ้าเอาช่อง "ไม่มีพิกัด" มาคิดด้วย ช่องนั้นมักใหญ่สุดจนช่องอื่นจางหมดทั้งตาราง
@@ -1313,6 +1336,7 @@ const App = {
   _tab:        'progress',
   _odSrc:      'home',
   _odLevel:    'group',   // 'group' = รวมตาม อปท./จังหวัด · 'zone' = ทีละโซน
+  _odOnlyActive: false,   // true = ซ่อนแถว/คอลัมน์ที่ยังไม่มีข้อมูล
   _mapMode:    'desire',
   _mapSrc:     'home',
   _peakSrc:    'home',
@@ -1427,6 +1451,7 @@ const App = {
         + (ROUND.since ? ` · รอบ: ${ROUND.label || new Date(ROUND.since).toLocaleDateString('th-TH')}` : '')
         // เตือนให้เห็นชัดว่ายังใช้ทางถอยอยู่ — ที่ปริมาณงานจริงทางถอยจะช้าจนใช้ไม่ได้
         + (PULL_MODE === 'slow' ? ' · ⚠️ โหลดแบบเดิม (ยังไม่เปิด collection group ใน rules)' : ''));
+      resetODCache();                 // ข้อมูลชุดใหม่ → ต้องหาโซนใหม่
       const imEl = document.getElementById('odInternalMax');
       if (imEl && !imEl.value) imEl.value = ZONE_INTERNAL_MAX;
       this._statusDot(true);
@@ -1445,7 +1470,7 @@ const App = {
   _renderAll() {
     renderKPIs();
     renderProgress();
-    renderODMatrix(this._odSrc, this._odLevel);
+    renderODMatrix(this._odSrc, this._odLevel, this._odOnlyActive);
     renderPeakHour(this._peakSrc);
     renderStats();
     if (this._tab === 'map') renderMap(this._mapMode, this._mapSrc);
@@ -1485,7 +1510,12 @@ const App = {
     ['group', 'zone'].forEach(l =>
       document.getElementById('odLevel' + l[0].toUpperCase() + l.slice(1))
         ?.classList.toggle('active', l === level));
-    renderODMatrix(this._odSrc, level);
+    renderODMatrix(this._odSrc, level, this._odOnlyActive);
+  },
+
+  setODOnlyActive(on) {
+    this._odOnlyActive = !!on;
+    renderODMatrix(this._odSrc, this._odLevel, this._odOnlyActive);
   },
 
   // เส้นแบ่ง "ในพื้นที่ / นอกพื้นที่" — เก็บคู่กับชุดโซนใน config/zones
@@ -1516,7 +1546,7 @@ const App = {
       const btn = document.getElementById('odToggle' + s[0].toUpperCase() + s.slice(1));
       btn?.classList.toggle('active', s === src);
     });
-    renderODMatrix(src, this._odLevel);
+    renderODMatrix(src, this._odLevel, this._odOnlyActive);
   },
 
   selectZone(zoneName) {

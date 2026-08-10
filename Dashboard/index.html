@@ -393,6 +393,13 @@
                       border-radius:6px;color:var(--text);font:inherit;font-size:13px" />
         <button class="btn-sm" id="odInternalSave" onclick="App.saveInternalMax()">บันทึก</button>
         <span id="odInternalMsg" style="font-size:12px;color:var(--muted)"></span>
+
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);
+                      cursor:pointer;margin-left:8px">
+          <input type="checkbox" id="odOnlyActive" onchange="App.setODOnlyActive(this.checked)"
+                 style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer" />
+          เฉพาะที่มีข้อมูล
+        </label>
       </div>
     </div>
     <div class="grid-2">
@@ -584,6 +591,6 @@
 <!-- Zone GeoJSON (defines ZONES_GEOJSON) -->
 <script src="js/zones.js"></script>
 <!-- Dashboard logic -->
-<script src="js/dashboard.js?v=odlevel"></script>
+<script src="js/dashboard.js?v=odfull"></script>
 </body>
 </html>
