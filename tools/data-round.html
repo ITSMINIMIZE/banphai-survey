@@ -52,6 +52,36 @@
     <div id="cur" class="box">กำลังโหลด...</div>
   </div>
 
+
+  <div class="card">
+    <h2>🧹 สั่งล้างข้อมูลในเครื่องผู้สำรวจ</h2>
+    <div class="box" style="margin-bottom:14px">
+      กดครั้งเดียว ทุกเครื่องจะล้างให้เองตอนเปิดแอปครั้งถัดไป — ไม่ต้องเดินไล่เก็บทีละเครื่อง<br>
+      <b>⚠️ ใช้ได้เฉพาะเครื่องที่อัปเดตแอปแล้ว</b> (Home ตั้งแต่ hi-v59 · Roadside ตั้งแต่ ri-v57)
+      เครื่องที่ยังเป็นเวอร์ชันเก่าจะไม่รู้จักคำสั่งนี้
+    </div>
+    <div id="wipeCur" class="box" style="margin-bottom:14px">กำลังโหลด...</div>
+
+    <div class="field">
+      <label>ล้างแค่ไหน</label>
+      <select id="wipeMode">
+        <option value="old">เฉพาะข้อมูลก่อนรอบปัจจุบัน (ปลอดภัย — ของรอบนี้ไม่ถูกแตะ)</option>
+        <option value="all">ทั้งเครื่อง (ข้อมูลที่ยังไม่ได้ sync จะหายถาวร)</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>ข้อความถึงผู้สำรวจ (ไม่บังคับ)</label>
+      <input id="wipeNote" type="text" placeholder="เช่น เคลียร์ข้อมูลอบรมก่อนเก็บจริง" />
+    </div>
+    <button class="btn btn-warn" id="wipeBtn" onclick="sendWipe()">📢 ส่งคำสั่งล้าง</button>
+    <div class="msg" id="wipeMsg"></div>
+
+    <div class="warnbox">
+      โหมด <b>ทั้งเครื่อง</b> ล้างทุกอย่างในเครื่องผู้สำรวจ รวมของที่ยังไม่ได้ส่งขึ้นระบบ<br>
+      ให้ทุกคนกด Sync จนขึ้นสีเขียวก่อน แล้วค่อยส่งคำสั่งนี้
+    </div>
+  </div>
+
   <div class="card">
     <h2>ตั้งรอบใหม่</h2>
     <div class="field">
@@ -158,7 +188,7 @@ async function save(){
       setBy: auth.currentUser ? auth.currentUser.email.replace(EMAIL_DOMAIN,'') : ''
     });
     msg($('saveMsg'), '✅ ตั้งรอบแล้ว — เครื่องที่เปิดแอปครั้งถัดไป (ออนไลน์) จะได้ค่าใหม่', 'ok');
-    await loadCurrent();
+    await loadCurrent(); loadWipe();
   } catch(e){ msg($('saveMsg'), 'บันทึกไม่สำเร็จ: ' + esc(e.message), 'err'); }
   $('saveBtn').disabled = false;
 }
@@ -183,6 +213,40 @@ async function clearRound(){
 })();
 
 auth.onAuthStateChanged(u => { if (u && !u.isAnonymous) loadCurrent(); });
+
+// ===== คำสั่งล้างข้อมูลในเครื่อง =====
+async function loadWipe(){
+  try{
+    const d = await db.collection('config').doc('wipe_command').get();
+    const el = $('wipeCur');
+    if (!d.exists || !d.data().at) { el.innerHTML = 'ยังไม่เคยส่งคำสั่งล้าง'; return; }
+    const c = d.data();
+    el.innerHTML = `คำสั่งล่าสุด: <b>${c.mode === 'all' ? 'ล้างทั้งเครื่อง' : 'ล้างเฉพาะข้อมูลรอบก่อน'}</b><br>` +
+      `ส่งเมื่อ ${new Date(c.at).toLocaleString('th-TH')} · โดย ${esc(c.by || '-')}` +
+      (c.note ? `<br>หมายเหตุ: ${esc(c.note)}` : '') +
+      `<br><span style="color:#94a3b8;font-size:12px">เครื่องที่เปิดแอปหลังเวลานี้จะล้างให้เอง 1 ครั้ง</span>`;
+  }catch(e){ $('wipeCur').textContent = 'อ่านคำสั่งเดิมไม่ได้: ' + e.message; }
+}
+
+async function sendWipe(){
+  const mode = $('wipeMode').value;
+  const note = $('wipeNote').value.trim();
+  const warn = mode === 'all'
+    ? 'ส่งคำสั่งล้าง "ทั้งเครื่อง" ให้ผู้สำรวจทุกคน?\n\nข้อมูลที่ยังไม่ได้ sync จะหายถาวร กู้ไม่ได้'
+    : 'ส่งคำสั่งล้าง "เฉพาะข้อมูลก่อนรอบปัจจุบัน" ให้ผู้สำรวจทุกคน?';
+  if (!confirm(warn)) return;
+  const btn = $('wipeBtn'); btn.disabled = true;
+  msg($('wipeMsg'), 'กำลังส่ง...', 'info');
+  try{
+    await db.collection('config').doc('wipe_command').set({
+      at: new Date().toISOString(), mode, note,
+      by: (auth.currentUser && auth.currentUser.email) || ''
+    });
+    msg($('wipeMsg'), '✅ ส่งคำสั่งแล้ว — เครื่องที่เปิดแอปครั้งถัดไป (ต้องมีเน็ต) จะล้างให้เอง', 'ok');
+    loadWipe();
+  }catch(e){ msg($('wipeMsg'), 'ส่งไม่สำเร็จ: ' + esc(e.message), 'err'); }
+  finally{ btn.disabled = false; }
+}
 </script>
 </body>
 </html>

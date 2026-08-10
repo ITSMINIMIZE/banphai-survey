@@ -178,3 +178,45 @@ const DataRound = {
     return !!s && new Date().toISOString() < s;
   }
 };
+
+// ===== คำสั่งล้างข้อมูลในเครื่องจากส่วนกลาง =====
+// ผู้ดูแลกดสั่งครั้งเดียวที่ tools/data-round.html แล้วทุกเครื่องล้างให้เองตอนเปิดแอปครั้งถัดไป
+// ไม่ต้องเดินไล่เก็บเครื่องทีละเครื่อง
+//
+// ⚠️ ข้อจำกัดที่ต้องรู้: คำสั่งนี้ทำงานในแอป — เครื่องที่ยังใช้เวอร์ชันเก่ากว่าที่มีโค้ดนี้
+//    จะไม่รู้จักคำสั่ง และไม่ล้างให้ ต้องอัปเดตแอปก่อน
+//
+// mode 'old' = ล้างเฉพาะข้อมูลก่อนรอบปัจจุบัน (ปลอดภัย ของรอบนี้ไม่ถูกแตะ)
+// mode 'all' = ล้างทั้งเครื่อง (ข้อมูลที่ยังไม่ได้ sync จะหายถาวร)
+const WipeCommand = {
+  DONE_KEY: '_wipe_done_at',
+
+  async check(db, DBRef, onDone) {
+    try {
+      if (!db) return false;
+      const snap = await db.collection('config').doc('wipe_command').get();
+      if (!snap.exists) return false;
+      const cmd = snap.data() || {};
+      if (!cmd.at) return false;
+
+      let done = '';
+      try { done = localStorage.getItem(this.DONE_KEY) || ''; } catch (_) {}
+      if (done >= cmd.at) return false;            // เครื่องนี้ทำคำสั่งนี้ไปแล้ว
+
+      const mode = cmd.mode === 'all' ? 'all' : 'old';
+      let removed = 0;
+      if (mode === 'all') {
+        removed = -1;                               // ล้างหมด ไม่ต้องนับ
+        await DBRef.clearAll();
+      } else {
+        const since = (typeof DataRound !== 'undefined') ? DataRound.since() : '';
+        if (!since) return false;                   // ยังไม่ได้ตั้งรอบ → ไม่รู้ว่าอะไรเก่า ไม่ทำอะไร
+        removed = DBRef.countOlderThan(since);
+        if (removed > 0) DBRef.clearOlderThan(since);
+      }
+      try { localStorage.setItem(this.DONE_KEY, cmd.at); } catch (_) {}
+      if (onDone) onDone({ mode, removed, note: cmd.note || '', at: cmd.at });
+      return true;
+    } catch (_) { return false; }   // ออฟไลน์/อ่านไม่ได้ → ไว้เช็คใหม่รอบหน้า
+  }
+};

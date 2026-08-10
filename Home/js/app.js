@@ -69,7 +69,20 @@ const App = {
     if (typeof firebase !== 'undefined' && firebase.apps?.length) {
       FB.onAuthStateChanged(async user => {
         // รายชื่อผู้ควบคุมสำหรับ dropdown — ต้องมี token ก่อนถึงอ่าน config ได้ (anonymous ก็พอ)
-        if (user) { Supervisors.load(FB.db).catch(() => {}); DataRound.load(FB.db).then(() => this.render && this._role && this.render()).catch(() => {}); }
+        if (user) {
+          Supervisors.load(FB.db).catch(() => {});
+          // ต้องรู้รอบก่อน ถึงจะรู้ว่าอะไรคือ "ข้อมูลเก่า" ที่ต้องล้าง
+          DataRound.load(FB.db).then(() => {
+            if (this.render && this._role) this.render();
+            return WipeCommand.check(FB.db, DB, r => {
+              const msg = r.mode === 'all'
+                ? 'ผู้ดูแลสั่งล้างข้อมูลในเครื่องทั้งหมดแล้ว'
+                : `ล้างข้อมูลรอบก่อนออกจากเครื่องแล้ว ${r.removed} ครัวเรือน`;
+              this.toast('🧹 ' + msg + (r.note ? ' · ' + r.note : ''), 'warning');
+              if (this._role) this.render();
+            });
+          }).catch(() => {});
+        }
         if (this._role || this._bootHandled) return; // เข้าระบบแล้ว ไม่ต้องทำซ้ำ
         // anonymous = ผู้สำรวจ/ยังไม่ login → ไปหน้าเลือกบทบาท
         if (!user || user.isAnonymous) {
