@@ -2189,6 +2189,65 @@ const App = {
       };
     });
 
+
+    // ===== Sheet 4: ปัญหาข้อมูล =====
+    // รวมทุกแถวที่ยังไม่สมบูรณ์ไว้ที่เดียว พร้อมบอกว่าขาดอะไร ใครเก็บ จุดไหน
+    // ผู้ควบคุมเอาไปแจกให้ทีมไล่แก้ได้เลย · 🔴 = ใช้วิเคราะห์ไม่ได้ · 🟠 = ใช้ได้แต่คุณภาพลด
+    const issueRows = [];
+    const addIssue = (sev, level, id, where, surveyor, supervisor, problems) => {
+      if (!problems.length) return;
+      issueRows.push({
+        'ความรุนแรง': sev,
+        'ระดับ':      level,
+        'ID':         id || '(ไม่มี ID)',
+        'อยู่ที่':     where,
+        'ผู้สำรวจ':    surveyor || '(ไม่ระบุ)',
+        'ผู้ควบคุม':   supervisor || '(ไม่ระบุ)',
+        'จำนวนปัญหา': problems.length,
+        'ปัญหา':      problems.join(' · ')
+      });
+    };
+    const isTruck = key => ['truck4', 'truck6'].includes(key);
+
+    data.stations.forEach(st => {
+      const where = st.stationName || st.stationCode || st.id;
+      const hard = [], soft = [];
+      if (!st.coordinates)    hard.push('ไม่มีพิกัดจุดสำรวจ');
+      if (!st.supervisorName) hard.push('ไม่มีชื่อผู้ควบคุม');
+      if (!st.interviews.length) hard.push('ยังไม่มีการสำรวจเลย');
+      if (!st.direction)      soft.push('ไม่ระบุแกนถนน');
+      if (!st.road)           soft.push('ไม่ระบุถนน/ทางหลวง');
+      addIssue('🔴 ต้องแก้', 'จุดสำรวจ', st.id, where, st.surveyorName, st.supervisorName, hard);
+      addIssue('🟠 ควรแก้', 'จุดสำรวจ', st.id, where, st.surveyorName, st.supervisorName, soft);
+
+      st.interviews.forEach((iv, idx) => {
+        const w  = `${where} · รายที่ ${idx + 1}`;
+        const h2 = [], s2 = [];
+        if (!iv.id)              h2.push('ระเบียนไม่มี ID (บันทึกค้าง)');
+        if (!iv.vehicleType)     h2.push('ไม่ระบุประเภทรถ');
+        if (!iv.originCoords)      h2.push('ไม่มีพิกัดต้นทาง');
+        if (!iv.destinationCoords) h2.push('ไม่มีพิกัดปลายทาง');
+        if (!iv.purpose)         h2.push('ไม่ระบุวัตถุประสงค์');
+        if (!iv.travelDirection) h2.push('ไม่ระบุทิศการเดินทาง');
+        if (!iv.passengerCount)  s2.push('ไม่ระบุจำนวนผู้โดยสาร');
+        if (!iv.originName)      s2.push('ไม่มีชื่อสถานที่ต้นทาง');
+        if (!iv.destinationName) s2.push('ไม่มีชื่อสถานที่ปลายทาง');
+        if (!iv.originType)      s2.push('ไม่ระบุลักษณะสถานที่ต้นทาง');
+        if (!iv.destinationType) s2.push('ไม่ระบุลักษณะสถานที่ปลายทาง');
+        // รถบรรทุกต้องตอบเรื่องสินค้า — ข้อนี้เป็นหัวใจของแบบฟอร์ม RS
+        if (isTruck(iv.vehicleType)) {
+          if (!iv.hasCargo) h2.push('รถบรรทุกแต่ไม่ได้ระบุว่ามีสินค้าหรือไม่');
+          else if (iv.hasCargo === 'มีสินค้า' && !iv.cargoType) h2.push('มีสินค้าแต่ไม่ระบุชนิด');
+        }
+        addIssue('🔴 ต้องแก้', 'การสำรวจ', iv.id, w, iv.surveyorName, st.supervisorName, h2);
+        addIssue('🟠 ควรแก้', 'การสำรวจ', iv.id, w, iv.surveyorName, st.supervisorName, s2);
+      });
+    });
+    issueRows.sort((a, b) =>
+      a['ความรุนแรง'].localeCompare(b['ความรุนแรง']) ||
+      String(a['ผู้สำรวจ']).localeCompare(String(b['ผู้สำรวจ']), 'th') ||
+      String(a['อยู่ที่']).localeCompare(String(b['อยู่ที่']), 'th'));
+
     const mkSheet = rows => rows.length
       ? XLSX.utils.json_to_sheet(rows)
       : XLSX.utils.aoa_to_sheet([['ไม่มีข้อมูล']]);
@@ -2208,14 +2267,22 @@ const App = {
 
     XLSX.utils.book_append_sheet(wb, s1, 'จุดสำรวจ');
     XLSX.utils.book_append_sheet(wb, s2, 'การสำรวจ');
+    const s4 = issueRows.length
+      ? XLSX.utils.json_to_sheet(issueRows)
+      : XLSX.utils.aoa_to_sheet([['ไม่พบปัญหา — ข้อมูลครบทุกรายการ']]);
+    s4['!cols'] = autoWidth(issueRows);
     XLSX.utils.book_append_sheet(wb, s3, 'สรุปตามจุด');
+    XLSX.utils.book_append_sheet(wb, s4, 'ปัญหาข้อมูล');
 
     const today = new Date().toISOString().split('T')[0];
     const parts = ['roadside-banphai', today];
     if (fSurveyor) parts.push(fSurveyor.replace(/\s+/g, '_'));
     if (fFrom || fTo) parts.push(`${fFrom||'..'}_${fTo||'..'}`);
     XLSX.writeFile(wb, parts.join('-') + '.xlsx');
-    this.toast(`Export สำเร็จ · ${totalKept} ราย`, 'success');
+    const nHard = issueRows.filter(r => r['ความรุนแรง'].startsWith('🔴')).length;
+    this.toast(nHard
+      ? `Export สำเร็จ · ${totalKept} ราย · ⚠️ มี ${nHard} รายการต้องแก้ ดูชีต "ปัญหาข้อมูล"`
+      : `Export สำเร็จ · ${totalKept} ราย · ข้อมูลครบทุกรายการ`, nHard ? 'warning' : 'success');
   },
 
   // ช่องพิมพ์ "delete" เพื่อกันการลบพลาด — ปุ่มลบ (btnId) เริ่มต้น disabled จนกว่าจะพิมพ์ถูก

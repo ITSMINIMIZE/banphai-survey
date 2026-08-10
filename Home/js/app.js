@@ -2259,6 +2259,74 @@ const App = {
       )
     );
 
+
+    // ===== Sheet 4: ปัญหาข้อมูล =====
+    // รวมทุกแถวที่ยังไม่สมบูรณ์ไว้ที่เดียว พร้อมบอกว่าขาดอะไร ใครเก็บ อยู่บ้านไหน
+    // ผู้ควบคุมเอาไปแจกให้ทีมไล่แก้ได้เลย ไม่ต้องไปไล่หาเองจากสามชีต
+    // 🔴 = ทำให้ใช้วิเคราะห์ไม่ได้ · 🟠 = ใช้ได้แต่คุณภาพลด
+    const issueRows = [];
+    const addIssue = (sev, level, id, where, surveyor, supervisor, problems) => {
+      if (!problems.length) return;
+      issueRows.push({
+        'ความรุนแรง': sev,
+        'ระดับ':      level,
+        'ID':         id || '(ไม่มี ID)',
+        'อยู่ที่':     where,
+        'ผู้สำรวจ':    surveyor || '(ไม่ระบุ)',
+        'ผู้ควบคุม':   supervisor || '(ไม่ระบุ)',
+        'จำนวนปัญหา': problems.length,
+        'ปัญหา':      problems.join(' · ')
+      });
+    };
+
+    data.households.forEach(hh => {
+      const where = hh.houseNo ? `บ้านเลขที่ ${hh.houseNo}` : (hh.id || '');
+      const hard = [], soft = [];
+      if (!hh.coordinates)      hard.push('ไม่มีพิกัดบ้าน');
+      if (!hh.surveyorName)     hard.push('ไม่มีชื่อผู้สำรวจ');
+      if (!hh.supervisorName)   hard.push('ไม่มีชื่อผู้ควบคุม');
+      if (!hh.houseNo)          soft.push('ไม่มีบ้านเลขที่');
+      if (!(hh.members || []).length)                        hard.push('ยังไม่มีสมาชิกเลย');
+      else if (!hh.members.some(m => (m.trips || []).length)) hard.push('ไม่มีสมาชิกคนไหนเดินทางเลย');
+      if (!hh.householdIncome)  soft.push('ไม่มีรายได้ครัวเรือน');
+      if (!hh.residentialType)  soft.push('ไม่มีประเภทที่อยู่อาศัย');
+      addIssue('🔴 ต้องแก้', 'ครัวเรือน', hh.id, where, hh.surveyorName, hh.supervisorName, hard);
+      addIssue('🟠 ควรแก้', 'ครัวเรือน', hh.id, where, hh.surveyorName, hh.supervisorName, soft);
+
+      (hh.members || []).forEach(m => {
+        const w = `${where} · คนที่ ${m.seq || '?'}`;
+        const h2 = [], s2 = [];
+        if (!m.gender) h2.push('ไม่ระบุเพศ');
+        if (!m.age)    h2.push('ไม่ระบุอายุ');
+        if (!m.occupation)   s2.push('ไม่ระบุอาชีพ');
+        if (!m.education)    s2.push('ไม่ระบุการศึกษา');
+        if (m.workStatus === 'ทำงาน' && !m.workplaceCoords) s2.push('ทำงานแต่ไม่มีพิกัดที่ทำงาน');
+        addIssue('🔴 ต้องแก้', 'สมาชิก', m.id, w, hh.surveyorName, hh.supervisorName, h2);
+        addIssue('🟠 ควรแก้', 'สมาชิก', m.id, w, hh.surveyorName, hh.supervisorName, s2);
+
+        (m.trips || []).forEach(t => {
+          const wt = `${where} · คนที่ ${m.seq || '?'} · เที่ยวที่ ${t.seq || '?'}`;
+          const h3 = [], s3 = [];
+          if (!t.originCoords)      h3.push('ไม่มีพิกัดต้นทาง');
+          if (!t.destinationCoords) h3.push('ไม่มีพิกัดปลายทาง');
+          if (!t.purpose)           h3.push('ไม่ระบุวัตถุประสงค์');
+          if (!t.departureTime)     h3.push('ไม่ระบุเวลาออกเดินทาง');
+          if (!(t.segments || []).some(g => g && g.mode)) h3.push('ไม่ระบุวิธีเดินทาง');
+          if (!t.origin)            s3.push('ไม่มีชื่อสถานที่ต้นทาง');
+          if (!t.destination)       s3.push('ไม่มีชื่อสถานที่ปลายทาง');
+          if (!t.originType)        s3.push('ไม่ระบุลักษณะสถานที่ต้นทาง');
+          if (!t.destinationType)   s3.push('ไม่ระบุลักษณะสถานที่ปลายทาง');
+          addIssue('🔴 ต้องแก้', 'การเดินทาง', t.id, wt, hh.surveyorName, hh.supervisorName, h3);
+          addIssue('🟠 ควรแก้', 'การเดินทาง', t.id, wt, hh.surveyorName, hh.supervisorName, s3);
+        });
+      });
+    });
+    // เรียง: ต้องแก้ก่อน แล้วจัดกลุ่มตามผู้สำรวจ เพื่อแจกงานได้เลย
+    issueRows.sort((a, b) =>
+      a['ความรุนแรง'].localeCompare(b['ความรุนแรง']) ||
+      String(a['ผู้สำรวจ']).localeCompare(String(b['ผู้สำรวจ']), 'th') ||
+      String(a['อยู่ที่']).localeCompare(String(b['อยู่ที่']), 'th'));
+
     // สร้าง worksheet (ถ้าไม่มีข้อมูลให้สร้าง empty sheet)
     const mkSheet = rows => rows.length
       ? XLSX.utils.json_to_sheet(rows)
@@ -2267,10 +2335,16 @@ const App = {
     XLSX.utils.book_append_sheet(wb, mkSheet(hhRows),     'ครัวเรือน');
     XLSX.utils.book_append_sheet(wb, mkSheet(memberRows), 'สมาชิก');
     XLSX.utils.book_append_sheet(wb, mkSheet(tripRows),   'การเดินทาง');
+    XLSX.utils.book_append_sheet(wb, issueRows.length
+      ? XLSX.utils.json_to_sheet(issueRows)
+      : XLSX.utils.aoa_to_sheet([['ไม่พบปัญหา — ข้อมูลครบทุกรายการ']]), 'ปัญหาข้อมูล');
 
     const filename = `home-interview-banphai-${new Date().toISOString().split('T')[0]}.xlsx`;
     XLSX.writeFile(wb, filename);
-    this.toast('Export Excel สำเร็จ', 'success');
+    const nHard = issueRows.filter(r => r['ความรุนแรง'].startsWith('🔴')).length;
+    this.toast(nHard
+      ? `Export สำเร็จ · ⚠️ มี ${nHard} รายการต้องแก้ ดูชีต "ปัญหาข้อมูล"`
+      : 'Export Excel สำเร็จ · ข้อมูลครบทุกรายการ', nHard ? 'warning' : 'success');
   },
 
   // ช่องพิมพ์ "delete" เพื่อกันการลบพลาด — ปุ่มลบ (btnId) เริ่มต้น disabled จนกว่าจะพิมพ์ถูก
