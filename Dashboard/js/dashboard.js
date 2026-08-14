@@ -434,6 +434,89 @@ const COLORS = [
   '#64748b','#6366f1','#d946ef','#0ea5e9','#84cc16'
 ];
 
+// โทนสีตามแอปต้นทาง — Roadside = ส้ม/อำพัน (--primary #d97706) · Home = ฟ้า (--primary #2563eb)
+// ปรับให้สว่างขึ้นจากแอปจริง เพราะ dashboard เป็นพื้นเข้ม สีเดิมจะจมไปกับพื้นหลัง
+const C_RS = '#f59e0b', C_RS_DIM = 'rgba(245,158,11,.78)';
+const C_HM = '#3b82f6', C_HM_DIM = 'rgba(59,130,246,.78)';
+const C_NA = '#64748b';   // "(ไม่ระบุ)" — เทา ไม่ให้ปนกับชั้นข้อมูลจริง
+
+// สร้างเฉดตามจำนวนที่ต้องใช้จริง — ไม่ต้องกลัวสีวนซ้ำเมื่อหมวดเยอะกว่าลิสต์
+// สลับความสว่างเล็กน้อย (jitter) เพื่อให้ชิ้นที่ติดกันในโดนัทแยกออกจากกันด้วยตา
+const rampOf = (n, h0, h1, jitter = 6) => Array.from({ length: Math.max(n, 1) }, (_, i) => {
+  const t = n > 1 ? i / (n - 1) : 0;
+  const h = h0 + (h1 - h0) * t;
+  const l = 66 + (42 - 66) * t + (i % 2 ? -jitter : jitter);
+  return `hsl(${h.toFixed(0)} 82% ${Math.max(30, Math.min(76, l)).toFixed(0)}%)`;
+});
+const rampRS = n => rampOf(n, 45, 18);     // อำพัน → ส้มแดง (โทน Roadside)
+const rampHM = n => rampOf(n, 214, 186);   // น้ำเงิน → ฟ้าคราม (โทน Home)
+
+// key ประเภทรถของ Roadside → ชื่อไทย (Roadside/js/data.js OPT.vehicleTypes)
+// ข้อมูลบน cloud เก็บเป็น key ('truck6') ถ้าไม่แปลง แกนกราฟจะขึ้นเป็นภาษาอังกฤษ
+const VEH_LABEL = {
+  bicycle2:   'จักรยาน 2 ล้อ',
+  bicycle3:   'จักรยาน 3 ล้อ',
+  motorcycle: 'รถจักรยานยนต์',
+  tuk3:       'รถสามล้อเครื่อง',
+  car:        'รถยนต์นั่งส่วนบุคคล',
+  bus_sm:     'รถโดยสารเล็ก–กลาง',
+  bus_lg:     'รถโดยสารขนาดใหญ่',
+  truck4:     'รถบรรทุกเล็ก (4 ล้อ)',
+  truck6:     'รถบรรทุก 6 ล้อขึ้นไป'
+};
+const vehLabel = k => VEH_LABEL[k] || (k ? String(k) : '(ไม่ระบุ)');
+const VEH_ORDER = Object.keys(VEH_LABEL);   // ลำดับตามแบบฟอร์ม: ส่วนบุคคล → โดยสาร → บรรทุก
+
+// จำนวนคนในรถ (รวมคนขับ) — คืน 0 ถ้ายังไม่ได้กรอก เพื่อให้แยก "ไม่ได้กรอก" ออกจาก "กรอกว่า 0" ได้
+const paxOf = iv => { const n = Number(String(iv.passengerCount ?? '').replace(/[, ]/g, '')); return Number.isFinite(n) && n > 0 ? n : 0; };
+
+// ชุดวัตถุประสงค์ — ทั้งสองแอปใช้ชุดเดียวกัน 11 ค่า (ตั้งใจให้ aggregate ข้ามแอปได้)
+const PURPOSES = [
+  'กลับบ้าน','ไปทำงาน','ไปเรียนหนังสือ','ติดต่อราชการต่าง ๆ / ธุรกิจ',
+  'ไปโรงพยาบาล / คลินิก / อนามัย','รับส่งคน หรือ สินค้า',
+  'ช้อปปิ้ง / ซื้อของใช้ต่าง ๆ','รับประทานอาหาร',
+  'ท่องเที่ยว / พักผ่อน / ออกกำลังกาย','ทำกิจกรรมทางศาสนา','อื่น ๆ'
+];
+
+// ระดับการศึกษาเรียงจากต่ำไปสูง (Home/js/data.js OPT.education) — ใช้จัดลำดับแกนกราฟ
+const EDU_ORDER = [
+  'ต่ำกว่าประถมศึกษา / ไม่ได้เรียน','ประถมศึกษา (ป.1–ป.6)','มัธยมศึกษา (ม.1–ม.6)',
+  'อนุปริญญา / ปวช. / ปวส.','ปริญญาตรี','สูงกว่าปริญญาตรี'
+];
+
+// ค่า hasCargo ที่แปลว่า "มีสินค้า" — Roadside เก็บเป็น 'มีสินค้า' (Roadside/js/app.js)
+// ค่าอื่นเผื่อข้อมูลนำเข้า/รุ่นเก่า
+const CARGO_YES = ['มีสินค้า','มี','yes','y','1','true'];
+const hasCargo  = iv => CARGO_YES.includes(String(iv.hasCargo ?? '').trim().toLowerCase())
+                     || CARGO_YES.includes(String(iv.hasCargo ?? '').trim());
+
+// ── รายได้: ฟอร์มเก็บเป็น "ตัวเลขล้วน" (Home/js/app.js: +m_income) ต้องจัดชั้นเอง
+const INCOME_BANDS = [
+  { max: 5000,     label: 'ไม่เกิน 5,000' },
+  { max: 10000,    label: '5,001–10,000' },
+  { max: 20000,    label: '10,001–20,000' },
+  { max: 30000,    label: '20,001–30,000' },
+  { max: 50000,    label: '30,001–50,000' },
+  { max: Infinity, label: 'มากกว่า 50,000' }
+];
+const INCOME_ORDER = INCOME_BANDS.map(b => b.label);
+// ข้อมูลจากฟอร์มรุ่นก่อน (เคยเป็น dropdown ชั้นรายได้) — map เข้าชั้นใหม่ ไม่ให้ตกเป็น "ไม่ระบุ"
+const LEGACY_INCOME = {
+  '< 5,000': 'ไม่เกิน 5,000', '5,001–10,000': '5,001–10,000',
+  '10,001–20,000': '10,001–20,000', '20,001–30,000': '20,001–30,000',
+  '30,001–50,000': '30,001–50,000', '> 50,000': 'มากกว่า 50,000'
+};
+function incomeBand(v) {
+  const raw = String(v ?? '').trim();
+  if (!raw) return '(ไม่ระบุ)';
+  if (LEGACY_INCOME[raw]) return LEGACY_INCOME[raw];
+  const n = Number(raw.replace(/[, ]/g, ''));
+  if (!Number.isFinite(n) || n <= 0) return '(ไม่ระบุ)';
+  return INCOME_BANDS.find(b => n <= b.max).label;
+}
+const incRank = l => { const i = INCOME_ORDER.indexOf(l); return i < 0 ? 99 : i; };   // "(ไม่ระบุ)" ไปท้ายสุด
+const numOf = v => { const n = Number(String(v ?? '').replace(/[, ]/g, '')); return Number.isFinite(n) ? n : 0; };
+
 function esc(s) {
   return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
@@ -464,6 +547,49 @@ function topN(obj, n = 10) {
   return Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, n);
 }
 
+// เหมือน topN แต่ "ม้วน" ส่วนที่เกินเป็นก้อนเดียว แทนที่จะตัดทิ้งเงียบ ๆ
+// จำเป็นกับกราฟสัดส่วน (modal split / วัตถุประสงค์) — ถ้าตัดทิ้ง วงกลมจะรวมกันไม่ครบ 100%
+// ตั้งชื่อก้อนให้บอกจำนวน เพื่อไม่ให้สับสนกับตัวเลือก 'อื่น ๆ' ที่มีอยู่จริงในแบบสอบถาม
+function topNRoll(obj, n = 10) {
+  const e = Object.entries(obj).sort((a, b) => b[1] - a[1]);
+  if (e.length <= n) return e;
+  const head = e.slice(0, n - 1);
+  const tail = e.slice(n - 1);
+  return [...head, [`อื่น ๆ (รวม ${tail.length} รายการ)`, tail.reduce((s, x) => s + x[1], 0)]];
+}
+
+// วาดกราฟ หรือขึ้นข้อความ "ยังไม่มีข้อมูล" — และล้างข้อความทิ้งเมื่อข้อมูลมาแล้ว
+// (ของเดิมตั้งข้อความไว้แล้วไม่เคยล้าง ทำให้ค้างใต้กราฟหลังกด refresh)
+function chartOrMsg(canvasId, msgId, hasData, build) {
+  const cv = document.getElementById(canvasId);
+  const ms = document.getElementById(msgId);
+  if (!hasData) {
+    if (charts[canvasId]) { try { charts[canvasId].destroy(); } catch (_) {} delete charts[canvasId]; }
+    if (cv) cv.style.display = 'none';
+    if (ms) ms.innerHTML = '<p style="color:var(--muted);font-size:13px;padding:8px 0">ยังไม่มีข้อมูล</p>';
+    return false;
+  }
+  if (cv) cv.style.display = '';
+  if (ms) ms.innerHTML = '';
+  build();
+  return true;
+}
+
+// tooltip แสดง % ของยอดรวม — ใช้กับกราฟสัดส่วน
+const pctTooltip = {
+  callbacks: {
+    label(ctx) {
+      const arr = ctx.dataset.data || [];
+      const sum = arr.reduce((s, v) => s + Math.abs(+v || 0), 0);
+      const raw = (ctx.parsed && typeof ctx.parsed === 'object')
+        ? (ctx.parsed.x ?? ctx.parsed.y ?? 0) : ctx.parsed;
+      const n = Math.abs(+raw || 0);
+      const name = ctx.dataset.label ? `${ctx.dataset.label} · ${ctx.label}` : ctx.label;
+      return `${name}: ${n.toLocaleString()} (${sum ? (n / sum * 100).toFixed(1) : 0}%)`;
+    }
+  }
+};
+
 function makeChart(id, type, data, options = {}) {
   if (charts[id]) { try { charts[id].destroy(); } catch (_) {} delete charts[id]; }
   const ctx = document.getElementById(id);
@@ -472,16 +598,17 @@ function makeChart(id, type, data, options = {}) {
     x: { ticks: { color: '#64748b', font: { family: 'Sarabun' } }, grid: { color: '#1e293b' } },
     y: { ticks: { color: '#64748b', font: { family: 'Sarabun' } }, grid: { color: '#1e293b' } }
   };
+  const basePlugins = { legend: { labels: { color: '#94a3b8', font: { family: 'Sarabun', size: 12 } } } };
+  const baseScales  = (type === 'pie' || type === 'doughnut') ? undefined : darkScales;
   charts[id] = new Chart(ctx, {
     type,
     data,
     options: {
       responsive: true,
-      plugins: {
-        legend: { labels: { color: '#94a3b8', font: { family: 'Sarabun', size: 12 } } }
-      },
-      scales: (type === 'pie' || type === 'doughnut') ? undefined : darkScales,
       ...options,
+      // merge ทีละคีย์ — ของเดิม ...options ทับทั้งก้อน ทำให้ค่าปริยาย (ฟอนต์ไทย/tooltip) หายไป
+      plugins: { ...basePlugins, ...(options.plugins || {}) },
+      scales:  options.scales ?? baseScales,
     }
   });
   return charts[id];
@@ -492,7 +619,8 @@ function renderKPIs() {
   const members = allMembers();
   const trips   = allTrips();
   const ivs     = allInterviews();
-  const pax     = ivs.reduce((s, iv) => s + (+iv.passengerCount || 0), 0);
+  const paxIVs  = ivs.filter(iv => paxOf(iv) > 0);            // นับเฉพาะคันที่กรอกจำนวนคนแล้ว
+  const pax     = paxIVs.reduce((s, iv) => s + paxOf(iv), 0);
 
   // Home
   set('kpiHH',       households.length.toLocaleString());
@@ -501,7 +629,8 @@ function renderKPIs() {
   // Road
   set('kpiIV',       ivs.length.toLocaleString());
   set('kpiRoadPax',  pax.toLocaleString());
-  set('kpiRoadOcc',  ivs.length ? (pax / ivs.length).toFixed(2) : '—');
+  // หารด้วยคันที่กรอกจริง ไม่ใช่คันทั้งหมด — ไม่งั้นคันที่ยังไม่กรอกจะถ่วงค่าเฉลี่ยให้ต่ำกว่าความจริง
+  set('kpiRoadOcc',  paxIVs.length ? (pax / paxIVs.length).toFixed(2) : '—');
 }
 
 function set(id, val) {
@@ -584,13 +713,13 @@ function renderProgress() {
   }
   makeChart('chartHomeBySupervisor', 'bar', {
     labels: homeChartRows.map(r => r[0]),
-    datasets: [{ label: 'บ้าน', data: homeChartRows.map(r => r[1]), backgroundColor: '#3b82f6' }]
+    datasets: [{ label: 'บ้าน', data: homeChartRows.map(r => r[1]), backgroundColor: C_HM, borderRadius: 4 }]
   }, { plugins: { legend: { display: false } } });
 
   // ═══ กราฟ Road: รถแยกตามจุดสำรวจ ═══
   makeChart('chartRoadByStation', 'bar', {
     labels: stRows.map(r => r.st.stationName || r.st.stationCode || r.st.id),
-    datasets: [{ label: 'คัน', data: stRows.map(r => r.count), backgroundColor: '#22c55e' }]
+    datasets: [{ label: 'คัน', data: stRows.map(r => r.count), backgroundColor: C_RS, borderRadius: 4 }]
   }, { plugins: { legend: { display: false } } });
 
   const emptySurv = '<p style="color:var(--muted);padding:8px 0">ยังไม่มีข้อมูล</p>';
@@ -1161,12 +1290,17 @@ function renderPeakHour(source) {
   const total = counts.reduce((s, c) => s + c, 0);
   const peak  = counts.indexOf(Math.max(...counts));
 
+  // โทนสีตามแหล่งข้อมูลที่เลือก — ให้ตรงกับแท็บสถิติ
+  const peakBase = source === 'roadside' ? 'rgba(245,158,11,.55)'
+                 : source === 'home'     ? 'rgba(59,130,246,.55)' : 'rgba(139,92,246,.55)';
+  const peakHi   = source === 'roadside' ? '#fbbf24'
+                 : source === 'home'     ? '#60a5fa' : '#a78bfa';
   makeChart('chartPeak', 'bar', {
     labels: Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, '0')}:00`),
     datasets: [{
       label: 'จำนวนเที่ยว',
       data: counts,
-      backgroundColor: counts.map((_, i) => i === peak ? '#f59e0b' : '#3b82f6')
+      backgroundColor: counts.map((_, i) => i === peak ? peakHi : peakBase)
     }]
   }, { plugins: { legend: { display: false } } });
 
@@ -1191,7 +1325,7 @@ function renderPeakHour(source) {
   // Trip rate by income
   const byIncome = {}, byVehicle = { 'มีรถ': { m: 0, t: 0 }, 'ไม่มีรถ': { m: 0, t: 0 } };
   households.forEach(hh => {
-    const inc = hh.householdIncome || '(ไม่ระบุ)';
+    const inc = incomeBand(hh.householdIncome);   // รายได้เป็นตัวเลขล้วน — ต้องจัดชั้นก่อน ไม่งั้นได้แถวละครัวเรือน
     if (!byIncome[inc]) byIncome[inc] = { m: 0, t: 0 };
     const hasV = ['มี','yes','Y','1','true'].includes(String(hh.hasVehicle));
     const vk = hasV ? 'มีรถ' : 'ไม่มีรถ';
@@ -1211,7 +1345,9 @@ function renderPeakHour(source) {
         <p style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px">แยกตามรายได้ครัวเรือน (บาท/เดือน)</p>
         <table class="data-table">
           <thead><tr><th>รายได้</th><th>สมาชิก</th><th>เที่ยว</th><th>เที่ยว/คน</th></tr></thead>
-          <tbody>${Object.entries(byIncome).sort().map(rateRow).join('')}</tbody>
+          <tbody>${Object.entries(byIncome)
+            .sort((a, b) => incRank(a[0]) - incRank(b[0]))   // เรียงตามชั้นรายได้ ไม่ใช่ตามตัวอักษร ("(ไม่ระบุ)" ไว้ท้ายสุด)
+            .map(rateRow).join('')}</tbody>
         </table>
       </div>
       <div>
@@ -1225,120 +1361,302 @@ function renderPeakHour(source) {
 }
 
 // ── TAB: สถิติ ─────────────────────────────────────────────────────────────────
+// ผังหน้า: ซ้าย = Roadside (โทนส้ม) · ขวา = Home (โทนฟ้า) · ข้อมูลที่เทียบกันได้ = การ์ดใหญ่ตรงกลาง
 function renderStats() {
   const members = allMembers();
   const trips   = allTrips();
   const ivs     = allInterviews();
 
-  // Modal split (Home trips — segment modes)
-  const modeCount = {};
-  trips.forEach(t => {
-    (t.segments || []).forEach(s => { const m = s.mode || '(ไม่ระบุ)'; modeCount[m] = (modeCount[m] || 0) + 1; });
+  /* ══ ซ้าย · Roadside — ประเภทยานพาหนะ ══════════════════════════════════════ */
+  // ข้อมูลเก็บเป็น key ('truck6') ต้องแปลงเป็นชื่อไทยก่อน ไม่งั้นแกนกราฟขึ้นภาษาอังกฤษ
+  const vtCount = countBy(ivs, iv => vehLabel(iv.vehicleType));
+  const vtE = Object.entries(vtCount).sort((a, b) => b[1] - a[1]);   // ประเภทมีแค่ 9 — แสดงครบ ไม่ตัด
+  set('vehicleTypeSub', ivs.length
+    ? `${ivs.length.toLocaleString()} สัมภาษณ์ · ${vtE.length} ประเภท`
+    : '');
+  chartOrMsg('chartVehicleType', 'chartVehicleTypeMsg', vtE.length, () => {
+    makeChart('chartVehicleType', 'bar', {
+      labels: vtE.map(e => e[0]),
+      datasets: [{ label: 'คัน', data: vtE.map(e => e[1]), backgroundColor: rampRS(vtE.length), borderRadius: 4 }]
+    }, {
+      indexAxis: 'y',
+      plugins: { legend: { display: false }, tooltip: pctTooltip },
+      scales: {
+        x: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(245,158,11,.12)' } },
+        y: { ticks: { color: '#cbd5e1', font: { size: 11, family: 'Sarabun' } }, grid: { display: false } }
+      }
+    });
   });
-  const modeE = topN(modeCount, 12);
-  if (modeE.length) {
+
+  /* ══ ขวา · Home — Modal Split ══════════════════════════════════════════════ */
+  const modeCount = {};
+  let segTotal = 0;
+  trips.forEach(t => {
+    (t.segments || []).forEach(s => {
+      const m = (s.mode || '').trim() || '(ไม่ระบุ)';
+      modeCount[m] = (modeCount[m] || 0) + 1;
+      segTotal++;
+    });
+  });
+  // ม้วนส่วนที่เกินเป็น "อื่น ๆ" แทนการตัดทิ้ง — modal split ต้องรวมกันได้ 100%
+  const modeE = topNRoll(modeCount, 12);
+  set('modalSplitSub', segTotal
+    ? `${segTotal.toLocaleString()} ช่วงการเดินทาง · ${Object.keys(modeCount).length} รูปแบบ`
+    : '');
+  chartOrMsg('chartModalSplit', 'chartModalSplitMsg', modeE.length, () => {
     makeChart('chartModalSplit', 'doughnut', {
       labels: modeE.map(e => e[0]),
-      datasets: [{ data: modeE.map(e => e[1]), backgroundColor: COLORS }]
-    }, { plugins: { legend: { position: 'right', labels: { color: '#94a3b8', font: { size: 11 } } } } });
-  } else {
-    set('chartModalSplitMsg', '<p style="color:var(--muted)">ยังไม่มีข้อมูล modal split</p>');
-  }
-
-  // Vehicle type (Roadside)
-  const vtE = topN(countBy(ivs, iv => iv.vehicleType), 9);
-  makeChart('chartVehicleType', 'bar', {
-    labels: vtE.map(e => e[0]),
-    datasets: [{ label: 'จำนวน', data: vtE.map(e => e[1]), backgroundColor: COLORS }]
-  }, {
-    indexAxis: 'y',
-    plugins: { legend: { display: false } },
-    scales: {
-      x: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } },
-      y: { ticks: { color: '#64748b', font: { size: 11 } }, grid: { color: '#1e293b' } }
-    }
+      datasets: [{ data: modeE.map(e => e[1]), backgroundColor: rampHM(modeE.length), borderColor: '#1e293b', borderWidth: 2 }]
+    }, {
+      plugins: {
+        legend: { position: 'right', labels: { color: '#cbd5e1', font: { size: 11, family: 'Sarabun' }, boxWidth: 12 } },
+        tooltip: pctTooltip
+      }
+    });
   });
 
-  // Purpose charts
-  const phE = topN(countBy(trips, t => t.purpose), 10);
-  makeChart('chartPurposeHome', 'pie', {
-    labels: phE.map(e => e[0]),
-    datasets: [{ data: phE.map(e => e[1]), backgroundColor: COLORS }]
-  }, { plugins: { legend: { position: 'right', labels: { color: '#94a3b8', font: { size: 11 } } } } });
-
-  const prE = topN(countBy(ivs, iv => iv.purpose), 10);
-  makeChart('chartPurposeRoadside', 'pie', {
-    labels: prE.map(e => e[0]),
-    datasets: [{ data: prE.map(e => e[1]), backgroundColor: COLORS }]
-  }, { plugins: { legend: { position: 'right', labels: { color: '#94a3b8', font: { size: 11 } } } } });
-
-  // Population pyramid
-  const ageGroups = ['0–9','10–19','20–29','30–39','40–49','50–59','60–69','70+'];
-  const maleD = new Array(8).fill(0), femD = new Array(8).fill(0);
-  members.forEach(m => {
-    const age = parseInt(m.age) || 0;
-    const idx = Math.min(7, Math.floor(age / 10));
-    const gend = String(m.gender || '').trim();
-    if (['ชาย','male','M','m'].includes(gend)) maleD[idx]++;
-    else if (['หญิง','female','F','f'].includes(gend)) femD[idx]++;
-  });
-  makeChart('chartPyramid', 'bar', {
-    labels: ageGroups,
-    datasets: [
-      { label: 'ชาย', data: maleD.map(v => -v), backgroundColor: '#3b82f6' },
-      { label: 'หญิง', data: femD, backgroundColor: '#ec4899' }
-    ]
-  }, {
-    indexAxis: 'y',
-    plugins: { legend: { labels: { color: '#94a3b8' } } },
-    scales: {
-      x: { ticks: { color: '#64748b', callback: v => Math.abs(v) }, grid: { color: '#1e293b' } },
-      y: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } }
-    }
-  });
-
-  // Household income
-  const incOrder = ['< 5,000','5,001–10,000','10,001–20,000','20,001–30,000','30,001–50,000','> 50,000'];
-  const incCount = countBy(households, hh => hh.householdIncome);
-  const incE = Object.entries(incCount).sort((a, b) => {
-    const ai = incOrder.indexOf(a[0]), bi = incOrder.indexOf(b[0]);
-    return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
-  });
-  makeChart('chartIncome', 'bar', {
-    labels: incE.map(e => e[0]),
-    datasets: [{ label: 'ครัวเรือน', data: incE.map(e => e[1]), backgroundColor: '#22c55e' }]
-  }, { plugins: { legend: { display: false } } });
-
-  // Education
-  const eduE = topN(countBy(members, m => m.education), 8);
-  makeChart('chartEducation', 'bar', {
-    labels: eduE.map(e => e[0]),
-    datasets: [{ label: 'จำนวน', data: eduE.map(e => e[1]), backgroundColor: '#8b5cf6' }]
-  }, {
-    indexAxis: 'y',
-    plugins: { legend: { display: false } },
-    scales: {
-      x: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } },
-      y: { ticks: { color: '#64748b', font: { size: 11 } }, grid: { color: '#1e293b' } }
-    }
+  /* ══ กลาง · การ์ดใหญ่ — วัตถุประสงค์ เทียบสองแหล่ง ════════════════════════ */
+  // เทียบเป็น % ภายในแหล่งตัวเอง เพราะขนาดตัวอย่างต่างกันมาก (เที่ยว Home vs สัมภาษณ์ Roadside)
+  // ถ้าเทียบด้วยจำนวนดิบ แท่งฝั่งที่ตัวอย่างเยอะจะกลบอีกฝั่งจนอ่านไม่ได้
+  const rsP = countBy(ivs,   iv => (iv.purpose || '').trim());
+  const hmP = countBy(trips, t  => (t.purpose  || '').trim());
+  const cats = [...PURPOSES, ...Object.keys({ ...rsP, ...hmP }).filter(k => !PURPOSES.includes(k))];
+  const rsTot = ivs.length, hmTot = trips.length;
+  const rsN = cats.map(c => rsP[c] || 0), hmN = cats.map(c => hmP[c] || 0);
+  set('purposeCmpSub', (rsTot || hmTot)
+    ? `Roadside ${rsTot.toLocaleString()} สัมภาษณ์ · Home ${hmTot.toLocaleString()} เที่ยว — แสดงเป็น % ภายในแต่ละแหล่ง`
+    : '');
+  chartOrMsg('chartPurposeCmp', 'chartPurposeCmpMsg', rsTot + hmTot > 0, () => {
+    makeChart('chartPurposeCmp', 'bar', {
+      labels: cats,
+      datasets: [
+        { label: '🚛 Roadside', data: rsN.map(n => rsTot ? +(n / rsTot * 100).toFixed(2) : 0),
+          backgroundColor: C_RS_DIM, borderColor: C_RS, borderWidth: 1, borderRadius: 4, _raw: rsN },
+        { label: '🏠 Home',     data: hmN.map(n => hmTot ? +(n / hmTot * 100).toFixed(2) : 0),
+          backgroundColor: C_HM_DIM, borderColor: C_HM, borderWidth: 1, borderRadius: 4, _raw: hmN }
+      ]
+    }, {
+      indexAxis: 'y',
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'top', labels: { color: '#cbd5e1', font: { size: 12, family: 'Sarabun' }, boxWidth: 14 } },
+        tooltip: { callbacks: { label: c => {
+          const raw = c.dataset._raw?.[c.dataIndex] ?? 0;
+          return `${c.dataset.label}: ${(+c.parsed.x).toFixed(1)}%  (${raw.toLocaleString()} รายการ)`;
+        } } }
+      },
+      scales: {
+        x: { ticks: { color: '#94a3b8', callback: v => v + '%' }, grid: { color: '#1e293b' }, title: { display: true, text: 'สัดส่วนภายในแหล่งข้อมูล (%)', color: '#64748b', font: { size: 11, family: 'Sarabun' } } },
+        y: { ticks: { color: '#cbd5e1', font: { size: 11, family: 'Sarabun' } }, grid: { display: false } }
+      }
+    });
   });
 
-  // Cargo table
-  const cargoIVs = ivs.filter(iv => ['มี','yes','Y','1','true'].includes(String(iv.hasCargo)));
+  /* ══ ซ้าย · Roadside — สินค้าขนส่ง ════════════════════════════════════════ */
+  // ค่าจริงที่แอปเก็บคือ 'มีสินค้า' (ของเดิมกรองด้วย 'มี' จึงได้ 0 เสมอ)
+  const cargoIVs = ivs.filter(hasCargo);
   if (!cargoIVs.length) {
-    set('cargoTable', '<p style="color:var(--muted);font-size:13px">ไม่พบข้อมูลสินค้าขนส่ง</p>');
+    const anyTruck = ivs.filter(iv => String(iv.vehicleType || '').startsWith('truck')).length;
+    set('cargoTable', `<p style="color:var(--muted);font-size:13px">ยังไม่มีรายการที่ระบุว่า "มีสินค้า"`
+      + (anyTruck ? ` (มีรถบรรทุก ${anyTruck} คันที่ยังไม่ได้กรอกช่องสินค้า)` : '') + `</p>`);
   } else {
-    const totalW = cargoIVs.reduce((s, iv) => s + (parseFloat(iv.cargoWeight) || 0), 0);
-    const cargoE = topN(countBy(cargoIVs, iv => iv.cargoType || '(ไม่ระบุ)'), 15);
+    const totalW = cargoIVs.reduce((s, iv) => s + numOf(iv.cargoWeight), 0);
+    const byType = {};
+    cargoIVs.forEach(iv => {
+      // 'อื่น ๆ (ระบุ)' + ช่องระบุ — ของเดิมยุบรวมเป็นก้อนเดียว รายละเอียดที่ผู้สำรวจพิมพ์หายไป
+      const t = (iv.cargoType || '').trim() === 'อื่น ๆ (ระบุ)' && (iv.cargoTypeOther || '').trim()
+        ? `อื่น ๆ: ${iv.cargoTypeOther.trim()}`
+        : ((iv.cargoType || '').trim() || '(ไม่ระบุชนิด)');
+      if (!byType[t]) byType[t] = { n: 0, w: 0 };
+      byType[t].n++; byType[t].w += numOf(iv.cargoWeight);
+    });
+    const rows = Object.entries(byType).sort((a, b) => b[1].n - a[1].n);
+    const maxN = rows[0][1].n;
     set('cargoTable', `
-      <p style="color:var(--muted);font-size:12px;margin-bottom:8px">รถบรรทุก ${cargoIVs.length} คัน · น้ำหนักรวม ${totalW.toLocaleString()} กก.</p>
+      <div class="stat-strip">
+        <div><span class="stat-num" style="color:${C_RS}">${cargoIVs.length.toLocaleString()}</span><span class="stat-lbl">คันที่บรรทุกสินค้า</span></div>
+        <div><span class="stat-num" style="color:${C_RS}">${totalW.toLocaleString()}</span><span class="stat-lbl">น้ำหนักรวม (กก.)</span></div>
+        <div><span class="stat-num" style="color:${C_RS}">${rows.length}</span><span class="stat-lbl">ชนิดสินค้า</span></div>
+      </div>
       <table class="data-table">
-        <thead><tr><th>ประเภทสินค้า</th><th>จำนวน</th></tr></thead>
-        <tbody>${cargoE.map(([t, c]) => `<tr><td>${esc(t)}</td><td style="font-weight:700">${c}</td></tr>`).join('')}</tbody>
+        <thead><tr><th>ชนิดสินค้า</th><th style="text-align:right">คัน</th><th style="text-align:right">น้ำหนัก (กก.)</th></tr></thead>
+        <tbody>${rows.map(([t, v]) => `
+          <tr><td><span class="mini-bar" style="width:${(v.n / maxN * 100).toFixed(0)}%"></span><span class="mini-lbl">${esc(t)}</span></td>
+              <td style="text-align:right;font-weight:700">${v.n}</td>
+              <td style="text-align:right;color:var(--muted)">${v.w ? v.w.toLocaleString() : '—'}</td></tr>`).join('')}</tbody>
       </table>`);
   }
-}
 
+  /* ══ ขวา · Home — Pyramid ประชากร ═════════════════════════════════════════ */
+  const ageGroups = ['0–9','10–19','20–29','30–39','40–49','50–59','60–69','70+'];
+  const maleD = new Array(8).fill(0), femD = new Array(8).fill(0);
+  let noAge = 0, noSex = 0;
+  members.forEach(m => {
+    // ของเดิมใช้ parseInt(...) || 0 — คนที่ไม่กรอกอายุถูกนับเป็นกลุ่ม 0–9 ทำให้ฐานพีระมิดบวม
+    const age = parseInt(String(m.age ?? '').replace(/[^\d]/g, ''), 10);
+    if (!Number.isFinite(age) || age < 0 || age > 120) { noAge++; return; }
+    const idx  = Math.min(7, Math.floor(age / 10));
+    const gend = normName(m.gender);
+    if (['ชาย','male','M','m'].includes(gend))        maleD[idx]++;
+    else if (['หญิง','female','F','f'].includes(gend)) femD[idx]++;
+    else noSex++;
+  });
+  const inChart = maleD.reduce((a, b) => a + b, 0) + femD.reduce((a, b) => a + b, 0);
+  set('pyramidNote', members.length
+    ? `<span class="note">อยู่ในกราฟ ${inChart.toLocaleString()} คน`
+      + (noAge  ? ` · ไม่ระบุ/อายุไม่ถูกต้อง ${noAge.toLocaleString()} คน`  : '')
+      + (noSex  ? ` · ไม่ระบุเพศ ${noSex.toLocaleString()} คน`             : '')
+      + (noAge + noSex ? ' — ไม่นับรวมในกราฟ' : '') + `</span>`
+    : '');
+  chartOrMsg('chartPyramid', 'chartPyramidMsg', inChart > 0, () => {
+    makeChart('chartPyramid', 'bar', {
+      labels: ageGroups,
+      datasets: [
+        { label: 'ชาย',  data: maleD.map(v => -v), backgroundColor: C_HM,      borderRadius: 3, _raw: maleD },
+        { label: 'หญิง', data: femD,               backgroundColor: '#f472b6', borderRadius: 3, _raw: femD }
+      ]
+    }, {
+      indexAxis: 'y',
+      plugins: {
+        legend: { labels: { color: '#cbd5e1', font: { family: 'Sarabun' } } },
+        tooltip: { callbacks: { label: c => `${c.dataset.label}: ${(c.dataset._raw?.[c.dataIndex] ?? 0).toLocaleString()} คน` } }
+      },
+      scales: {
+        x: { stacked: true, ticks: { color: '#94a3b8', callback: v => Math.abs(v) }, grid: { color: '#1e293b' } },
+        y: { stacked: true, ticks: { color: '#cbd5e1', font: { family: 'Sarabun' } }, grid: { display: false } }
+      }
+    });
+  });
+
+  /* ══ ซ้าย · Roadside — คนต่อคัน (occupancy) ═══════════════════════════════ */
+  // occupancy = คนในรถ (รวมคนขับ) ต่อคัน — ตัวเลขที่ใช้แปลง "เที่ยวรถ" เป็น "เที่ยวคน" ตอนทำ OD
+  const occ = {};
+  ivs.forEach(iv => {
+    const n = paxOf(iv);
+    if (!n) return;                                   // ยังไม่กรอก — ไม่นับ ทั้งตัวตั้งและตัวหาร
+    const k = iv.vehicleType || '(ไม่ระบุ)';
+    if (!occ[k]) occ[k] = { n: 0, sum: 0 };
+    occ[k].n++; occ[k].sum += n;
+  });
+  const occKeys = [
+    ...VEH_ORDER.filter(k => occ[k]),
+    ...Object.keys(occ).filter(k => !VEH_ORDER.includes(k))    // ค่าแปลกปลอม/ไม่ระบุ ต่อท้าย
+  ];
+  const occIVs  = ivs.filter(iv => paxOf(iv) > 0);
+  const paxAll  = occIVs.reduce((s, iv) => s + paxOf(iv), 0);
+  set('occSub', ivs.length
+    ? `กรอกจำนวนคนแล้ว ${occIVs.length.toLocaleString()} / ${ivs.length.toLocaleString()} คัน`
+      + (occIVs.length ? ` · เฉลี่ยรวม ${(paxAll / occIVs.length).toFixed(2)} คน/คัน` : '')
+    : '');
+  set('occStrip', occIVs.length ? `
+    <div class="stat-strip">
+      <div><span class="stat-num" style="color:${C_RS}">${(paxAll / occIVs.length).toFixed(2)}</span><span class="stat-lbl">คน/คัน เฉลี่ย</span></div>
+      <div><span class="stat-num" style="color:${C_RS}">${paxAll.toLocaleString()}</span><span class="stat-lbl">คนในรถรวม</span></div>
+      <div><span class="stat-num" style="color:${C_RS}">${occKeys.length}</span><span class="stat-lbl">ประเภทที่มีข้อมูล</span></div>
+    </div>` : '');
+  chartOrMsg('chartOccupancy', 'chartOccupancyMsg', occKeys.length, () => {
+    makeChart('chartOccupancy', 'bar', {
+      labels: occKeys.map(vehLabel),
+      datasets: [{
+        label: 'คน/คัน', borderRadius: 4, backgroundColor: rampRS(occKeys.length),
+        data: occKeys.map(k => +(occ[k].sum / occ[k].n).toFixed(2)),
+        _n:   occKeys.map(k => occ[k].n)
+      }]
+    }, {
+      indexAxis: 'y',
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: c =>
+          `เฉลี่ย ${(+c.parsed.x).toFixed(2)} คน/คัน  (จาก ${(c.dataset._n?.[c.dataIndex] ?? 0).toLocaleString()} คัน)` } }
+      },
+      scales: {
+        x: { beginAtZero: true, ticks: { color: '#94a3b8' }, grid: { color: 'rgba(245,158,11,.12)' },
+             title: { display: true, text: 'คน/คัน (รวมคนขับ)', color: '#64748b', font: { size: 11, family: 'Sarabun' } } },
+        y: { ticks: { color: '#cbd5e1', font: { size: 11, family: 'Sarabun' } }, grid: { display: false } }
+      }
+    });
+  });
+
+  /* ══ ซ้าย · Roadside — รายได้ผู้ขับขี่ ════════════════════════════════════ */
+  // ช่องนี้กรอกได้ไม่บังคับ (Roadside/js/app.js: "เว้นว่างได้") สัดส่วนที่กรอกจึงต้องบอกให้ชัด
+  const dincCount = countBy(ivs, iv => incomeBand(iv.driverIncome));
+  const dincLabels = [...INCOME_ORDER, ...(dincCount['(ไม่ระบุ)'] ? ['(ไม่ระบุ)'] : [])];
+  const dincData   = dincLabels.map(l => dincCount[l] || 0);
+  const dincVals   = ivs.map(iv => numOf(iv.driverIncome)).filter(n => n > 0).sort((a, b) => a - b);
+  const dincMed    = dincVals.length ? dincVals[Math.floor(dincVals.length / 2)] : 0;
+  set('driverIncomeSub', ivs.length
+    ? `กรอกรายได้แล้ว ${dincVals.length.toLocaleString()} / ${ivs.length.toLocaleString()} ราย`
+      + (dincMed ? ` · มัธยฐาน ${dincMed.toLocaleString()} บาท/เดือน` : '')
+      + ' — ช่องนี้ไม่บังคับกรอก'
+    : '');
+  chartOrMsg('chartDriverIncome', 'chartDriverIncomeMsg', ivs.length > 0, () => {
+    makeChart('chartDriverIncome', 'bar', {
+      labels: dincLabels,
+      datasets: [{ label: 'ราย', data: dincData, borderRadius: 4,
+                   backgroundColor: dincLabels.map(l => l === '(ไม่ระบุ)' ? C_NA : C_RS) }]
+    }, {
+      plugins: { legend: { display: false }, tooltip: pctTooltip },
+      scales: {
+        x: { ticks: { color: '#cbd5e1', font: { size: 10, family: 'Sarabun' } }, grid: { display: false } },
+        y: { beginAtZero: true, ticks: { color: '#94a3b8', precision: 0 }, grid: { color: 'rgba(245,158,11,.12)' } }
+      }
+    });
+  });
+
+  /* ══ ล่าง · Home — รายได้ครัวเรือน ════════════════════════════════════════ */
+  // ฟอร์มเก็บรายได้เป็นตัวเลขล้วน ต้องจัดชั้นเอง (ของเดิมจับกลุ่มด้วยชื่อชั้น → ได้แท่งละ 1 ครัวเรือน)
+  const incCount = countBy(households, hh => incomeBand(hh.householdIncome));
+  const incLabels = [...INCOME_ORDER, ...(incCount['(ไม่ระบุ)'] ? ['(ไม่ระบุ)'] : [])];
+  const incData   = incLabels.map(l => incCount[l] || 0);
+  const withInc   = households.length - (incCount['(ไม่ระบุ)'] || 0);
+  const incVals   = households.map(hh => numOf(hh.householdIncome)).filter(n => n > 0).sort((a, b) => a - b);
+  const median    = incVals.length ? incVals[Math.floor(incVals.length / 2)] : 0;
+  set('incomeSub', households.length
+    ? `กรอกรายได้แล้ว ${withInc.toLocaleString()} / ${households.length.toLocaleString()} ครัวเรือน`
+      + (median ? ` · มัธยฐาน ${median.toLocaleString()} บาท/เดือน` : '')
+    : '');
+  chartOrMsg('chartIncome', 'chartIncomeMsg', households.length > 0, () => {
+    makeChart('chartIncome', 'bar', {
+      labels: incLabels,
+      datasets: [{ label: 'ครัวเรือน', data: incData, borderRadius: 4,
+                   backgroundColor: incLabels.map(l => l === '(ไม่ระบุ)' ? C_NA : C_HM) }]
+    }, {
+      plugins: { legend: { display: false }, tooltip: pctTooltip },
+      scales: {
+        x: { ticks: { color: '#cbd5e1', font: { size: 10, family: 'Sarabun' } }, grid: { display: false } },
+        y: { beginAtZero: true, ticks: { color: '#94a3b8', precision: 0 }, grid: { color: '#1e293b' } }
+      }
+    });
+  });
+
+  /* ══ ล่าง · Home — ระดับการศึกษา ══════════════════════════════════════════ */
+  // การศึกษาเป็นข้อมูลมีลำดับ — เรียงตามระดับ ไม่ใช่ตามจำนวน จะได้อ่านเป็นการกระจายตัวได้
+  const eduCount = countBy(members, m => (m.education || '').trim());
+  const eduKeys  = [
+    ...EDU_ORDER.filter(k => eduCount[k]),
+    ...Object.keys(eduCount).filter(k => !EDU_ORDER.includes(k) && k !== '(ไม่ระบุ)'),
+    ...(eduCount['(ไม่ระบุ)'] ? ['(ไม่ระบุ)'] : [])
+  ];
+  const eduE = eduKeys.map(k => [k, eduCount[k]]);
+  const eduKnown = members.length - (eduCount['(ไม่ระบุ)'] || 0);
+  set('educationSub', members.length
+    ? `${members.length.toLocaleString()} คน · ระบุการศึกษาแล้ว ${eduKnown.toLocaleString()} คน` : '');
+  chartOrMsg('chartEducation', 'chartEducationMsg', eduE.length, () => {
+    makeChart('chartEducation', 'bar', {
+      labels: eduE.map(e => e[0]),
+      datasets: [{ label: 'คน', data: eduE.map(e => e[1]), borderRadius: 4,
+                   backgroundColor: (() => { const r = rampHM(eduE.length);
+                     return eduE.map((e, i) => e[0] === '(ไม่ระบุ)' ? C_NA : r[i]); })() }]
+    }, {
+      indexAxis: 'y',
+      plugins: { legend: { display: false }, tooltip: pctTooltip },
+      scales: {
+        x: { ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' } },
+        y: { ticks: { color: '#cbd5e1', font: { size: 11, family: 'Sarabun' } }, grid: { display: false } }
+      }
+    });
+  });
+}
 // ── MAIN APP ──────────────────────────────────────────────────────────────────
 const App = {
   _tab:        'progress',

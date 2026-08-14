@@ -197,6 +197,57 @@
 
     /* Charts */
     .chart-wrap canvas { max-height: 300px; }
+    .chart-wrap.tall { height: 420px; }
+    .chart-wrap.tall canvas { max-height: 420px; }
+
+    /* ── โทนสีตามแหล่งข้อมูล — Roadside = ส้ม (แอปใช้ #d97706) · Home = ฟ้า (แอปใช้ #2563eb) ── */
+    :root { --rs: #f59e0b; --rs-deep: #d97706; --hm: #3b82f6; --hm-deep: #2563eb; }
+    .card.src-rs {
+      border-color: rgba(217,119,6,.42);
+      background: linear-gradient(180deg, rgba(245,158,11,.07), rgba(245,158,11,0) 140px), var(--surface);
+    }
+    .card.src-hm {
+      border-color: rgba(37,99,235,.42);
+      background: linear-gradient(180deg, rgba(59,130,246,.07), rgba(59,130,246,0) 140px), var(--surface);
+    }
+    .card.src-both {
+      border-color: #475569;
+      background: linear-gradient(100deg, rgba(245,158,11,.09), rgba(59,130,246,.09) 70%), var(--surface);
+    }
+    .card.src-rs   .card-title { color: #fcd34d; }
+    .card.src-hm   .card-title { color: #bfdbfe; }
+    .src-tag {
+      font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px;
+      letter-spacing: .03em; margin-left: auto;
+    }
+    .src-tag.rs   { background: rgba(217,119,6,.20);  color: #fbbf24; }
+    .src-tag.hm   { background: rgba(37,99,235,.20);  color: #93c5fd; }
+    .src-tag.both { background: rgba(71,85,105,.45);  color: #cbd5e1; }
+    .card-sub { font-size: 11.5px; color: var(--muted); margin: -10px 0 14px; }
+    .card-sub:empty { display: none; }   /* ยังไม่มีข้อมูล → อย่ากินที่ว่างเปล่า ๆ */
+
+    /* หัวข้อคั่นกลุ่ม */
+    .sec-head {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 12px; font-weight: 700; color: var(--muted);
+      letter-spacing: .04em; margin: 4px 0 12px;
+    }
+    .sec-head::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+    .sec-head .dot-rs { width: 8px; height: 8px; border-radius: 50%; background: var(--rs); display: inline-block; }
+    .sec-head .dot-hm { width: 8px; height: 8px; border-radius: 50%; background: var(--hm); display: inline-block; }
+
+    /* แถบตัวเลขสรุปเหนือตาราง */
+    .stat-strip { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 14px; }
+    .stat-strip .stat-num { display: block; font-size: 22px; font-weight: 700; line-height: 1.2; }
+    .stat-strip .stat-lbl { font-size: 11px; color: var(--muted); }
+    /* แถบพื้นหลังในเซลล์ตาราง — กวาดตาเทียบสัดส่วนได้โดยไม่ต้องอ่านตัวเลข */
+    .mini-bar {
+      position: absolute; left: 0; top: 3px; bottom: 3px; z-index: 0;
+      background: rgba(245,158,11,.16); border-radius: 3px;
+    }
+    #cargoTable td:first-child { position: relative; }
+    .mini-lbl { position: relative; z-index: 1; }
+    .note { font-size: 11.5px; color: var(--muted); }
 
     /* Chips */
     .chip { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; }
@@ -516,49 +567,80 @@
     </div>
   </div>
 
-  <!-- ── Tab: สถิติ ── -->
+  <!-- ── Tab: สถิติ ──  ซ้าย = Roadside (ส้ม) · ขวา = Home (ฟ้า) · ที่เทียบกันได้ = การ์ดใหญ่ตรงกลาง -->
   <div class="tab-panel" id="panel-stats">
+
+    <div class="sec-head"><span class="dot-rs"></span>ฝั่งถนน · Roadside &nbsp;&nbsp;|&nbsp;&nbsp; <span class="dot-hm"></span>ครัวเรือน · Home</div>
     <div class="grid-2">
-      <div class="card">
-        <div class="card-title">🚌 Modal Split (Home — ยานพาหนะที่ใช้)</div>
+      <div class="card src-rs">
+        <div class="card-title">🚛 ประเภทยานพาหนะ <span class="src-tag rs">ROADSIDE</span></div>
+        <div class="card-sub" id="vehicleTypeSub"></div>
+        <div class="chart-wrap"><canvas id="chartVehicleType"></canvas></div>
+        <div id="chartVehicleTypeMsg"></div>
+      </div>
+      <div class="card src-hm">
+        <div class="card-title">🚌 Modal Split — ยานพาหนะที่ใช้เดินทาง <span class="src-tag hm">HOME</span></div>
+        <div class="card-sub" id="modalSplitSub"></div>
         <div class="chart-wrap"><canvas id="chartModalSplit"></canvas></div>
         <div id="chartModalSplitMsg"></div>
       </div>
-      <div class="card">
-        <div class="card-title">🚛 ประเภทยานพาหนะ (Roadside)</div>
-        <div class="chart-wrap"><canvas id="chartVehicleType"></canvas></div>
-      </div>
     </div>
-    <div class="grid-2">
-      <div class="card">
-        <div class="card-title">🎯 วัตถุประสงค์การเดินทาง (Home)</div>
-        <div class="chart-wrap"><canvas id="chartPurposeHome"></canvas></div>
-      </div>
-      <div class="card">
-        <div class="card-title">🎯 วัตถุประสงค์ (Roadside)</div>
-        <div class="chart-wrap"><canvas id="chartPurposeRoadside"></canvas></div>
-      </div>
+
+    <div class="sec-head">⚖️ เทียบสองแหล่งข้อมูล</div>
+    <div class="card src-both">
+      <div class="card-title">🎯 วัตถุประสงค์การเดินทาง — Roadside เทียบ Home <span class="src-tag both">ข้อมูลรวม</span></div>
+      <div class="card-sub" id="purposeCmpSub"></div>
+      <div class="chart-wrap tall"><canvas id="chartPurposeCmp"></canvas></div>
+      <div id="chartPurposeCmpMsg"></div>
     </div>
+
+    <div class="sec-head"><span class="dot-rs"></span>ฝั่งถนน · Roadside &nbsp;&nbsp;|&nbsp;&nbsp; <span class="dot-hm"></span>ครัวเรือน · Home</div>
     <div class="grid-2">
-      <div class="card">
-        <div class="card-title">👥 Pyramid ประชากร (อายุ–เพศ)</div>
-        <div class="chart-wrap"><canvas id="chartPyramid"></canvas></div>
-      </div>
-      <div class="card">
-        <div class="card-title">💰 รายได้ครัวเรือน (บาท/เดือน)</div>
-        <div class="chart-wrap"><canvas id="chartIncome"></canvas></div>
-      </div>
-    </div>
-    <div class="grid-2">
-      <div class="card">
-        <div class="card-title">🎓 ระดับการศึกษา (สมาชิก)</div>
-        <div class="chart-wrap"><canvas id="chartEducation"></canvas></div>
-      </div>
-      <div class="card">
-        <div class="card-title">📦 สินค้าขนส่ง (Roadside — รถบรรทุก)</div>
+      <div class="card src-rs">
+        <div class="card-title">📦 สินค้าขนส่ง <span class="src-tag rs">ROADSIDE</span></div>
         <div id="cargoTable"><p style="color:var(--muted)">กำลังโหลด...</p></div>
       </div>
+      <div class="card src-hm">
+        <div class="card-title">👥 Pyramid ประชากร (อายุ–เพศ) <span class="src-tag hm">HOME</span></div>
+        <div class="card-sub" id="pyramidNote"></div>
+        <div class="chart-wrap"><canvas id="chartPyramid"></canvas></div>
+        <div id="chartPyramidMsg"></div>
+      </div>
     </div>
+
+    <div class="sec-head"><span class="dot-rs"></span>ฝั่งถนน · Roadside &nbsp;&nbsp;|&nbsp;&nbsp; <span class="dot-hm"></span>ครัวเรือน · Home</div>
+    <div class="grid-2">
+      <div class="card src-rs">
+        <div class="card-title">🧍 คนต่อคัน — occupancy <span class="src-tag rs">ROADSIDE</span></div>
+        <div class="card-sub" id="occSub"></div>
+        <div id="occStrip"></div>
+        <div class="chart-wrap"><canvas id="chartOccupancy"></canvas></div>
+        <div id="chartOccupancyMsg"></div>
+      </div>
+      <div class="card src-hm">
+        <div class="card-title">🎓 ระดับการศึกษา (สมาชิก) <span class="src-tag hm">HOME</span></div>
+        <div class="card-sub" id="educationSub"></div>
+        <div class="chart-wrap"><canvas id="chartEducation"></canvas></div>
+        <div id="chartEducationMsg"></div>
+      </div>
+    </div>
+
+    <div class="sec-head">💵 รายได้ — <span class="dot-rs"></span>ผู้ขับขี่ &nbsp;&nbsp;|&nbsp;&nbsp; <span class="dot-hm"></span>ครัวเรือน</div>
+    <div class="grid-2">
+      <div class="card src-rs">
+        <div class="card-title">💵 รายได้ผู้ขับขี่ (บาท/เดือน) <span class="src-tag rs">ROADSIDE</span></div>
+        <div class="card-sub" id="driverIncomeSub"></div>
+        <div class="chart-wrap"><canvas id="chartDriverIncome"></canvas></div>
+        <div id="chartDriverIncomeMsg"></div>
+      </div>
+      <div class="card src-hm">
+        <div class="card-title">💰 รายได้ครัวเรือน (บาท/เดือน) <span class="src-tag hm">HOME</span></div>
+        <div class="card-sub" id="incomeSub"></div>
+        <div class="chart-wrap"><canvas id="chartIncome"></canvas></div>
+        <div id="chartIncomeMsg"></div>
+      </div>
+    </div>
+
   </div>
 
 </div><!-- /dashboardMain -->
@@ -591,6 +673,6 @@
 <!-- Zone GeoJSON (defines ZONES_GEOJSON) -->
 <script src="js/zones.js"></script>
 <!-- Dashboard logic -->
-<script src="js/dashboard.js?v=orphan"></script>
+<script src="js/dashboard.js?v=stats3"></script>
 </body>
 </html>
