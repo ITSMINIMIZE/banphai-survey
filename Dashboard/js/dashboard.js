@@ -136,7 +136,7 @@ function isInStudyArea(z) {
   return z !== '(นอกพื้นที่)' && z !== '(ไม่มีพิกัด)' && !isExternalZone(z);
 }
 // ล้าง cache ที่ผูกกับชุดโซน — เรียกเมื่อโหลดโซนใหม่
-function resetZoneCaches() { zNum._map = null; zDistrict._map = null; resetODCache(); }
+function resetZoneCaches() { zNum._map = null; zDistrict._map = null; studyZoneList._v = null; resetODCache(); }
 
 // ชื่อแสดงระดับอำเภอของโซน — ใช้ field DISTRICT/D_NAME ถ้ามีใน shp
 // ไม่งั้น fallback เป็นชื่อโซน (เช่น "โซน 5") ตามข้อมูลปัจจุบัน
@@ -649,6 +649,119 @@ function statusChip(pct, actual, target) {
        + ` <span style="color:var(--muted);font-size:11px">${actual}/${target}</span>`;
 }
 
+// ── บ้านที่สำรวจแล้ว แยกตามโซน (จากพิกัดบ้าน) ────────────────────────────────
+// point-in-polygon แพง (โซนจริง 232 รูป) — cache ไว้ ล้างพร้อม OD เมื่อข้อมูล/ชุดโซนเปลี่ยน
+let HOME_ZONE_CACHE = null;
+function homeByZone() {
+  if (HOME_ZONE_CACHE) return HOME_ZONE_CACHE;
+  const per = {};
+  households.forEach(hh => {
+    const z = assignZone(parseCoords(hh.coordinates));
+    const r = per[z] || (per[z] = { hhs: 0, members: 0, trips: 0 });
+    r.hhs++;
+    (hh.members || []).forEach(m => { r.members++; r.trips += (m.trips || []).length; });
+  });
+  HOME_ZONE_CACHE = per;
+  return per;
+}
+
+// รายชื่อโซนในพื้นที่ศึกษา เรียงตามเลขโซน (ชื่อซ้ำเก็บครั้งเดียว ใช้เลขน้อยสุด)
+function studyZoneList() {
+  if (studyZoneList._v) return studyZoneList._v;
+  const seen = new Map();
+  zFeatures().forEach(f => {
+    const n = zName(f), num = zNum(n);
+    if (!seen.has(n) || num < seen.get(n)) seen.set(n, num);
+  });
+  studyZoneList._v = [...seen.entries()]
+    .filter(([n]) => !isExternalZone(n))
+    .sort((a, b) => (a[1] || 9e9) - (b[1] || 9e9))
+    .map(([n]) => n);
+  return studyZoneList._v;
+}
+
+let _zoneSort = 'zone';      // 'zone' = ตามเลขโซน · 'count' = บ้านมาก→น้อย
+let _zoneOnlyEmpty = false;  // แสดงเฉพาะโซนที่ยังไม่มีข้อมูล
+
+function renderHomeZoneTable() {
+  const per      = homeByZone();
+  const internal = studyZoneList();
+  const q        = (document.getElementById('zoneCovSearch')?.value || '').trim().toLowerCase();
+
+  // โซนนอกพื้นที่ศึกษา แสดงเฉพาะที่มีข้อมูลจริง (ไม่งั้นตารางจะยาวด้วยจังหวัดรอบนอกที่ว่างเปล่า)
+  const extras = Object.keys(per)
+    .filter(z => !internal.includes(z) && z !== NO_COORD && z !== OUT_AREA)
+    .sort((a, b) => (zNum(a) || 9e9) - (zNum(b) || 9e9));
+
+  const done  = internal.filter(z => (per[z]?.hhs || 0) > 0).length;
+  const empty = internal.length - done;
+  const noCo  = per[NO_COORD]?.hhs || 0;
+  const outAr = per[OUT_AREA]?.hhs || 0;
+  const inArea = internal.reduce((n, z) => n + (per[z]?.hhs || 0), 0);
+  const pctZone = internal.length ? Math.round(done / internal.length * 100) : 0;
+
+  set('badgeZoneCov', internal.length ? `${done}/${internal.length} โซน` : '—');
+  set('zoneCovStrip', `
+    <div class="stat-strip">
+      <div><span class="stat-num" style="color:${C_HM}">${done}</span><span class="stat-lbl">โซนที่เก็บแล้ว (${pctZone}%)</span></div>
+      <div><span class="stat-num" style="color:${empty ? '#f59e0b' : '#22c55e'}">${empty}</span><span class="stat-lbl">โซนที่ยังไม่มีข้อมูล</span></div>
+      <div><span class="stat-num" style="color:${C_HM}">${inArea.toLocaleString()}</span><span class="stat-lbl">บ้านในพื้นที่ศึกษา</span></div>
+      ${outAr ? `<div><span class="stat-num" style="color:#94a3b8">${outAr.toLocaleString()}</span><span class="stat-lbl">พิกัดตกนอกทุกโซน</span></div>` : ''}
+      ${noCo ? `<div><span class="stat-num" style="color:#ef4444">${noCo.toLocaleString()}</span><span class="stat-lbl">บ้านที่ไม่มีพิกัด</span></div>` : ''}
+    </div>`);
+
+  let rows = internal.map(z => ({ z, ...(per[z] || { hhs: 0, members: 0, trips: 0 }), tag: 'in' }))
+    .concat(extras.map(z => ({ z, ...per[z], tag: 'ext' })));
+
+  if (_zoneOnlyEmpty) rows = rows.filter(r => r.hhs === 0);
+  if (q) rows = rows.filter(r => (r.z + ' ' + zDistrict(r.z)).toLowerCase().includes(q));
+  if (_zoneSort === 'count') rows.sort((a, b) => b.hhs - a.hhs || (zNum(a.z) || 9e9) - (zNum(b.z) || 9e9));
+
+  // แถวสรุปท้ายตาราง — พิกัดมีปัญหา ต้องเห็นคู่กับตัวเลขโซน ไม่ใช่ซ่อนไว้ที่อื่น
+  const special = [];
+  if (!_zoneOnlyEmpty && !q) {
+    if (outAr) special.push([OUT_AREA, 'พิกัดอยู่นอกทุกโซนที่กำหนด', per[OUT_AREA]]);
+    if (noCo)  special.push([NO_COORD, 'ยังไม่ได้ปักพิกัดบ้าน — จัดโซนไม่ได้', per[NO_COORD]]);
+  }
+
+  if (!rows.length && !special.length) {
+    set('zoneCovTable', '<p style="color:var(--muted);padding:8px 0">ไม่พบโซนที่ตรงกับเงื่อนไข</p>');
+    return;
+  }
+  const maxHh = Math.max(1, ...rows.map(r => r.hhs));
+  // ชุดโซนที่ไม่มีฟิลด์อำเภอ zDistrict จะคืนชื่อโซนเดิม — คอลัมน์ซ้ำ ซ่อนทิ้ง
+  const hasGroup = rows.some(r => zDistrict(r.z) !== r.z);
+  set('zoneCovTable', `
+    <div style="max-height:420px;overflow-y:auto">
+    <table class="data-table">
+      <thead><tr>
+        <th>โซน</th>${hasGroup ? '<th>กลุ่ม / อำเภอ</th>' : ''}
+        <th style="text-align:right">บ้าน</th><th style="text-align:right">คน</th>
+        <th style="text-align:right">เที่ยว</th><th style="text-align:right">คน/บ้าน</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map(r => `
+          <tr${r.hhs === 0 ? ' style="background:rgba(245,158,11,.07)"' : ''}>
+            <td><span class="mini-bar mini-bar-hm" style="width:${(r.hhs / maxHh * 100).toFixed(0)}%"></span><span class="mini-lbl">${esc(r.z)}${r.tag === 'ext' ? ' <span style="color:#f59e0b;font-size:11px">นอกพื้นที่ศึกษา</span>' : ''}</span></td>
+            ${hasGroup ? `<td style="color:var(--muted)">${esc(zDistrict(r.z))}</td>` : ''}
+            <td style="text-align:right;font-weight:700${r.hhs === 0 ? ';color:#f59e0b' : ''}">${r.hhs === 0 ? 'ยังไม่มี' : r.hhs.toLocaleString()}</td>
+            <td style="text-align:right">${r.members ? r.members.toLocaleString() : '—'}</td>
+            <td style="text-align:right">${r.trips ? r.trips.toLocaleString() : '—'}</td>
+            <td style="text-align:right;color:var(--muted)">${r.hhs ? (r.members / r.hhs).toFixed(1) : '—'}</td>
+          </tr>`).join('')}
+        ${special.map(([z, note, d]) => `
+          <tr style="background:rgba(239,68,68,.07)">
+            <td style="font-weight:700;color:#f87171">${esc(z)}${hasGroup ? '' : ` <span style="font-weight:400;color:var(--muted);font-size:11px">${note}</span>`}</td>
+            ${hasGroup ? `<td style="color:var(--muted)">${note}</td>` : ''}
+            <td style="text-align:right;font-weight:700">${d.hhs.toLocaleString()}</td>
+            <td style="text-align:right">${d.members.toLocaleString()}</td>
+            <td style="text-align:right">${d.trips.toLocaleString()}</td>
+            <td style="text-align:right;color:var(--muted)">${d.hhs ? (d.members / d.hhs).toFixed(1) : '—'}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table></div>`);
+}
+
 function renderProgress() {
   // ═══ HOME: จัดกลุ่มตามผู้ควบคุม (= ทีม) ═══
   const teams = {};
@@ -778,6 +891,9 @@ function renderProgress() {
         }).join('')}</tbody>
       </table>`);
 
+  // ═══ บ้านที่สำรวจแล้ว แยกตามโซน (จากพิกัดบ้าน) ═══
+  renderHomeZoneTable();
+
   // Incomplete records
   const incomplete = households.filter(hh =>
     !hh.coordinates || !hh.surveyorName ||
@@ -813,7 +929,7 @@ function renderProgress() {
 // ผลการหาโซนเปลี่ยนก็ต่อเมื่อข้อมูลหรือชุดโซนเปลี่ยน — ไม่ใช่ตอนสลับระดับตาราง
 // ถ้าไม่ cache ไว้ ทุกครั้งที่กดปุ่มจะคำนวณ point-in-polygon ใหม่ทั้งชุด (วัดได้ ~10 วิ)
 let OD_CACHE = {};
-function resetODCache() { OD_CACHE = {}; }
+function resetODCache() { OD_CACHE = {}; HOME_ZONE_CACHE = null; }
 
 function buildODPairs(source) {
   if (OD_CACHE[source]) return OD_CACHE[source];
@@ -1823,6 +1939,16 @@ const App = {
       }, 100);
     }
   },
+
+  // ── ตารางบ้านรายโซน ──
+  setZoneSort(mode) {
+    _zoneSort = mode;
+    ['zone', 'count'].forEach(m =>
+      document.getElementById('zoneSort' + m)?.classList.toggle('active', m === mode));
+    renderHomeZoneTable();
+  },
+  toggleZoneEmpty(on) { _zoneOnlyEmpty = !!on; renderHomeZoneTable(); },
+  filterZoneTable() { renderHomeZoneTable(); },
 
   filterTable(tableId, q) {
     const query = (q || '').trim().toLowerCase();

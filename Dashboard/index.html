@@ -247,6 +247,22 @@
     }
     #cargoTable td:first-child { position: relative; }
     .mini-lbl { position: relative; z-index: 1; }
+    .mini-bar-hm { background: rgba(59,130,246,.18); }
+    #zoneCovTable td:first-child { position: relative; }
+    .zone-cov-bar {
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px;
+    }
+    .zone-cov-bar input[type=text] {
+      flex: 1; min-width: 200px; padding: 9px 12px;
+      border: 1px solid var(--border); border-radius: 8px;
+      background: var(--bg); color: var(--text); font-family: inherit; font-size: 14px;
+    }
+    .zone-cov-bar input[type=text]:focus { outline: none; border-color: var(--hm); }
+    .zone-cov-check {
+      display: flex; align-items: center; gap: 7px;
+      font-size: 13px; color: var(--muted); cursor: pointer; white-space: nowrap;
+    }
+    .zone-cov-check input { accent-color: var(--hm); width: 15px; height: 15px; cursor: pointer; }
     .note { font-size: 11.5px; color: var(--muted); }
 
     /* Chips */
@@ -414,6 +430,25 @@
         <div style="overflow-x:auto"><div id="homePersonTable"><p style="color:var(--muted)">กำลังโหลด...</p></div></div>
       </div>
     </div>
+    <div class="card src-hm">
+      <div class="card-title">🗺️ Home — บ้านที่สำรวจแล้ว แยกตามโซน <span class="badge" id="badgeZoneCov"></span>
+        <span class="src-tag hm">จากพิกัดบ้าน</span></div>
+      <div class="card-sub">จัดโซนจากพิกัดที่ผู้สำรวจปักไว้ · แถวสีเหลือง = โซนที่ยังไม่มีข้อมูล</div>
+      <div id="zoneCovStrip"></div>
+      <div class="zone-cov-bar">
+        <input type="text" id="zoneCovSearch" oninput="App.filterZoneTable()" placeholder="🔍 ค้นหาโซน / อำเภอ..." />
+        <div class="toggle-group">
+          <button class="toggle-btn active" id="zoneSortzone" onclick="App.setZoneSort('zone')">🔢 ตามเลขโซน</button>
+          <button class="toggle-btn" id="zoneSortcount" onclick="App.setZoneSort('count')">📊 บ้านมาก→น้อย</button>
+        </div>
+        <label class="zone-cov-check">
+          <input type="checkbox" id="zoneOnlyEmpty" onchange="App.toggleZoneEmpty(this.checked)" />
+          เฉพาะโซนที่ยังไม่มีข้อมูล
+        </label>
+      </div>
+      <div id="zoneCovTable"><p style="color:var(--muted)">กำลังคำนวณ...</p></div>
+    </div>
+
     <div class="card">
       <div class="card-title">⚠️ ข้อมูลที่ไม่ครบ (Home) <span class="badge" id="badgeIncomplete"></span></div>
       <div id="incompleteTable"><p style="color:var(--muted)">กำลังตรวจสอบ...</p></div>
@@ -673,6 +708,6 @@
 <!-- Zone GeoJSON (defines ZONES_GEOJSON) -->
 <script src="js/zones.js"></script>
 <!-- Dashboard logic -->
-<script src="js/dashboard.js?v=stats3"></script>
+<script src="js/dashboard.js?v=zonecov"></script>
 </body>
 </html>
