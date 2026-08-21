@@ -138,8 +138,8 @@ function isInStudyArea(z) {
 // ล้าง cache ที่ผูกกับชุดโซน — เรียกเมื่อโหลดโซนใหม่
 function resetZoneCaches() { zNum._map = null; zDistrict._map = null; studyZoneList._v = null; resetODCache(); }
 
-// ชื่อแสดงระดับอำเภอของโซน — ใช้ field DISTRICT/D_NAME ถ้ามีใน shp
-// ไม่งั้น fallback เป็นชื่อโซน (เช่น "โซน 5") ตามข้อมูลปัจจุบัน
+// ชื่อแสดงระดับอำเภอ/ตำบลของโซน — ใช้ field D_NAME ถ้ามีใน shp (ชื่อล้วน ไม่ต่อท้ายด้วยรหัส)
+// ไม่มีชื่อ → ใช้รหัส · ไม่มีทั้งคู่ → fallback เป็นชื่อโซน (เช่น "โซน 5")
 function zDistrict(zoneName) {
   if (!zDistrict._map) {
     const m = {};
@@ -148,8 +148,9 @@ function zDistrict(zoneName) {
       const nm = p.D_NAME || p.d_name || p.DISTRICT_T || '';
       const cd = (p.DISTRICT != null && p.DISTRICT !== '') ? p.DISTRICT
                : (p.district != null && p.district !== '' ? p.district : '');
-      m[zName(f)] = nm ? (cd !== '' && String(cd) !== String(nm) ? `${nm} (${cd})` : nm)
-                       : (cd !== '' ? String(cd) : zName(f));
+      // ใช้ชื่ออย่างเดียว — เลขรหัสอำเภอต่อท้ายไม่ได้ช่วยให้อ่านง่ายขึ้น
+      // เหลือไว้เป็นทางถอยเฉพาะกรณีไม่มีชื่อจริง ๆ
+      m[zName(f)] = nm || (cd !== '' ? String(cd) : zName(f));
     });
     zDistrict._map = m;
   }
