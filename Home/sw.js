@@ -1,5 +1,5 @@
 // Service Worker — Home Interview
-const CACHE_VERSION = 'hi-v61-memtrash-home';
+const CACHE_VERSION = 'hi-v62-tripchain';
 const CORE_ASSETS = [
   './',
   './index.html',
