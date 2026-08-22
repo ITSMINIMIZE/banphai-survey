@@ -776,6 +776,31 @@ const App = {
     return others.every(t => String(departureTime) <= String(t.departureTime));
   },
 
+  // ── ช่อง "ระบุ" คู่กับ select ที่มีตัวเลือก 'อื่น ๆ' ─────────────────────────
+  // ผู้สำรวจชอบกด "อื่น ๆ" แล้วผ่านเพื่อความเร็ว → เลือกแล้วต้องพิมพ์เสมอ
+  OTHER: 'อื่น ๆ',
+  _otherBox(id, val, cur, ph) {
+    const show = cur === this.OTHER;
+    return `<input id="${id}_other" class="form-input" autocomplete="off" maxlength="80"
+      placeholder="${this.esc(ph || 'ระบุ...')}" value="${this.esc(val || '')}"
+      style="margin-top:6px;display:${show ? 'block' : 'none'};" />`;
+  },
+  _toggleOther(id) {
+    const sel = document.getElementById(id), box = document.getElementById(id + '_other');
+    if (!sel || !box) return;
+    const on = sel.value === this.OTHER;
+    box.style.display = on ? 'block' : 'none';
+    if (!on) box.value = '';        // เปลี่ยนไปตัวเลือกอื่น → ล้างข้อความเก่าทิ้ง ไม่ให้ค้าง
+    else box.focus();
+  },
+  _readOther(id) { return (document.getElementById(id + '_other')?.value || '').trim(); },
+  // เลือก 'อื่น ๆ' แล้วไม่พิมพ์ระบุ → true
+  _needOther(val, other) { return val === this.OTHER && !String(other || '').trim(); },
+  // เวอร์ชันคืน "ชื่อช่อง" ไว้ประกอบข้อความ error หลายช่องพร้อมกัน ('' = ผ่าน)
+  _missOther(val, other, label) { return this._needOther(val, other) ? label : ''; },
+  // ข้อความที่เอาไปแสดง/ส่งออก — 'อื่น ๆ: เศษเหล็ก'
+  _withOther(val, other) { return val === this.OTHER && other ? `${val}: ${other}` : (val || ''); },
+
   // เพศ + สถานะการทำงาน → ช่องในตารางสรุปครัวเรือน (ส่วนที่ 1)
   // 'อื่น ๆ' ไม่มีช่องรองรับ → คืน '' = ไม่คุมรายช่อง (ยังคุมด้วยเพดานรวมรายเพศอยู่)
   _gridBucket(gender, workStatus) {
@@ -1042,7 +1067,7 @@ const App = {
   // ===================== TAB: PERSONAL INFO =====================
   tabPersonalInfo(m) {
     const sel = (list, val, id) =>
-      `<select id="${id}" class="form-select" autocomplete="off">
+      `<select id="${id}" class="form-select" autocomplete="off" onchange="App._toggleOther('${id}')">
         <option value="">— เลือก —</option>
         ${list.map(o => `<option value="${o}" ${o === val ? 'selected' : ''}>${o}</option>`).join('')}
       </select>`;
@@ -1074,6 +1099,7 @@ const App = {
         <div class="form-row">
           <label class="form-label">สถานะในบ้าน</label>
           ${sel(OPT.homeStatus, m.homeStatus, 'f_homeStatus')}
+          ${this._otherBox('f_homeStatus', m.homeStatusOther, m.homeStatus, 'ระบุสถานภาพในบ้าน')}
         </div>
         <div class="form-row">
           <label class="form-label req">สถานะการทำงาน / เรียน</label>
@@ -1081,6 +1107,7 @@ const App = {
             <option value="">— เลือก —</option>
             ${OPT.workStatus.map(o => `<option value="${o}" ${o === m.workStatus ? 'selected' : ''}>${o}</option>`).join('')}
           </select>
+          ${this._otherBox('f_workStatus', m.workStatusOther, m.workStatus, 'ระบุสถานะการทำงาน')}
         </div>
       </div>
 
@@ -1091,6 +1118,7 @@ const App = {
             <option value="">— เลือก —</option>
             ${OPT.occupation.map(o => `<option value="${o}" ${o === occVal ? 'selected' : ''}>${o}</option>`).join('')}
           </select>
+          ${this._otherBox('f_occupation', m.occupationOther, occVal, 'ระบุอาชีพ')}
         </div>
         <div class="form-row">
           <label class="form-label">ระดับการศึกษา</label>
@@ -1201,12 +1229,23 @@ const App = {
     }
     if (!notSpec && !incomeRaw) { this.toast('กรุณากรอกรายได้ หรือเลือก "ไม่ระบุ"', 'error'); return; }
 
+    // เลือก "อื่น ๆ" ต้องพิมพ์เสมอ — กันกดผ่านเพื่อความเร็ว
+    const homeStatus = document.getElementById('f_homeStatus')?.value || '';
+    const occupation = document.getElementById('f_occupation')?.value || '';
+    const oHome = this._readOther('f_homeStatus'), oWork = this._readOther('f_workStatus'), oOcc = this._readOther('f_occupation');
+    const missOther = [
+      this._missOther(homeStatus, oHome, 'สถานภาพในบ้าน'),
+      this._missOther(workStatus, oWork, 'สถานะการทำงาน'),
+      this._missOther(occupation, oOcc, 'อาชีพ'),
+    ].filter(Boolean);
+    if (missOther.length) { this.toast('เลือก "อื่น ๆ" แล้วต้องพิมพ์ระบุด้วย: ' + missOther.join(', '), 'error'); return; }
+
     const savedMember = DB.updateMember(this.hhId, this.memberId, {
       gender,
       age:                  +(document.getElementById('f_age')?.value) || '',
-      homeStatus:           document.getElementById('f_homeStatus')?.value || '',
-      workStatus,
-      occupation:           document.getElementById('f_occupation')?.value || '',
+      homeStatus,      homeStatusOther: oHome,
+      workStatus,      workStatusOther: oWork,
+      occupation,      occupationOther: oOcc,
       education:            document.getElementById('f_education')?.value || '',
       income,
       workplaceName:        document.getElementById('f_wpName')?.value.trim()   || '',
@@ -1451,9 +1490,10 @@ const App = {
 
       <div class="section-label">ประเภทที่อยู่อาศัย</div>
       <div class="form-row">
-        <select id="m_restype" class="form-select" autocomplete="off">
+        <select id="m_restype" class="form-select" autocomplete="off" onchange="App._toggleOther('m_restype')">
           <option value="">— เลือกประเภท —</option>${resOpts}
         </select>
+        ${this._otherBox('m_restype', hh?.residentialTypeOther, hh?.residentialType, 'ระบุประเภทที่อยู่อาศัย')}
       </div>
 
       <div class="section-label">จำนวนผู้อยู่อาศัยในครัวเรือน</div>
@@ -1527,6 +1567,7 @@ const App = {
       province:        document.getElementById('m_province')?.value.trim()    || '',
       phone:           (document.getElementById('m_phone')?.value || '').replace(/-/g,'').trim(),
       residentialType: document.getElementById('m_restype')?.value            || '',
+      residentialTypeOther: this._readOther('m_restype'),
       memberGrid,
       householdIncome: +(document.getElementById('m_income')?.value)          || 0,
       hasVehicle:      vehicle                                                 || '',
@@ -1545,6 +1586,7 @@ const App = {
     if (!data.subdistrict)     errs.push('ตำบล');
     if (!data.district)        errs.push('อำเภอ');
     if (!data.residentialType) errs.push('ประเภทที่อยู่อาศัย');
+    if (this._needOther(data.residentialType, data.residentialTypeOther)) errs.push('ระบุประเภทที่อยู่อาศัย (อื่น ๆ)');
     const gridTotal = Object.values(data.memberGrid).reduce((s, v) => s + (+v||0), 0);
     if (gridTotal === 0)       errs.push('จำนวนสมาชิก (ต้องมีอย่างน้อย 1 คน)');
     if (!data.householdIncome) errs.push('รายได้ครัวเรือน');
@@ -1852,9 +1894,10 @@ const App = {
       <div class="form-grid">
         <div class="form-row">
           <label class="form-label">ลักษณะสถานที่</label>
-          <select id="t_originType" class="form-select" autocomplete="off">
+          <select id="t_originType" class="form-select" autocomplete="off" onchange="App._toggleOther('t_originType')">
             <option value="">— เลือก —</option>${selOpt(OPT.locationType, defOriginType)}
           </select>
+          ${this._otherBox('t_originType', t?.originTypeOther, defOriginType, 'ระบุลักษณะสถานที่ต้นทาง')}
         </div>
         <div class="form-row">
           <label class="form-label req">เวลาที่เริ่มเดินทาง${prevArrival ? ` <span style="font-size:11px;color:var(--gray-400);">(ครั้งที่แล้วถึง ${prevArrival})</span>` : ''}</label>
@@ -1867,9 +1910,10 @@ const App = {
       <div class="form-row" style="margin-top:4px;">
         <label class="form-label req">วัตถุประสงค์การเดินทาง</label>
         <select id="t_purpose" class="form-select" autocomplete="off"
-          onchange="App._onPurposeChange(this.value)">
+          onchange="App._onPurposeChange(this.value); App._toggleOther('t_purpose')">
           <option value="">— เลือก —</option>${selOpt(OPT.purpose, t?.purpose || '')}
         </select>
+        ${this._otherBox('t_purpose', t?.purposeOther, t?.purpose || '', 'ระบุวัตถุประสงค์')}
       </div>
 
       <!-- ปลายทาง -->
@@ -1889,9 +1933,10 @@ const App = {
       </div>
       <div class="form-row">
         <label class="form-label">ลักษณะสถานที่ปลายทาง</label>
-        <select id="t_destType" class="form-select" autocomplete="off">
+        <select id="t_destType" class="form-select" autocomplete="off" onchange="App._toggleOther('t_destType')">
           <option value="">— เลือก —</option>${selOpt(OPT.locationType, t?.destinationType || '')}
         </select>
+        ${this._otherBox('t_destType', t?.destinationTypeOther, t?.destinationType || '', 'ระบุลักษณะสถานที่ปลายทาง')}
       </div>
 
       <!-- ช่วงการเดินทาง -->
@@ -2207,6 +2252,13 @@ const App = {
     if (purpose === 'กลับบ้าน' && this._isFirstTripOfDay(this.editingTripId, departureTime)) {
       this.toast('เที่ยวแรกของวันเป็น "กลับบ้าน" ไม่ได้ — ต้องมีเที่ยวที่ออกจากบ้านก่อน', 'error'); return;
     }
+    // เลือก "อื่น ๆ" ต้องพิมพ์เสมอ
+    const missOther = [
+      this._missOther(purpose, this._readOther('t_purpose'), 'วัตถุประสงค์'),
+      this._missOther(document.getElementById('t_originType')?.value || '', this._readOther('t_originType'), 'ลักษณะสถานที่ต้นทาง'),
+      this._missOther(document.getElementById('t_destType')?.value   || '', this._readOther('t_destType'),   'ลักษณะสถานที่ปลายทาง'),
+    ].filter(Boolean);
+    if (missOther.length) { this.toast('เลือก "อื่น ๆ" แล้วต้องพิมพ์ระบุด้วย: ' + missOther.join(', '), 'error'); return; }
     if (!segments.length || !segments[0].mode) {
       this.toast('กรุณาระบุวิธีเดินทางอย่างน้อย 1 ช่วง', 'error'); return;
     }
@@ -2234,12 +2286,15 @@ const App = {
       origin:            document.getElementById('t_origin')?.value.trim()       || '',
       originCoords:      document.getElementById('t_originCoords')?.value.trim() || '',
       originType:        document.getElementById('t_originType')?.value           || '',
+      originTypeOther:   this._readOther('t_originType'),
       departureTime,
       destination:       document.getElementById('t_destination')?.value.trim()   || '',
       destinationCoords: document.getElementById('t_destinationCoords')?.value.trim() || '',
       destinationType:   document.getElementById('t_destType')?.value             || '',
+      destinationTypeOther: this._readOther('t_destType'),
       arrivalTime:       document.getElementById('t_arrive_hidden')?.value        || '',
       purpose,
+      purposeOther:      this._readOther('t_purpose'),
       segments,
       parkingLocation:   document.getElementById('t_park')?.value.trim()          || '',
       parkingFee:        document.getElementById('t_parkFee')?.value              || ''
@@ -2417,7 +2472,7 @@ const App = {
         'จังหวัด':                   hh.province,
         'Device ID':                 hh.deviceId,
         'IP เครื่อง':                hh.clientIp,
-        'ประเภทที่อยู่อาศัย':        hh.residentialType,
+        'ประเภทที่อยู่อาศัย':        this._withOther(hh.residentialType, hh.residentialTypeOther),
         'สมาชิก ชาย-กำลังศึกษา':    +(hh.memberGrid?.m_study || 0),
         'สมาชิก ชาย-ทำงานแล้ว':     +(hh.memberGrid?.m_work  || 0),
         'สมาชิก ชาย-ไม่ได้ทำงาน':   +(hh.memberGrid?.m_notw  || 0),
@@ -2440,9 +2495,9 @@ const App = {
         'ลำดับ':              m.seq,
         'เพศ':                m.gender,
         'อายุ':               m.age,
-        'สถานะในบ้าน':        m.homeStatus,
-        'สถานะการทำงาน':      m.workStatus,
-        'อาชีพ':              m.occupation,
+        'สถานะในบ้าน':        this._withOther(m.homeStatus, m.homeStatusOther),
+        'สถานะการทำงาน':      this._withOther(m.workStatus, m.workStatusOther),
+        'อาชีพ':              this._withOther(m.occupation, m.occupationOther),
         'การศึกษา':           m.education,
         'ชื่อสถานที่ทำงาน':   m.workplaceName,
         'พิกัดที่ทำงาน':      m.workplaceCoords || '',
@@ -2477,14 +2532,14 @@ const App = {
             'ต้นทาง':            t.origin,
             'พิกัดต้นทาง':       t.originCoords,
             'โซนต้นทาง':         zone(t.originCoords),
-            'ประเภทต้นทาง':      t.originType,
+            'ประเภทต้นทาง':      this._withOther(t.originType, t.originTypeOther),
             'เวลาออกเดินทาง':     t.departureTime,
             'ปลายทาง':           t.destination,
             'พิกัดปลายทาง':      t.destinationCoords,
             'โซนปลายทาง':        zone(t.destinationCoords),
-            'ประเภทปลายทาง':     t.destinationType,
+            'ประเภทปลายทาง':     this._withOther(t.destinationType, t.destinationTypeOther),
             'เวลาถึงปลายทาง':    t.arrivalTime,
-            'วัตถุประสงค์':       t.purpose,
+            'วัตถุประสงค์':       this._withOther(t.purpose, t.purposeOther),
             'จำนวนช่วง':          segs.length,
             ...segCols,
             'สถานที่จอด':         t.parkingLocation,

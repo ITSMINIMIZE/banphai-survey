@@ -166,6 +166,7 @@ const DB = {
       phone:           data.phone           || '',
       coordinates:     data.coordinates     || '',
       residentialType: data.residentialType || '',
+      residentialTypeOther: data.residentialTypeOther || '',   // บังคับกรอกเมื่อเลือก 'อื่น ๆ'
       memberGrid:      data.memberGrid      || {},
       householdIncome: data.householdIncome || '',
       hasVehicle:      data.hasVehicle      || '',
@@ -220,8 +221,11 @@ const DB = {
       gender:               data.gender               || '',
       age:                  data.age                  || '',
       homeStatus:           data.homeStatus           || '',
+      homeStatusOther:      data.homeStatusOther      || '',   // บังคับกรอกเมื่อเลือก 'อื่น ๆ'
       workStatus:           data.workStatus           || '',
+      workStatusOther:      data.workStatusOther      || '',
       occupation:           data.occupation           || '',
+      occupationOther:      data.occupationOther      || '',
       education:            data.education            || '',
       workplaceName:        data.workplaceName        || '',
       workplaceCoords:      data.workplaceCoords      || '',
@@ -264,12 +268,15 @@ const DB = {
       origin:            data.origin            || '',
       originCoords:      data.originCoords      || '',
       originType:        data.originType        || '',
+      originTypeOther:   data.originTypeOther   || '',   // บังคับกรอกเมื่อเลือก 'อื่น ๆ'
       departureTime:     data.departureTime     || '',
       destination:       data.destination       || '',
       destinationCoords: data.destinationCoords || '',
       destinationType:   data.destinationType   || '',
+      destinationTypeOther: data.destinationTypeOther || '',
       arrivalTime:       data.arrivalTime       || '',
       purpose:           data.purpose           || '',
+      purposeOther:      data.purposeOther      || '',
       segments:          data.segments          || [{ mode:'', duration:'', fare:'' }],
       parkingLocation:   data.parkingLocation   || '',
       parkingFee:        data.parkingFee        || ''
@@ -399,6 +406,10 @@ const DB = {
 // ถ้าแยกกันเขียน หน้าจอกับไฟล์จะบอกไม่ตรงกัน แล้วไม่มีใครรู้ว่าอันไหนถูก
 //   hard = ทำให้ใช้วิเคราะห์ไม่ได้ (ต้องแก้ก่อนส่งงาน)
 //   soft = ใช้ได้แต่คุณภาพลด
+// เลือก 'อื่น ๆ' แล้วไม่พิมพ์ระบุ — ผู้สำรวจชอบกดผ่านเพื่อความเร็ว เท่ากับไม่ได้ตอบ
+const OTHER = 'อื่น ๆ';
+const needOther = (val, other) => val === OTHER && !String(other || '').trim();
+
 const Issues = {
   household(hh) {
     const hard = [], soft = [];
@@ -408,6 +419,8 @@ const Issues = {
     if (!hh.supervisorName) hard.push('ไม่มีชื่อผู้ควบคุม');
     if (!(hh.members || []).length)                          hard.push('ยังไม่มีสมาชิกเลย');
     else if (!hh.members.some(m => (m.trips || []).length))   hard.push('ไม่มีสมาชิกคนไหนเดินทางเลย');
+    // เลือก "อื่น ๆ" แล้วไม่พิมพ์ระบุ = เท่ากับไม่ได้ตอบ
+    if (needOther(hh.residentialType, hh.residentialTypeOther)) hard.push('เลือกประเภทที่อยู่ "อื่น ๆ" แต่ไม่ได้ระบุ');
     if (!hh.houseNo)         soft.push('ไม่มีบ้านเลขที่');
     if (!hh.householdIncome) soft.push('ไม่มีรายได้ครัวเรือน');
     if (!hh.residentialType) soft.push('ไม่มีประเภทที่อยู่อาศัย');
@@ -418,6 +431,9 @@ const Issues = {
     if (!m) return { hard, soft };
     if (!m.gender) hard.push('ไม่ระบุเพศ');
     if (!m.age)    hard.push('ไม่ระบุอายุ');
+    if (needOther(m.homeStatus, m.homeStatusOther)) hard.push('เลือกสถานภาพในบ้าน "อื่น ๆ" แต่ไม่ได้ระบุ');
+    if (needOther(m.workStatus, m.workStatusOther)) hard.push('เลือกสถานะการทำงาน "อื่น ๆ" แต่ไม่ได้ระบุ');
+    if (needOther(m.occupation, m.occupationOther)) hard.push('เลือกอาชีพ "อื่น ๆ" แต่ไม่ได้ระบุ');
     if (!m.occupation) soft.push('ไม่ระบุอาชีพ');
     if (!m.education)  soft.push('ไม่ระบุการศึกษา');
     if (m.workStatus === 'ทำงาน' && !m.workplaceCoords) soft.push('ทำงานแต่ไม่มีพิกัดที่ทำงาน');
@@ -449,6 +465,9 @@ const Issues = {
     if (!t.purpose)           hard.push('ไม่ระบุวัตถุประสงค์');
     if (!t.departureTime)     hard.push('ไม่ระบุเวลาออกเดินทาง');
     if (!(t.segments || []).some(g => g && g.mode)) hard.push('ไม่ระบุวิธีเดินทาง');
+    if (needOther(t.purpose, t.purposeOther))                  hard.push('เลือกวัตถุประสงค์ "อื่น ๆ" แต่ไม่ได้ระบุ');
+    if (needOther(t.originType, t.originTypeOther))            hard.push('เลือกลักษณะต้นทาง "อื่น ๆ" แต่ไม่ได้ระบุ');
+    if (needOther(t.destinationType, t.destinationTypeOther))  hard.push('เลือกลักษณะปลายทาง "อื่น ๆ" แต่ไม่ได้ระบุ');
     if (!t.origin)          soft.push('ไม่มีชื่อสถานที่ต้นทาง');
     if (!t.destination)     soft.push('ไม่มีชื่อสถานที่ปลายทาง');
     if (!t.originType)      soft.push('ไม่ระบุลักษณะสถานที่ต้นทาง');
