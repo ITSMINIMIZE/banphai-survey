@@ -409,6 +409,13 @@ const Issues = {
     if (!m.occupation) soft.push('ไม่ระบุอาชีพ');
     if (!m.education)  soft.push('ไม่ระบุการศึกษา');
     if (m.workStatus === 'ทำงาน' && !m.workplaceCoords) soft.push('ทำงานแต่ไม่มีพิกัดที่ทำงาน');
+    // ลูกโซ่การเดินทางต้องปิด — ออกจากบ้านแล้วต้องมีเที่ยวกลับบ้านด้วย
+    // ยอมรับ 2 ทางที่ผู้สำรวจอาจบันทึก (วัตถุประสงค์ หรือ ลักษณะปลายทาง) — กันขึ้นแดงผิดคน
+    // ใช้ .some() ทั้งชุด ไม่ดู "เที่ยวสุดท้าย" เพราะ seq เรียงตามลำดับที่กรอก ไม่ใช่ตามเวลา
+    const trips = m.trips || [];
+    if (trips.length && !trips.some(t =>
+          t.purpose === 'กลับบ้าน' || t.destinationType === 'ที่พัก / บ้านของตัวเอง'))
+      hard.push('ไม่มีเที่ยวกลับบ้าน');
     return { hard, soft };
   },
   trip(t) {

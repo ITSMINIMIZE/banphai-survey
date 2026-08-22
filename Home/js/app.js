@@ -1550,11 +1550,26 @@ const App = {
 
   confirmDeleteMember(mid) {
     const m = DB.getMember(this.hhId, mid);
-    this.showModal('🗑 ลบสมาชิกจากเครื่องนี้',
-      `<p style="color:var(--gray-600)">จะลบสมาชิกที่ ${m?.seq} พร้อมการเดินทาง ${m?.trips.length || 0} เที่ยว <b>ออกจากเครื่องนี้</b></p>
-       <p style="font-size:13px;color:var(--success);font-weight:600;margin-top:8px;">✅ ข้อมูลบน Cloud ยังอยู่ — ดึงกลับได้</p>`,
+    if (!m) { this.toast('ไม่พบสมาชิก', 'error'); return; }
+    const isAdmin = this._isAdmin();
+    const label = `<strong>สมาชิกที่ ${m.seq}</strong> พร้อมการเดินทาง ${m.trips?.length || 0} เที่ยว`;
+    this.showModal('🗑 ลบสมาชิก',
+      `<p style="color:var(--gray-600)">จะลบ ${label}</p>
+       <div style="margin-top:14px;padding:12px;background:var(--gray-100);border-radius:8px;">
+         <div style="font-weight:700;font-size:13px;">🖥 ลบจากเครื่องนี้</div>
+         <div style="font-size:12px;color:var(--gray-600);margin-top:2px;">ล้างแคชในเครื่อง · ข้อมูลบนระบบยังอยู่ ดึงกลับได้</div>
+       </div>
+       ${isAdmin ? `
+       <div style="margin-top:10px;padding:12px;background:rgba(239,68,68,.08);border:1px solid var(--danger);border-radius:8px;">
+         <div style="font-weight:700;font-size:13px;color:var(--danger);">☁️ ลบออกจากระบบ</div>
+         <div style="font-size:12px;color:var(--gray-600);margin-top:2px;">
+           หายจากรายการ · กราฟ · Export ทุกที่ทันที (ทุกเครื่อง)<br>
+           <b>เก็บไว้ในถังขยะ — กู้คืนได้ภายหลัง</b>
+         </div>
+       </div>` : ''}`,
       `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
-       <button class="btn btn-danger" onclick="App.deleteMember('${mid}')">ลบจากเครื่องนี้</button>`
+       <button class="btn btn-ghost" style="color:var(--gray-700)" onclick="App.deleteMember('${mid}')">🖥 ลบจากเครื่องนี้</button>
+       ${isAdmin ? `<button class="btn btn-danger" onclick="App.systemDeleteMember('${mid}')">☁️ ลบออกจากระบบ</button>` : ''}`
     );
   },
 
@@ -1563,6 +1578,18 @@ const App = {
     this.closeModal();
     this.toast('ลบจากเครื่องนี้แล้ว · Cloud ยังอยู่', 'success');
     this.navigate('household', this.hhId);
+  },
+
+  // ลบออกจากระบบ (soft delete) — ซ่อนทุกที่ + ส่งขึ้น cloud ทันที · กู้คืนได้จากถังขยะ
+  // ใช้กับสมาชิกที่ไม่มีตัวตนจริง (กดเพิ่มแล้วไม่ได้กรอก) — rules ยอมให้เฉพาะ admin เปลี่ยนค่า _deleted
+  systemDeleteMember(mid) {
+    if (!this._isAdmin()) { this.toast('เฉพาะผู้ดูแลระบบเท่านั้น', 'error'); return; }
+    const m = DB.softDeleteMember(this.hhId, mid, this._adminUsername || 'admin');
+    if (!m) { this.toast('ไม่พบสมาชิก', 'error'); return; }
+    this._autoPush(() => FB.pushMember(this.hhId, m));
+    this.closeModal();
+    this.toast('ลบออกจากระบบแล้ว · กู้คืนได้จากถังขยะ', 'success');
+    this.navigate('household', this.hhId);   // บ้านยังอยู่ กลับเข้าหน้าบ้าน
   },
 
   // ===================== MODAL: TRIP =====================
