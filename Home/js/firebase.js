@@ -24,6 +24,7 @@ const FB = {
         appId:             '1:755175522135:web:da20ccae36e1d1e9210812'
       };
       if (!firebase.apps.length) firebase.initializeApp(cfg);
+      this.projectId = cfg.projectId;      // ใช้กับ REST (อ่าน createTime ที่ SDK compat ไม่เปิดให้)
       this.db   = firebase.firestore();
       this.auth = firebase.auth();
       // เปิด offline persistence — Firebase queue offline writes ให้
@@ -97,7 +98,7 @@ const FB = {
   // ===== AUTO-PUSH (per-doc, บันทึกทีละรายการ) =====
   // เขียน doc เดียวแบบ fire-and-forget — ไม่มี _withTimeout เพื่อให้ offline persistence
   // คิวงานเองตอนเน็ตหลุด (promise ค้าง ส่งเมื่อออนไลน์) แล้ว badge อัปเดตเมื่อ server ack จริง
-  _hhData(hh)    { const { members, ...d } = hh; return d; },
+  _hhData(hh)    { const { members, createdAtServer, ...d } = hh; return d; },
   _memberData(m) { const { trips, ...d }  = m;  return d; },
 
   // onErr (ไม่บังคับ) — ใช้กับการลบ/กู้คืนที่ต้องรู้ผลจริง
@@ -209,6 +210,37 @@ const FB = {
     return { docs: keep, skipped: docs.length - keep.length };
   },
 
+  // ── เวลาสร้างจริงจากเซิร์ฟเวอร์ ────────────────────────────────────────────
+  // Firestore ประทับ createTime ให้ทุก document เอง เครื่องผู้สำรวจปลอมไม่ได้
+  // SDK compat ไม่เปิดให้อ่าน ต้องผ่าน REST — rules บังคับสิทธิ์เหมือนกันทุกประการ
+  // ใช้ mask ขอมาแค่ฟิลด์เดียว ตัวที่ต้องการจริงคือ createTime ที่ติดมากับ response
+  async _serverCreateTimes(ids) {
+    const out = {};
+    const user = this.auth && this.auth.currentUser;
+    if (!user || !ids.length || !this.projectId) return out;
+    try {
+      const token = await user.getIdToken();
+      const base  = `projects/${this.projectId}/databases/(default)/documents`;
+      for (let i = 0; i < ids.length; i += 250) {          // batchGet รับได้จำกัด แบ่งเป็นก้อน
+        const chunk = ids.slice(i, i + 250);
+        const res = await this._withTimeout(fetch(`https://firestore.googleapis.com/v1/${base}:batchGet`, {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            documents: chunk.map(id => `${base}/${this.COLLECTION}/${id}`),
+            mask: { fieldPaths: ['createdAt'] }
+          })
+        }));
+        if (!res.ok) return out;                            // สิทธิ์ไม่พอ/เน็ตพัง → ใช้ค่าเดิม ไม่ทำ pull ล้ม
+        (await res.json()).forEach(r => {
+          if (r.found && r.found.name && r.found.createTime)
+            out[r.found.name.split('/').pop()] = r.found.createTime;
+        });
+      }
+    } catch (e) { console.warn('[FB] createTime:', e.code || e.message || e); }
+    return out;
+  },
+
   async _loadNested(hhDocs) {
     const hhMap = {};
     hhDocs.forEach(doc => {
@@ -249,6 +281,9 @@ const FB = {
       hh.members.sort((a,b) => (a.seq||0) - (b.seq||0));
       hh.members.forEach(m => m.trips.sort((a,b) => (a.seq||0) - (b.seq||0)));
     });
+    // แนบเวลาสร้างจริงจากเซิร์ฟเวอร์ — ทั้ง pullAll และ _pullByField ผ่านตรงนี้ทางเดียว
+    const ct = await this._serverCreateTimes(Object.keys(hhMap));
+    Object.keys(ct).forEach(id => { if (hhMap[id]) hhMap[id].createdAtServer = ct[id]; });
     return Object.values(hhMap);
   },
 

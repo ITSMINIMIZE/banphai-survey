@@ -826,7 +826,9 @@ const App = {
 
   // ── เวลาที่ทำแบบสำรวจจริง = createdAt (ไม่เคยเปลี่ยน) · ระเบียนเก่าที่ไม่มี ใช้ surveyDate แทน
   _madeAt(hh) {
-    const iso = hh?.createdAt || (hh?.surveyDate ? hh.surveyDate + 'T00:00:00.000Z' : '');
+    // createdAtServer = createTime ที่ Firestore ประทับเอง เชื่อได้เสมอ เอามาก่อน
+    // ตกมาที่ createdAt ของเครื่องเฉพาะตอนยังไม่เคยดึงข้อมูล (ระเบียนที่เพิ่งกรอก ยังไม่ sync)
+    const iso = hh?.createdAtServer || hh?.createdAt || (hh?.surveyDate ? hh.surveyDate + 'T00:00:00.000Z' : '');
     if (!iso) return null;
     const d = new Date(iso);
     return isNaN(d) ? null : d;
