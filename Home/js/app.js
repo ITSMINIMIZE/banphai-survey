@@ -326,7 +326,7 @@ const App = {
 
   // ---- เข้าแอปหลังจาก login ----
   _enterApp() {
-    this._checkClock();          // เทียบนาฬิกาเครื่องกับเวลาเซิร์ฟเวอร์ (ไม่ block การเข้าแอป)
+    this._startClockSync();      // ใช้เวลาเซิร์ฟเวอร์เป็นหลัก — วัดซ้ำเรื่อย ๆ ไม่ปล่อยให้ค่าเก่า
     document.querySelector('.topbar').style.display = '';
     const right = document.getElementById('topbarRight');
     if (right) {
@@ -522,6 +522,15 @@ const App = {
 
   // ===== แถบเตือน: ข้อมูลเก่าก่อนรอบเก็บข้อมูลปัจจุบัน / นาฬิกาเครื่องผิด =====
   _roundBannerHTML() {
+    // ยังไม่เคยเทียบเวลากับเซิร์ฟเวอร์เลย → เวลาที่บันทึกยังเชื่อไม่ได้
+    if (typeof CLOCK !== 'undefined' && !CLOCK.verified()) {
+      return `<div style="background:#fffbeb;border:2px solid #f59e0b;border-radius:10px;padding:12px 16px;margin-bottom:16px;">
+        <div style="font-weight:800;color:#92400e;font-size:14px;">🕐 ยังไม่ได้เทียบเวลากับเซิร์ฟเวอร์</div>
+        <div style="font-size:12.5px;color:var(--gray-700);margin-top:4px;">
+          ต่อเน็ตสักครู่แล้วเปิดแอปใหม่ — ระเบียนที่บันทึกตอนนี้จะใช้เวลาของเครื่อง
+          ซึ่งอาจไม่ตรง และจะถูกติดธงไว้ให้ผู้ควบคุมตรวจ
+        </div></div>`;
+    }
     // เตือนนาฬิกาก่อนเสมอ แม้ DataRound จะยังไม่โหลด — เป็นปัญหาที่ทำข้อมูลเสียตรง ๆ
     if (Math.abs(this._clockSkewMin) >= 10) {
       const fast = this._clockSkewMin > 0;
@@ -717,6 +726,7 @@ const App = {
                   return `<span class="tag tag-gray" title="เวลาที่ทำแบบสำรวจ (ไม่เปลี่ยนแม้แก้ไขภายหลัง)">📅 ${this._dayLabel(this._dayKey(hh))} ${this._hhmm(d)} น.</span>`;
                 })()}
                 ${this._isFuture(hh) ? `<span class="tag" style="background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;" title="วันที่บันทึกอยู่ในอนาคต — นาฬิกาเครื่องที่กรอกตั้งผิด">⏰ วันที่ผิด</span>` : ''}
+                ${hh._clockUnverified ? `<span class="tag" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;" title="บันทึกตอนยังไม่ได้เทียบเวลากับเซิร์ฟเวอร์ — เวลาอาจคลาดเคลื่อน">🕐 เวลาไม่ยืนยัน</span>` : ''}
                 ${(() => {
                   // แสดงเมื่อแก้หลังสร้างเกิน 1 นาที — กันขึ้นทันทีที่เพิ่งกดบันทึกครั้งแรก
                   if (!hh.updatedAt || !hh.createdAt) return '';
@@ -831,6 +841,21 @@ const App = {
   // ตัวเดิม (DataRound.clockLooksWrong) จับได้แค่นาฬิกาเดินช้ากว่าวันเริ่มรอบ
   // เครื่องที่เดินเร็วจะสแตมป์ createdAt เป็นวันพรุ่งนี้แล้วไม่มีอะไรเตือนเลย
   _clockSkewMin: 0,
+  _clockTimer: null,
+  // วัดใหม่ทุกจังหวะที่มีโอกาสต่อเน็ต — เปิดแอป · กลับมาออนไลน์ · สลับกลับมาหน้าจอ · ทุก 10 นาที
+  _startClockSync() {
+    if (this._clockTimer) return;
+    const tick = () => { if (navigator.onLine !== false) this._checkClock(); };
+    tick();
+    this._clockTimer = setInterval(tick, 10 * 60 * 1000);
+    window.addEventListener('online', tick);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
+  },
+  // เรียกก่อนบันทึกระเบียนใหม่ — ถ้าค่าที่วัดไว้เก่าเกิน 1 ชม. ขอใหม่ก่อน (รอไม่เกิน 2 วิ)
+  async _freshClock() {
+    if (typeof CLOCK === 'undefined' || CLOCK.fresh()) return;
+    await Promise.race([this._checkClock(), new Promise(r => setTimeout(r, 2000))]);
+  },
   async _checkClock() {
     try {
       const t0  = Date.now();
@@ -1640,7 +1665,8 @@ const App = {
     if (row) row.style.display = show ? '' : 'none';
   },
 
-  saveHousehold() {
+  async saveHousehold() {
+    await this._freshClock();        // ให้ createdAt ของบ้านใหม่อิงเวลาเซิร์ฟเวอร์ที่สดที่สุด
     const data = this._readHhForm();
     const errs = this._validateHhForm(data);
     if (errs.length) { this.toast('กรุณากรอก: ' + errs.join(', '), 'error'); return; }

@@ -6,9 +6,15 @@
 // ทุกจุดที่ประทับเวลาจะหักส่วนต่างออก → ได้เวลาจริงแม้นาฬิกาเครื่องเพี้ยน
 // ยังไม่เคยวัด (ออฟไลน์ตั้งแต่ต้น) → skew = 0 = ใช้เวลาเครื่องเหมือนเดิม ไม่พังกว่าเดิม
 const CLOCK = {
-  KEY: '_clock_skew_ms',
+  KEY: '_clock_skew_ms', KEY_AT: '_clock_synced_at',
+  MAX_AGE: 60 * 60 * 1000,          // เทียบไว้เกิน 1 ชม. = เก่า ต้องวัดใหม่
   skew() { try { return +(localStorage.getItem(this.KEY) || 0) || 0; } catch { return 0; } },
-  set(ms)  { try { localStorage.setItem(this.KEY, String(Math.round(ms))); } catch {} },
+  set(ms)  { try { localStorage.setItem(this.KEY, String(Math.round(ms)));
+                   localStorage.setItem(this.KEY_AT, String(Date.now())); } catch {} },
+  // อายุของค่าที่วัดไว้ — เทียบ Date.now() กับ Date.now() ด้วยกัน drift หักล้างกันเอง
+  syncedAt() { try { return +(localStorage.getItem(this.KEY_AT) || 0) || 0; } catch { return 0; } },
+  verified() { return this.syncedAt() > 0; },                          // เคยเทียบกับเซิร์ฟเวอร์แล้ว
+  fresh()    { return this.verified() && Date.now() - this.syncedAt() < this.MAX_AGE; },
   now()    { return new Date(Date.now() - this.skew()); },
   nowISO() { return this.now().toISOString(); },
   // วันที่แบบเวลาท้องถิ่น (ไม่ใช่ UTC) — ของเดิมใช้ toISOString().split('T')[0]
@@ -193,6 +199,8 @@ const DB = {
       deviceId:        data.deviceId        || '',
       clientIp:        data.clientIp        || '',
       createdAt: CLOCK.nowISO(),
+      // ยังไม่เคยเทียบเวลากับเซิร์ฟเวอร์ตอนสร้าง → ติดธงไว้ให้ตามหาได้ทีหลัง
+      ...(CLOCK.verified() ? {} : { _clockUnverified: true }),
       members: []
     };
     this.load().households.push(hh);
