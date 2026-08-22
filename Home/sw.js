@@ -1,5 +1,5 @@
 // Service Worker — Home Interview
-const CACHE_VERSION = 'hi-v62-tripchain';
+const CACHE_VERSION = 'hi-v63-filtersync';
 const CORE_ASSETS = [
   './',
   './index.html',
