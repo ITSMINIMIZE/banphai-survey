@@ -1,5 +1,5 @@
 // Service Worker — Home Interview
-const CACHE_VERSION = 'hi-v71-dayfilter';
+const CACHE_VERSION = 'hi-v72-clearwizard';
 const CORE_ASSETS = [
   './',
   './index.html',

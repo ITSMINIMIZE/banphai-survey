@@ -2674,40 +2674,43 @@ const App = {
       : 'Export Excel สำเร็จ · ข้อมูลครบทุกรายการ') + oldNote, nHard ? 'warning' : 'success');
   },
 
-  // ช่องพิมพ์ "delete" เพื่อกันการลบพลาด — ปุ่มลบ (btnId) เริ่มต้น disabled จนกว่าจะพิมพ์ถูก
-  _deleteConfirmHTML(btnId) {
-    return `<div style="margin-top:14px;">
-      <label style="display:block;font-size:13px;color:var(--gray-600);margin-bottom:6px;">
-        พิมพ์ <strong style="color:var(--danger);">delete</strong> เพื่อยืนยันการลบ
-      </label>
-      <input type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
-        placeholder="delete" oninput="App._armDelete(this,'${btnId}')"
-        style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--gray-300);border-radius:8px;font-size:15px;">
-    </div>`;
-  },
-  _armDelete(input, btnId) {
-    const btn = document.getElementById(btnId);
-    if (btn) btn.disabled = input.value.trim().toLowerCase() !== 'delete';
-  },
-
-  confirmClearAll() {
+  // ยืนยันล้าง cache แบบ 2 ขั้น — เดิมต้องพิมพ์คำว่า delete ซึ่งพิมพ์ยากบนมือถือหน้างาน
+  // ใช้การกดยืนยันซ้ำแทน กันพลาดได้เท่ากันแต่ไม่ต้องพิมพ์
+  confirmClearAll(step) {
     const isAdmin = this._canManage();   // staff ล้าง cache ในเครื่องได้ (ไม่กระทบ cloud)
-    const stats = DB.stats(isAdmin ? null : this._surveyorName);
-    const title = isAdmin ? '🗑 ล้างข้อมูลทั้งหมดจากเครื่องนี้' : '🗑 ล้างข้อมูลของฉันจากเครื่องนี้';
-    this.showModal(title,
+    const stats   = DB.stats(isAdmin ? null : this._surveyorName);
+    const scope   = isAdmin ? 'ข้อมูลทั้งหมดในเครื่องนี้' : 'ข้อมูลของคุณในเครื่องนี้';
+    const doFn    = isAdmin ? 'clearAll' : 'clearMyData';
+
+    if (step === 2) {
+      this.showModal('🗑 ยืนยันอีกครั้ง — ขั้นที่ 2 จาก 2',
+        `<div style="background:rgba(239,68,68,.08);border:1.5px solid var(--danger);border-radius:10px;padding:16px;">
+          <div style="font-size:15px;font-weight:800;color:var(--danger);margin-bottom:8px;">กำลังจะล้าง ${scope}</div>
+          <div style="font-size:14px;color:var(--gray-700);line-height:1.9;">
+            🏠 ${stats.households} ครัวเรือน<br>👥 ${stats.members} สมาชิก<br>🚗 ${stats.trips} การเดินทาง
+          </div>
+        </div>
+        <p style="font-size:13px;color:var(--success);font-weight:600;margin-top:12px;">
+          ✅ ข้อมูลบน Cloud ยังอยู่ครบ — กด "ดึงข้อมูล" โหลดกลับมาได้ทุกเมื่อ</p>`,
+        `<button class="btn btn-ghost" onclick="App.confirmClearAll(1)">← ย้อนกลับ</button>
+         <button class="btn btn-danger" onclick="App.${doFn}()">ยืนยัน ล้างเลย</button>`
+      );
+      return;
+    }
+
+    this.showModal('🗑 ล้าง cache — ขั้นที่ 1 จาก 2',
       `<div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:14px 16px;margin-bottom:12px;">
-        <strong style="color:#92400e;">ข้อมูลในเครื่องที่จะหาย:</strong>
+        <strong style="color:#92400e;">${scope} ที่จะหาย:</strong>
         <ul style="margin-top:8px;padding-left:18px;font-size:14px;color:#78350f;line-height:1.8;">
           <li>${stats.households} ครัวเรือน</li>
           <li>${stats.members} สมาชิก</li>
           <li>${stats.trips} การเดินทาง</li>
         </ul>
       </div>
-      <p style="font-size:13px;color:var(--success);font-weight:600;">✅ ข้อมูลบน Cloud ยังอยู่ครบ — กด "ดึงข้อมูล" เพื่อโหลดกลับมาได้ทุกเมื่อ</p>
-      ${this._deleteConfirmHTML('delCacheBtn')}`,
+      <p style="font-size:13px;color:var(--success);font-weight:600;">✅ ข้อมูลบน Cloud ยังอยู่ครบ — กด "ดึงข้อมูล" เพื่อโหลดกลับมาได้ทุกเมื่อ</p>`,
       `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
        ${isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="App.exportData()" style="color:var(--primary);">⬇ Export ก่อน</button>` : ''}
-       <button id="delCacheBtn" class="btn btn-danger" disabled onclick="App.${isAdmin ? 'clearAll' : 'clearMyData'}()">ล้าง cache</button>`
+       <button class="btn btn-danger" onclick="App.confirmClearAll(2)">ถัดไป →</button>`
     );
   },
 
