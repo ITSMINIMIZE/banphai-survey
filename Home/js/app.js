@@ -767,6 +767,27 @@ const App = {
     return Issues.forHousehold(hh).hard > 0 || this._hhMapCoords(hh);
   },
 
+  // เที่ยวนี้จะเป็นเที่ยวแรกของวันไหม — เทียบด้วยเวลาออกเดินทาง ไม่ใช่ลำดับที่กรอก
+  // (seq เรียงตามลำดับที่กรอก ผู้สำรวจอาจกรอกย้อนได้)
+  _isFirstTripOfDay(editingId, departureTime) {
+    const m = DB.getMemberView(this.hhId, this.memberId);
+    const others = (m?.trips || []).filter(t => t.id !== editingId && t.departureTime);
+    if (!others.length) return true;                       // ยังไม่มีเที่ยวอื่น = เที่ยวแรกแน่นอน
+    return others.every(t => String(departureTime) <= String(t.departureTime));
+  },
+
+  // เพศ + สถานะการทำงาน → ช่องในตารางสรุปครัวเรือน (ส่วนที่ 1)
+  // 'อื่น ๆ' ไม่มีช่องรองรับ → คืน '' = ไม่คุมรายช่อง (ยังคุมด้วยเพดานรวมรายเพศอยู่)
+  _gridBucket(gender, workStatus) {
+    const g = gender === 'ชาย' ? 'm' : gender === 'หญิง' ? 'f' : '';
+    if (!g) return '';
+    if (workStatus === 'ทำงาน')        return g + '_work';
+    if (workStatus === 'เรียนหนังสือ') return g + '_study';
+    if (workStatus === 'ว่างงาน (ยังหางานทำไม่ได้)' ||
+        workStatus === 'ไม่ทำงาน (อยู่บ้านเฉย ๆ)')   return g + '_notw';
+    return '';
+  },
+
   // ── เวลาที่ทำแบบสำรวจจริง = createdAt (ไม่เคยเปลี่ยน) · ระเบียนเก่าที่ไม่มี ใช้ surveyDate แทน
   _madeAt(hh) {
     const iso = hh?.createdAt || (hh?.surveyDate ? hh.surveyDate + 'T00:00:00.000Z' : '');
@@ -1149,22 +1170,35 @@ const App = {
 
     // --- validate required ---
     if (!gender) { this.toast('กรุณาเลือกเพศ', 'error'); return; }
+    if (!workStatus) { this.toast('กรุณาเลือกสถานะการทำงาน', 'error'); return; }
 
-    // --- gender quota check ---
+    // --- เพดานตามตารางสรุปครัวเรือน (ส่วนที่ 1) ---
     const hh   = DB.getHousehold(this.hhId);
     const grid = hh?.memberGrid || {};
-    const otherMembers = (hh?.members || []).filter(m => m.id !== this.memberId);
-    // เด็กอายุต่ำกว่า 6 ปี (m_child/f_child) ไม่นับเป็นผู้ถูกสัมภาษณ์ → ไม่รวมในเพดาน
-    const maleKeys   = ['m_study','m_work','m_notw'];
-    const femaleKeys = ['f_study','f_work','f_notw'];
-    const maleCap    = maleKeys.reduce((s, k)   => s + (+(grid[k]||0)), 0);
-    const femaleCap  = femaleKeys.reduce((s, k) => s + (+(grid[k]||0)), 0);
+    // ⚠️ getHousehold คืนของดิบ (รวมที่ลบออกจากระบบแล้ว) — ต้องตัด _deleted ทิ้ง
+    // ไม่งั้นคนที่ลบไปแล้วยังกินโควตาอยู่ เพิ่มคนแทนไม่ได้
+    const otherMembers = (hh?.members || []).filter(m => m.id !== this.memberId && !m._deleted);
+
+    // เพดานรวมรายเพศ — เด็กต่ำกว่า 6 ปี (m_child/f_child) ไม่นับเป็นผู้ถูกสัมภาษณ์
+    const capOf  = keys => keys.reduce((s, k) => s + (+(grid[k] || 0)), 0);
+    const maleCap    = capOf(['m_study','m_work','m_notw']);
+    const femaleCap  = capOf(['f_study','f_work','f_notw']);
     const maleUsed   = otherMembers.filter(m => m.gender === 'ชาย').length;
     const femaleUsed = otherMembers.filter(m => m.gender === 'หญิง').length;
-    if (gender === 'ชาย'  && maleUsed   >= maleCap)   { this.toast(`ครัวเรือนนี้มีเพศชายครบ ${maleCap} คนแล้ว`,   'error'); return; }
-    if (gender === 'หญิง' && femaleUsed >= femaleCap) { this.toast(`ครัวเรือนนี้มีเพศหญิงครบ ${femaleCap} คนแล้ว`, 'error'); return; }
+    if (gender === 'ชาย'  && maleUsed   >= maleCap)   { this.toast(`ตารางสรุปบอกว่ามีผู้ชาย ${maleCap} คน — บันทึกครบแล้ว`,   'error'); return; }
+    if (gender === 'หญิง' && femaleUsed >= femaleCap) { this.toast(`ตารางสรุปบอกว่ามีผู้หญิง ${femaleCap} คน — บันทึกครบแล้ว`, 'error'); return; }
 
-    if (!workStatus) { this.toast('กรุณาเลือกสถานะการทำงาน', 'error'); return; }
+    // เพดานรายช่อง (เพศ × สถานะการทำงาน) — ทำงาน/เรียน/ไม่ได้ทำงาน ต้องไม่เกินที่กรอกไว้ในตาราง
+    const bucket = this._gridBucket(gender, workStatus);
+    if (bucket) {
+      const bCap  = +(grid[bucket] || 0);
+      const bUsed = otherMembers.filter(m => this._gridBucket(m.gender, m.workStatus) === bucket).length;
+      if (bUsed >= bCap) {
+        const label = (OPT.memberGridRows.find(r => r.key === bucket) || {}).label || bucket;
+        this.toast(`ตารางสรุปบอกว่า "${label}" มี ${bCap} คน — บันทึกครบแล้ว`, 'error');
+        return;
+      }
+    }
     if (!notSpec && !incomeRaw) { this.toast('กรุณากรอกรายได้ หรือเลือก "ไม่ระบุ"', 'error'); return; }
 
     const savedMember = DB.updateMember(this.hhId, this.memberId, {
@@ -2169,6 +2203,10 @@ const App = {
     // --- validate required ---
     if (!purpose)       { this.toast('กรุณาเลือกวัตถุประสงค์การเดินทาง', 'error'); return; }
     if (!departureTime) { this.toast('กรุณากรอกเวลาออกเดินทาง', 'error'); return; }
+    // วันหนึ่งเริ่มที่บ้าน — เที่ยวแรกจึงเป็น "กลับบ้าน" ไม่ได้ ต้องออกจากบ้านก่อนถึงจะกลับได้
+    if (purpose === 'กลับบ้าน' && this._isFirstTripOfDay(this.editingTripId, departureTime)) {
+      this.toast('เที่ยวแรกของวันเป็น "กลับบ้าน" ไม่ได้ — ต้องมีเที่ยวที่ออกจากบ้านก่อน', 'error'); return;
+    }
     if (!segments.length || !segments[0].mode) {
       this.toast('กรุณาระบุวิธีเดินทางอย่างน้อย 1 ช่วง', 'error'); return;
     }

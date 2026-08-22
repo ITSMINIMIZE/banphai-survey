@@ -428,6 +428,12 @@ const Issues = {
     if (trips.length === 1) {
       hard.push('มีเที่ยวเดียว — ต้องมีทั้งขาไปและขากลับ');
     } else if (trips.length > 1) {
+      // เที่ยวแรกของวัน (เวลาออกเดินทางน้อยสุด) เป็น "กลับบ้าน" ไม่ได้ — ยังไม่ได้ออกจากบ้าน
+      const timed = trips.filter(t => t.departureTime);
+      if (timed.length) {
+        const first = timed.reduce((a, t) => String(t.departureTime) < String(a.departureTime) ? t : a);
+        if (first.purpose === 'กลับบ้าน') hard.push('เที่ยวแรกของวันเป็น "กลับบ้าน" ไม่ได้');
+      }
       // ยอมรับ 2 ทางที่ผู้สำรวจอาจบันทึกขากลับ (วัตถุประสงค์ หรือ ลักษณะปลายทาง) — กันขึ้นแดงผิดคน
       // ใช้ .some() ทั้งชุด ไม่ดู "เที่ยวสุดท้าย" เพราะ seq เรียงตามลำดับที่กรอก ไม่ใช่ตามเวลา
       if (!trips.some(t => t.purpose === 'กลับบ้าน' || t.destinationType === 'ที่พัก / บ้านของตัวเอง'))
