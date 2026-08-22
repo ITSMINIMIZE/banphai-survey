@@ -1,5 +1,24 @@
 // ===== DATA LAYER ===== (v2)
 
+// ===== นาฬิกา: ใช้เวลาเซิร์ฟเวอร์เป็นหลัก =====
+// createdAt เดิมมาจาก new Date() ของเครื่อง — เครื่องที่ตั้งเวลาผิดจะสแตมป์วันที่ผิดตามไป
+// App._checkClock() วัดส่วนต่างจาก header ของเซิร์ฟเวอร์แล้วเก็บไว้ตรงนี้
+// ทุกจุดที่ประทับเวลาจะหักส่วนต่างออก → ได้เวลาจริงแม้นาฬิกาเครื่องเพี้ยน
+// ยังไม่เคยวัด (ออฟไลน์ตั้งแต่ต้น) → skew = 0 = ใช้เวลาเครื่องเหมือนเดิม ไม่พังกว่าเดิม
+const CLOCK = {
+  KEY: '_clock_skew_ms',
+  skew() { try { return +(localStorage.getItem(this.KEY) || 0) || 0; } catch { return 0; } },
+  set(ms)  { try { localStorage.setItem(this.KEY, String(Math.round(ms))); } catch {} },
+  now()    { return new Date(Date.now() - this.skew()); },
+  nowISO() { return this.now().toISOString(); },
+  // วันที่แบบเวลาท้องถิ่น (ไม่ใช่ UTC) — ของเดิมใช้ toISOString().split('T')[0]
+  // ซึ่งงานช่วงตี 1–7 โมงเช้าจะได้วันที่ย้อนไป 1 วัน
+  todayLocal() {
+    const d = this.now();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+};
+
 // ---- IndexedDB store: ที่เก็บหลักแทน localStorage (รับข้อมูลได้ระดับ GB) ----
 // เก็บ _data ทั้งก้อนเป็น record เดียว ใน object store 'kv' คีย์ 'data'
 const IDBStore = {
@@ -151,7 +170,7 @@ const DB = {
   addHousehold(data) {
     const hh = {
       id: 'HH-' + Date.now(),
-      surveyDate:      data.surveyDate      || new Date().toISOString().split('T')[0],
+      surveyDate:      data.surveyDate      || CLOCK.todayLocal(),
       travelDate:      data.travelDate      || '',
       surveyorName:    data.surveyorName    || '',
       supervisorName:  data.supervisorName  || '',
@@ -173,7 +192,7 @@ const DB = {
       vehicles:        data.vehicles        || {},
       deviceId:        data.deviceId        || '',
       clientIp:        data.clientIp        || '',
-      createdAt: new Date().toISOString(),
+      createdAt: CLOCK.nowISO(),
       members: []
     };
     this.load().households.push(hh);
@@ -185,7 +204,7 @@ const DB = {
   // createdAt ไม่เคยถูกแตะ (เวลาที่ทำแบบสำรวจจริง) — ตัวนี้เป็นคนละตัวกัน
   _touch(hhId) {
     const hh = this.getHousehold(hhId);
-    if (hh) { hh.updatedAt = new Date().toISOString(); this.save(); }
+    if (hh) { hh.updatedAt = CLOCK.nowISO(); this.save(); }
     return hh;
   },
 
@@ -195,7 +214,7 @@ const DB = {
     // ไม่อัพเดต id, createdAt, members — createdAt ต้องคงเดิมตลอดอายุระเบียน
     const { id: _id, createdAt: _ca, updatedAt: _ua, members: _m, ...rest } = data;
     Object.assign(hh, rest);
-    hh.updatedAt = new Date().toISOString();
+    hh.updatedAt = CLOCK.nowISO();
     this.save();
     return hh;
   },
@@ -310,7 +329,7 @@ const DB = {
     if (!obj) return null;
     if (deleted) {
       obj._deleted   = true;
-      obj._deletedAt = new Date().toISOString();
+      obj._deletedAt = CLOCK.nowISO();
       obj._deletedBy = by || '';
     } else {
       obj._deleted   = false;   // false ไม่ใช่ delete field — ให้ merge:true ทับค่าเดิมบน cloud ได้

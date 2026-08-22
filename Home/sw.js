@@ -1,5 +1,5 @@
 // Service Worker — Home Interview
-const CACHE_VERSION = 'hi-v67-otherspecify';
+const CACHE_VERSION = 'hi-v68-clockguard';
 const CORE_ASSETS = [
   './',
   './index.html',

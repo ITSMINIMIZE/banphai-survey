@@ -9,8 +9,7 @@ const App = {
   _bootHandled: false,  // กันเข้าแอปซ้ำเมื่อ auth event ยิงหลายครั้ง
   _filterSup: '',       // admin: กรองรายการเฉพาะทีมของผู้ควบคุมคนนี้ ('' = ทุกทีม)
   _filterDay: '',       // กรองตามวันที่ทำแบบสำรวจจริง 'YYYY-MM-DD' ('' = ทุกวัน)
-  _filterFrom: '',      // กรองช่วงเวลา 'HH:MM' — ว่าง = ไม่จำกัด
-  _filterTo: '',
+
 
   // ---- สิทธิ์ ----
   _isAdmin()   { return this._role === 'admin'; },
@@ -327,6 +326,7 @@ const App = {
 
   // ---- เข้าแอปหลังจาก login ----
   _enterApp() {
+    this._checkClock();          // เทียบนาฬิกาเครื่องกับเวลาเซิร์ฟเวอร์ (ไม่ block การเข้าแอป)
     document.querySelector('.topbar').style.display = '';
     const right = document.getElementById('topbarRight');
     if (right) {
@@ -522,9 +522,21 @@ const App = {
 
   // ===== แถบเตือน: ข้อมูลเก่าก่อนรอบเก็บข้อมูลปัจจุบัน / นาฬิกาเครื่องผิด =====
   _roundBannerHTML() {
+    // เตือนนาฬิกาก่อนเสมอ แม้ DataRound จะยังไม่โหลด — เป็นปัญหาที่ทำข้อมูลเสียตรง ๆ
+    if (Math.abs(this._clockSkewMin) >= 10) {
+      const fast = this._clockSkewMin > 0;
+      const h = Math.floor(Math.abs(this._clockSkewMin) / 60), mi = Math.abs(this._clockSkewMin) % 60;
+      const gap = (h ? h + ' ชม. ' : '') + mi + ' นาที';
+      return `<div style="background:#fef2f2;border:2px solid var(--danger);border-radius:10px;padding:12px 16px;margin-bottom:16px;">
+        <div style="font-weight:800;color:#b91c1c;font-size:14px;">⏰ นาฬิกาเครื่องนี้ตั้งผิด — ${fast ? 'เร็วไป' : 'ช้าไป'} ${gap}</div>
+        <div style="font-size:12.5px;color:var(--gray-700);margin-top:4px;">
+          ข้อมูลที่บันทึกจะได้วันที่ผิดไปด้วย <b>กรุณาตั้งวันที่-เวลาของเครื่องเป็นแบบอัตโนมัติก่อนเก็บข้อมูลต่อ</b>
+          แล้วแจ้งผู้ควบคุมให้ตรวจงานที่กรอกไปแล้ว
+        </div></div>`;
+    }
     if (typeof DataRound === 'undefined') return '';
     let html = '';
-    // นาฬิกาเครื่องผิด = ข้อมูลที่บันทึกใหม่จะถูกสแตมป์เป็นเวลาเก่าแล้วส่งขึ้นระบบไม่ได้
+    // นาฬิกาเดินช้ากว่าวันเริ่มรอบ = ข้อมูลใหม่จะถูกสแตมป์เป็นเวลาเก่าแล้วส่งขึ้นระบบไม่ได้
     if (DataRound.clockLooksWrong()) {
       html += `<div style="background:#fef2f2;border:1px solid var(--danger);border-radius:10px;
                  padding:12px 14px;margin-bottom:14px;color:var(--danger);font-weight:600;font-size:14px;">
@@ -585,12 +597,7 @@ const App = {
     // ใช้ _normName ตัวเดียวกับ _visibleHouseholds จะได้จับคู่ชื่อแบบเดียวกันทั้งแอป
     if (this._filterSup)              list = list.filter(h => this._normName(h.supervisorName) === this._filterSup);
     if (this._filterDay)              list = list.filter(h => this._dayKey(h) === this._filterDay);
-    const fMin = this._toMin(this._filterFrom), tMin = this._toMin(this._filterTo);
-    if (fMin !== null || tMin !== null) list = list.filter(h => {
-      const m = this._minOfDay(h);
-      if (m === null) return false;
-      return (fMin === null || m >= fMin) && (tMin === null || m <= tMin);
-    });
+
     // ใหม่สุดอยู่บน
     list = list.slice().sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
 
@@ -657,14 +664,7 @@ const App = {
             ${o('', `ทุกวัน (${days.length} วัน)`)}${days.map(d => o(d, this._dayLabel(d) + ' · ' + hhs.filter(h=>this._dayKey(h)===d).length + ' หลัง')).join('')}
           </select>`;
         })()}
-        <span>🕒</span>
-        <input type="time" value="${this._filterFrom}" onchange="App.setTimeFilter('from', this.value)" title="ตั้งแต่เวลา"
-          style="padding:6px 8px;border:1.5px solid ${this._filterFrom?'var(--primary)':'var(--gray-200)'};border-radius:8px;font-family:inherit;font-size:13px;background:var(--white);color:var(--gray-800);" />
-        <span>–</span>
-        <input type="time" value="${this._filterTo}" onchange="App.setTimeFilter('to', this.value)" title="ถึงเวลา"
-          style="padding:6px 8px;border:1.5px solid ${this._filterTo?'var(--primary)':'var(--gray-200)'};border-radius:8px;font-family:inherit;font-size:13px;background:var(--white);color:var(--gray-800);" />
-        ${(this._filterDay || this._filterFrom || this._filterTo)
-          ? `<button class="btn btn-ghost btn-sm" onclick="App.clearTimeFilter()">ล้างวัน/เวลา</button>` : ''}
+        ${this._filterDay ? `<button class="btn btn-ghost btn-sm" onclick="App.clearTimeFilter()">ล้างตัวกรองวัน</button>` : ''}
       </div>` : ''}
 
       ${hhs.length === 0 ? `
@@ -716,6 +716,7 @@ const App = {
                   if (!d) return `<span class="tag tag-gray">📅 ${this.esc(hh.surveyDate || '—')}</span>`;
                   return `<span class="tag tag-gray" title="เวลาที่ทำแบบสำรวจ (ไม่เปลี่ยนแม้แก้ไขภายหลัง)">📅 ${this._dayLabel(this._dayKey(hh))} ${this._hhmm(d)} น.</span>`;
                 })()}
+                ${this._isFuture(hh) ? `<span class="tag" style="background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;" title="วันที่บันทึกอยู่ในอนาคต — นาฬิกาเครื่องที่กรอกตั้งผิด">⏰ วันที่ผิด</span>` : ''}
                 ${(() => {
                   // แสดงเมื่อแก้หลังสร้างเกิน 1 นาที — กันขึ้นทันทีที่เพิ่งกดบันทึกครั้งแรก
                   if (!hh.updatedAt || !hh.createdAt) return '';
@@ -826,6 +827,33 @@ const App = {
     if (!d) return '';
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   },
+  // ── เทียบนาฬิกาเครื่องกับเวลาจริงจาก header ของเซิร์ฟเวอร์ ─────────────────
+  // ตัวเดิม (DataRound.clockLooksWrong) จับได้แค่นาฬิกาเดินช้ากว่าวันเริ่มรอบ
+  // เครื่องที่เดินเร็วจะสแตมป์ createdAt เป็นวันพรุ่งนี้แล้วไม่มีอะไรเตือนเลย
+  _clockSkewMin: 0,
+  async _checkClock() {
+    try {
+      const t0  = Date.now();
+      const res = await fetch(location.href, { method: 'HEAD', cache: 'no-store' });
+      const srv = res.headers.get('date');
+      if (!srv) return;                                  // ไม่มี header → ตรวจไม่ได้ ไม่เดา
+      const srvMs = new Date(srv).getTime();
+      if (!isFinite(srvMs)) return;
+      // ชดเชยเวลาเดินทางของ request ครึ่งทาง — header ถูกสร้างกลางทางไม่ใช่ตอนเราได้รับ
+      const rtt  = Date.now() - t0;
+      const skew = t0 + rtt / 2 - srvMs;
+      CLOCK.set(skew);                                   // ทุกจุดที่ประทับเวลาใช้ค่านี้หักออก
+      this._clockSkewMin = Math.round(skew / 60000);
+      if (Math.abs(this._clockSkewMin) >= 10) this.render();
+    } catch (_) { /* ออฟไลน์ → ใช้ skew ที่เคยวัดไว้ล่าสุด */ }
+  },
+
+  // ระเบียนที่ createdAt ล้ำหน้าเวลาจริงเกิน 10 นาที = นาฬิกาเครื่องที่กรอกตั้งผิด
+  // เผื่อ 10 นาทีไว้กัน clock drift ปกติของมือถือ
+  _isFuture(hh) {
+    const d = this._madeAt(hh);
+    return !!d && d.getTime() - Date.now() > 10 * 60 * 1000;
+  },
   _minOfDay(hh) { const d = this._madeAt(hh); return d ? d.getHours()*60 + d.getMinutes() : null; },
   _hhmm(d)      { return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; },
   _TH_MON: ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'],
@@ -833,7 +861,6 @@ const App = {
     const [y,m,dd] = key.split('-').map(Number);
     return `${dd} ${this._TH_MON[m-1]}`;
   },
-  _toMin(hhmm) { const p = String(hhmm||'').split(':'); return p.length===2 ? (+p[0])*60 + (+p[1]) : null; },
 
   // ถังขยะที่บทบาทนี้เห็น — ผู้ควบคุมเห็นเฉพาะทีมตัวเอง (เครื่องเขามีแต่ข้อมูลทีมอยู่แล้ว
   // แต่กรองซ้ำกันเหนียว เผื่อเคยล็อกอินเป็น admin บนเครื่องเดียวกันมาก่อน)
@@ -849,8 +876,7 @@ const App = {
 
   setSupFilter(v) { this._filterSup = v; this.render(); },
   setDayFilter(v) { this._filterDay = v; this.render(); },
-  setTimeFilter(which, v) { if (which === 'from') this._filterFrom = v; else this._filterTo = v; this.render(); },
-  clearTimeFilter() { this._filterDay = ''; this._filterFrom = ''; this._filterTo = ''; this.render(); },
+  clearTimeFilter() { this._filterDay = ''; this.render(); },
 
   setNameFilter(v) {
     this._filterName = v;
@@ -861,7 +887,7 @@ const App = {
 
   resetFilters() {
     this._filterStatus = 'all'; this._filterName = ''; this._filterNoCoords = false; this._filterSup = '';
-    this._filterDay = ''; this._filterFrom = ''; this._filterTo = '';
+    this._filterDay = '';
     this.render();
   },
 
@@ -1621,7 +1647,7 @@ const App = {
     this._saveSurveyorNames(data.surveyorName, data.supervisorName);
     const hh = DB.addHousehold({
       ...data,
-      surveyDate: new Date().toISOString().split('T')[0],
+      surveyDate: CLOCK.todayLocal(),
       deviceId:   (typeof FB !== 'undefined' ? FB.deviceId() : null) || localStorage.getItem('_device_id') || '',
       clientIp:   this._clientIp || ''
     });
@@ -2608,7 +2634,7 @@ const App = {
       ? XLSX.utils.json_to_sheet(issueRows)
       : XLSX.utils.aoa_to_sheet([['ไม่พบปัญหา — ข้อมูลครบทุกรายการ']]), 'ปัญหาข้อมูล');
 
-    const filename = `home-interview-banphai-${new Date().toISOString().split('T')[0]}.xlsx`;
+    const filename = `home-interview-banphai-${CLOCK.todayLocal()}.xlsx`;
     XLSX.writeFile(wb, filename);
     const nHard = issueRows.filter(r => r['ความรุนแรง'].startsWith('🔴')).length;
     const oldNote = exOld ? ` · ไม่รวมข้อมูลรอบก่อน ${exOld} หลัง` : '';
