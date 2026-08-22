@@ -597,6 +597,10 @@ const App = {
     const status = this._filterStatus || 'all';
     const nameQ  = this._normName(this._filterName || '');   // เลือกจาก dropdown → เทียบตรงตัว
     const noCoordList = hhs.filter(h => this._hhCoordsIncomplete(h));
+    // ตัวกรองทำงานเป็นชั้น: ผู้ควบคุม → ผู้สำรวจ → วัน
+    // แต่ละ dropdown สร้างรายการจากขอบเขตของชั้นก่อนหน้า จะได้ไม่มีตัวเลือกที่เลือกแล้วได้ 0
+    const scopeSup  = this._filterSup ? hhs.filter(h => this._normName(h.supervisorName) === this._filterSup) : hhs;
+    const scopeSurv = nameQ ? scopeSup.filter(h => this._normName(h.surveyorName) === nameQ) : scopeSup;
     let list = hhs;
     // สมบูรณ์ = ไม่มีประเด็นเลย · ไม่สมบูรณ์ = มีประเด็นใดๆ (ไม่มีคนเดินทาง / พิกัดไม่ครบ / พิกัดจากแผนที่)
     if (status === 'complete')        list = list.filter(h => !this._hhHasIssue(h));
@@ -650,13 +654,15 @@ const App = {
           // dropdown แทนช่องพิมพ์ — หน้างานพิมพ์บนมือถือยาก และเลือกจากรายชื่อไม่มีทางพิมพ์ผิด
           // ผู้สำรวจทั่วไปเห็นแต่งานตัวเองอยู่แล้ว ไม่ต้องมี
           if (!this._canManage()) return '';
-          const names = [...new Set(hhs.map(h => this._normName(h.surveyorName)).filter(Boolean))]
+          // รายชื่อมาจาก scopeSup — กรองผู้ควบคุมไว้แล้ว จะเหลือเฉพาะผู้สำรวจในทีมนั้น
+          const names = [...new Set(scopeSup.map(h => this._normName(h.surveyorName)).filter(Boolean))]
                           .sort((a, b) => a.localeCompare(b, 'th'));
-          const cnt = n => hhs.filter(h => this._normName(h.surveyorName) === n).length;
+          const cnt = n => scopeSup.filter(h => this._normName(h.surveyorName) === n).length;
           const o = (v, t) => `<option value="${this.esc(v)}" ${this._filterName === v ? 'selected' : ''}>${this.esc(t)}</option>`;
+          const all = this._filterSup ? `👤 ทุกคนในทีม · ${scopeSup.length} หลัง` : `👤 ผู้สำรวจทุกคน · ${scopeSup.length} หลัง`;
           return `<select onchange="App.setNameFilter(this.value)" title="กรองตามผู้สำรวจ"
             style="flex:1;min-width:150px;padding:8px 10px;border:1.5px solid ${this._filterName ? 'var(--primary)' : 'var(--gray-200)'};border-radius:8px;font-family:inherit;font-size:13px;background:var(--white);color:var(--gray-800);">
-            ${o('', `👤 ผู้สำรวจทุกคน · ${hhs.length} หลัง`)}${names.map(n => o(n, n + ' · ' + cnt(n) + ' หลัง')).join('')}
+            ${o('', all)}${names.map(n => o(n, n + ' · ' + cnt(n) + ' หลัง')).join('')}
           </select>`;
         })()}
         ${noCoordList.length > 0 ? `<button class="btn btn-sm ${this._filterNoCoords ? 'btn-danger' : 'btn-ghost'}" onclick="App.toggleNoCoords()">📍 พิกัดไม่ครบ ${noCoordList.length}</button>` : ''}
@@ -676,14 +682,14 @@ const App = {
       ${(() => {
         // แสดงเสมอแม้มีวันเดียว — ตัวกรองที่หายไปเองทำให้คนใช้งง
         // ซ่อนทั้งแถบเฉพาะตอนไม่มีวันให้เลือกจริง ๆ (ไม่มีระเบียนไหนมีเวลาเลย)
-        const days = [...new Set(hhs.map(h => this._dayKey(h)).filter(Boolean))].sort();
+        const days = [...new Set(scopeSurv.map(h => this._dayKey(h)).filter(Boolean))].sort();
         if (!days.length) return '';
         const o = (v,t) => `<option value="${v}" ${this._filterDay===v?'selected':''}>${t}</option>`;
-        const cnt = d => hhs.filter(h => this._dayKey(h) === d).length;
+        const cnt = d => scopeSurv.filter(h => this._dayKey(h) === d).length;
         return `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;font-size:13px;color:var(--gray-600);">
           <span>📅</span><select onchange="App.setDayFilter(this.value)" title="กรองตามวันที่สำรวจ"
             style="padding:7px 10px;border:1.5px solid ${this._filterDay?'var(--primary)':'var(--gray-200)'};border-radius:8px;font-family:inherit;font-size:13px;background:var(--white);color:var(--gray-800);">
-            ${o('', `ทุกวัน · ${hhs.length} หลัง`)}${days.map(d => o(d, this._dayLabel(d) + ' · ' + cnt(d) + ' หลัง')).join('')}
+            ${o('', `ทุกวัน · ${scopeSurv.length} หลัง`)}${days.map(d => o(d, this._dayLabel(d) + ' · ' + cnt(d) + ' หลัง')).join('')}
           </select>
           ${this._filterDay ? `<button class="btn btn-ghost btn-sm" onclick="App.clearTimeFilter()">ล้างตัวกรองวัน</button>` : ''}
         </div>`;
@@ -914,11 +920,23 @@ const App = {
 
   setStatus(v) { this._filterStatus = v; this.render(); },
 
-  setSupFilter(v) { this._filterSup = v; this.render(); },
+  setSupFilter(v)  { this._filterSup = v;  this._pruneFilters(); this.render(); },
   setDayFilter(v) { this._filterDay = v; this.render(); },
   clearTimeFilter() { this._filterDay = ''; this.render(); },
 
-  setNameFilter(v) { this._filterName = v; this.render(); },
+  setNameFilter(v) { this._filterName = v; this._pruneFilters(); this.render(); },
+
+  // เปลี่ยนตัวกรองชั้นบนแล้ว ตัวเลือกชั้นล่างที่ค้างอยู่อาจไม่มีในขอบเขตใหม่
+  // ถ้าปล่อยไว้จะได้ผลลัพธ์ 0 หลัง โดยที่ตัวเลือกนั้นไม่โผล่ใน dropdown ให้กดแก้ด้วยซ้ำ
+  _pruneFilters() {
+    const hhs   = this._visibleHouseholds(DB.getHouseholds());
+    const bySup = this._filterSup ? hhs.filter(h => this._normName(h.supervisorName) === this._filterSup) : hhs;
+    if (this._filterName && !bySup.some(h => this._normName(h.surveyorName) === this._filterName))
+      this._filterName = '';
+    const bySurv = this._filterName ? bySup.filter(h => this._normName(h.surveyorName) === this._filterName) : bySup;
+    if (this._filterDay && !bySurv.some(h => this._dayKey(h) === this._filterDay))
+      this._filterDay = '';
+  },
 
   resetFilters() {
     this._filterStatus = 'all'; this._filterName = ''; this._filterNoCoords = false; this._filterSup = '';
