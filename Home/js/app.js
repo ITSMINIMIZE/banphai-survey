@@ -595,14 +595,14 @@ const App = {
     const trips   = hhs.reduce((s, h) => h.members.reduce((s2, m) => s2 + m.trips.length, s), 0);
     // ── ตัวกรอง: สถานะ (สมบูรณ์/ไม่สมบูรณ์) + ชื่อผู้สำรวจ + พิกัดไม่ครบ ──
     const status = this._filterStatus || 'all';
-    const nameQ  = (this._filterName || '').trim().toLowerCase();
+    const nameQ  = this._normName(this._filterName || '');   // เลือกจาก dropdown → เทียบตรงตัว
     const noCoordList = hhs.filter(h => this._hhCoordsIncomplete(h));
     let list = hhs;
     // สมบูรณ์ = ไม่มีประเด็นเลย · ไม่สมบูรณ์ = มีประเด็นใดๆ (ไม่มีคนเดินทาง / พิกัดไม่ครบ / พิกัดจากแผนที่)
     if (status === 'complete')        list = list.filter(h => !this._hhHasIssue(h));
     else if (status === 'incomplete') list = list.filter(h => this._hhHasIssue(h));
     if (this._filterNoCoords)         list = list.filter(h => this._hhCoordsIncomplete(h));
-    if (nameQ)                        list = list.filter(h => (h.surveyorName || '').toLowerCase().includes(nameQ));
+    if (nameQ)                        list = list.filter(h => this._normName(h.surveyorName) === nameQ);
     // ใช้ _normName ตัวเดียวกับ _visibleHouseholds จะได้จับคู่ชื่อแบบเดียวกันทั้งแอป
     if (this._filterSup)              list = list.filter(h => this._normName(h.supervisorName) === this._filterSup);
     if (this._filterDay)              list = list.filter(h => this._dayKey(h) === this._filterDay);
@@ -646,9 +646,19 @@ const App = {
         <div style="display:inline-flex;gap:2px;background:var(--gray-100);padding:3px;border-radius:8px;flex-shrink:0;">
           ${this._segBtn('ทั้งหมด','all')}${this._segBtn('✅ สมบูรณ์','complete')}${this._segBtn('⚠️ ไม่สมบูรณ์','incomplete')}
         </div>
-        <input id="flt_name" value="${this.esc(this._filterName || '')}" oninput="App.setNameFilter(this.value)"
-          placeholder="🔍 ค้นหาชื่อผู้สำรวจ" autocomplete="off"
-          style="flex:1;min-width:150px;padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-family:inherit;font-size:14px;background:var(--white);color:var(--gray-800);" />
+        ${(() => {
+          // dropdown แทนช่องพิมพ์ — หน้างานพิมพ์บนมือถือยาก และเลือกจากรายชื่อไม่มีทางพิมพ์ผิด
+          // ผู้สำรวจทั่วไปเห็นแต่งานตัวเองอยู่แล้ว ไม่ต้องมี
+          if (!this._canManage()) return '';
+          const names = [...new Set(hhs.map(h => this._normName(h.surveyorName)).filter(Boolean))]
+                          .sort((a, b) => a.localeCompare(b, 'th'));
+          const cnt = n => hhs.filter(h => this._normName(h.surveyorName) === n).length;
+          const o = (v, t) => `<option value="${this.esc(v)}" ${this._filterName === v ? 'selected' : ''}>${this.esc(t)}</option>`;
+          return `<select onchange="App.setNameFilter(this.value)" title="กรองตามผู้สำรวจ"
+            style="flex:1;min-width:150px;padding:8px 10px;border:1.5px solid ${this._filterName ? 'var(--primary)' : 'var(--gray-200)'};border-radius:8px;font-family:inherit;font-size:13px;background:var(--white);color:var(--gray-800);">
+            ${o('', `👤 ผู้สำรวจทุกคน · ${hhs.length} หลัง`)}${names.map(n => o(n, n + ' · ' + cnt(n) + ' หลัง')).join('')}
+          </select>`;
+        })()}
         ${noCoordList.length > 0 ? `<button class="btn btn-sm ${this._filterNoCoords ? 'btn-danger' : 'btn-ghost'}" onclick="App.toggleNoCoords()">📍 พิกัดไม่ครบ ${noCoordList.length}</button>` : ''}
         ${(() => {
           if (!isAdmin) return '';                       // staff เห็นแต่ทีมตัวเองอยู่แล้ว ไม่ต้องมี
@@ -908,12 +918,7 @@ const App = {
   setDayFilter(v) { this._filterDay = v; this.render(); },
   clearTimeFilter() { this._filterDay = ''; this.render(); },
 
-  setNameFilter(v) {
-    this._filterName = v;
-    this.render();
-    const el = document.getElementById('flt_name');
-    if (el) { el.focus(); const n = el.value.length; try { el.setSelectionRange(n, n); } catch (e) {} }
-  },
+  setNameFilter(v) { this._filterName = v; this.render(); },
 
   resetFilters() {
     this._filterStatus = 'all'; this._filterName = ''; this._filterNoCoords = false; this._filterSup = '';
