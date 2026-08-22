@@ -1,5 +1,5 @@
 // Service Worker — Home Interview
-const CACHE_VERSION = 'hi-v70-createtime';
+const CACHE_VERSION = 'hi-v71-dayfilter';
 const CORE_ASSETS = [
   './',
   './index.html',

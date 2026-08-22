@@ -663,18 +663,21 @@ const App = {
         })()}
       </div>
 
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;font-size:13px;color:var(--gray-600);">
-        ${(() => {
-          const days = [...new Set(hhs.map(h => this._dayKey(h)).filter(Boolean))].sort();
-          if (days.length < 2) return '';        // วันเดียว ไม่ต้องมีให้เลือก
-          const o = (v,t) => `<option value="${v}" ${this._filterDay===v?'selected':''}>${t}</option>`;
-          return `<span>📅</span><select onchange="App.setDayFilter(this.value)" title="กรองตามวันที่สำรวจ"
+      ${(() => {
+        // แสดงเสมอแม้มีวันเดียว — ตัวกรองที่หายไปเองทำให้คนใช้งง
+        // ซ่อนทั้งแถบเฉพาะตอนไม่มีวันให้เลือกจริง ๆ (ไม่มีระเบียนไหนมีเวลาเลย)
+        const days = [...new Set(hhs.map(h => this._dayKey(h)).filter(Boolean))].sort();
+        if (!days.length) return '';
+        const o = (v,t) => `<option value="${v}" ${this._filterDay===v?'selected':''}>${t}</option>`;
+        const cnt = d => hhs.filter(h => this._dayKey(h) === d).length;
+        return `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;font-size:13px;color:var(--gray-600);">
+          <span>📅</span><select onchange="App.setDayFilter(this.value)" title="กรองตามวันที่สำรวจ"
             style="padding:7px 10px;border:1.5px solid ${this._filterDay?'var(--primary)':'var(--gray-200)'};border-radius:8px;font-family:inherit;font-size:13px;background:var(--white);color:var(--gray-800);">
-            ${o('', `ทุกวัน (${days.length} วัน)`)}${days.map(d => o(d, this._dayLabel(d) + ' · ' + hhs.filter(h=>this._dayKey(h)===d).length + ' หลัง')).join('')}
-          </select>`;
-        })()}
-        ${this._filterDay ? `<button class="btn btn-ghost btn-sm" onclick="App.clearTimeFilter()">ล้างตัวกรองวัน</button>` : ''}
-      </div>` : ''}
+            ${o('', `ทุกวัน · ${hhs.length} หลัง`)}${days.map(d => o(d, this._dayLabel(d) + ' · ' + cnt(d) + ' หลัง')).join('')}
+          </select>
+          ${this._filterDay ? `<button class="btn btn-ghost btn-sm" onclick="App.clearTimeFilter()">ล้างตัวกรองวัน</button>` : ''}
+        </div>`;
+      })()}` : ''}
 
       ${hhs.length === 0 ? `
         <div class="empty">
