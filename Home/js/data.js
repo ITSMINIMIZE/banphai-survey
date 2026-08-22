@@ -319,9 +319,12 @@ const DB = {
   },
 
   // รายการในถังขยะ — flatten ทุกระดับให้ UI แสดง/กู้คืนได้
-  getTrash() {
+  // team (ไม่บังคับ) = ชื่อผู้ควบคุม · ส่งมาเมื่อไหร่จะเห็นเฉพาะของทีมนั้น (ใช้กับ staff)
+  getTrash(team) {
     const out = [];
-    this.load().households.forEach(hh => {
+    const norm = s => String(s ?? '').normalize('NFC').replace(/[\u200b-\u200f\u202a-\u202e\u2060\ufeff]/g, '').trim().replace(/\s+/g, ' ');
+    const want = team ? norm(team) : '';
+    this.load().households.filter(hh => !want || norm(hh.supervisorName) === want).forEach(hh => {
       if (hh._deleted) {
         out.push({ kind: 'household', hhId: hh.id, label: `บ้าน ${hh.houseNo || hh.id}`,
                    sub: `${(hh.members||[]).length} สมาชิก · ผู้สำรวจ ${hh.surveyorName || '—'}`,

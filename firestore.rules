@@ -16,6 +16,23 @@ service cloud.firestore {
     function canWrite()     { return authed() && (notDeleted() || isAdmin()); }
     function canEdit()      { return authed() && (keepsDeleted() || isAdmin()); }
 
+    // ── ผู้ควบคุมลบ/กู้คืนได้เฉพาะของทีมตัวเอง (Home) ─────────────────────────
+    // บ้านมี supervisorName ในตัว เทียบตรงได้
+    // ต้องเทียบทั้งค่าเดิมและค่าที่กำลังเขียน — กันเขียนย้ายบ้านไปทีมอื่นในคำสั่งเดียวกัน
+    function myHH() {
+      return isStaff()
+          && resource.data.get('supervisorName', '') == team()
+          && request.resource.data.get('supervisorName', '') == team();
+    }
+    // สมาชิก/เที่ยวไม่มี supervisorName ในตัวเอง ต้องอ่านจากบ้านแม่
+    // get() นี้ทำงานเฉพาะตอนแตะธง _deleted เท่านั้น เพราะ || ลัดวงจร —
+    // การแก้ข้อมูลปกติผ่าน canEdit() ไปก่อนแล้ว เส้นทางเขียนที่ร้อนที่สุดจึงไม่มีค่าอ่านเพิ่ม
+    function myHHSub(hhId) {
+      return isStaff()
+          && get(/databases/$(database)/documents/households/$(hhId))
+               .data.get('supervisorName', '') == team();
+    }
+
     // ═══ collection group — ให้ Dashboard ดึงทั้งโครงการด้วยคำขอเดียว ═══
     // rule แบบซ้อนชั้นด้านล่างใช้กับ collection group query ไม่ได้ ต้องเขียนรูป {path=**} แยก
     // • read อย่างเดียว — ไม่แตะสิทธิ์เขียน/ลบ ซึ่งยังคุมด้วย rule เดิมทุกประการ
@@ -33,17 +50,19 @@ service cloud.firestore {
     match /households/{hhId} {
       allow read: if authed();
       allow create: if canWrite();
-      allow update: if canEdit();
+      // canEdit() = แก้ข้อมูลปกติ (ไม่แตะธงลบ) หรือ admin ทำอะไรก็ได้
+      // myHH()    = ผู้ควบคุมลบ/กู้คืนบ้านของทีมตัวเอง
+      allow update: if canEdit() || myHH();
       allow delete: if isSeed(hhId) && isAdmin();
       match /members/{mId} {
         allow read: if authed();
         allow create: if canWrite();
-        allow update: if canEdit();
+        allow update: if canEdit() || myHHSub(hhId);
         allow delete: if isSeed(mId) && isAdmin();
         match /trips/{tId} {
           allow read: if authed();
           allow create: if canWrite();
-          allow update: if canEdit();
+          allow update: if canEdit() || myHHSub(hhId);
           allow delete: if isSeed(tId) && isAdmin();
         }
       }

@@ -100,7 +100,9 @@ const FB = {
   _hhData(hh)    { const { members, ...d } = hh; return d; },
   _memberData(m) { const { trips, ...d }  = m;  return d; },
 
-  _pushDoc(ref, data) {
+  // onErr (ไม่บังคับ) — ใช้กับการลบ/กู้คืนที่ต้องรู้ผลจริง
+  // ถ้า rules ปฏิเสธแล้วเงียบ ผู้ใช้จะเห็นว่า "ลบแล้ว" ทั้งที่บนระบบยังอยู่ → ต้องบอกและย้อนสถานะกลับ
+  _pushDoc(ref, data, onErr) {
     if (!this.db) return;
     const syncedAt = new Date().toISOString();
     ref.set({ ...data, _device: this.deviceId(), _syncedAt: syncedAt }, { merge: true })
@@ -108,21 +110,24 @@ const FB = {
         localStorage.setItem('_hi_last_sync', syncedAt);
         if (typeof App !== 'undefined' && App._refreshSyncBadge) App._refreshSyncBadge();
       })
-      .catch(e => console.warn('[FB] auto-push:', e.code || e));  // console เท่านั้น — ไม่ toast
+      .catch(e => {
+        console.warn('[FB] auto-push:', e.code || e);   // การแก้ทั่วไปยังเงียบเหมือนเดิม
+        if (onErr) onErr(e);
+      });
   },
 
   // หมายเหตุ: auto-push (แก้ไขทีละรายการ) ส่งขึ้นเสมอ แม้เป็นระเบียนรอบก่อน
   // — การแก้ไขคือเจตนาชัดเจนของผู้ใช้ ต้อง sync ทับใน DB ได้
   // ส่วนการกด Sync ทั้งก้อนยังกรองข้อมูลเก่าออก (กันข้อมูลทดสอบไหลกลับทีละมากๆ)
-  pushHousehold(hh) {
+  pushHousehold(hh, onErr) {
     if (!hh) return;
     if (this._isOldHH(hh)) { this._warnOld(); return; }
-    this._pushDoc(this.db.collection(this.COLLECTION).doc(hh.id), this._hhData(hh));
+    this._pushDoc(this.db.collection(this.COLLECTION).doc(hh.id), this._hhData(hh), onErr);
   },
-  pushMember(hhId, m) {
+  pushMember(hhId, m, onErr) {
     if (!m) return;
     if (this._isOldById(hhId)) { this._warnOld(); return; }
-    this._pushDoc(this.db.collection(this.COLLECTION).doc(hhId).collection('members').doc(m.id), this._memberData(m));
+    this._pushDoc(this.db.collection(this.COLLECTION).doc(hhId).collection('members').doc(m.id), this._memberData(m), onErr);
   },
   pushTrip(hhId, mId, t) {
     if (!t) return;

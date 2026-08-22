@@ -7,6 +7,7 @@ const App = {
   _adminUsername: '',   // username ผู้ดูแล/ผู้ควบคุม
   _team: '',            // staff: ชื่อผู้ควบคุม = ทีมที่ตัวเองดูแล
   _bootHandled: false,  // กันเข้าแอปซ้ำเมื่อ auth event ยิงหลายครั้ง
+  _filterSup: '',       // admin: กรองรายการเฉพาะทีมของผู้ควบคุมคนนี้ ('' = ทุกทีม)
 
   // ---- สิทธิ์ ----
   _isAdmin()   { return this._role === 'admin'; },
@@ -466,8 +467,8 @@ const App = {
 
   // ===================== PAGE: ถังขยะ (admin) =====================
   pageTrash() {
-    if (!this._isAdmin()) return `<div class="section"><p>เฉพาะผู้ดูแลระบบ</p></div>`;
-    const items = DB.getTrash();
+    if (!this._canManage()) return `<div class="section"><p>เฉพาะผู้ดูแลระบบ / ผู้ควบคุม</p></div>`;
+    const items = this._trashItems();
     return `
       <div class="section">
         <div class="sec-head">
@@ -578,6 +579,8 @@ const App = {
     else if (status === 'incomplete') list = list.filter(h => this._hhHasIssue(h));
     if (this._filterNoCoords)         list = list.filter(h => this._hhCoordsIncomplete(h));
     if (nameQ)                        list = list.filter(h => (h.surveyorName || '').toLowerCase().includes(nameQ));
+    // ใช้ _normName ตัวเดียวกับ _visibleHouseholds จะได้จับคู่ชื่อแบบเดียวกันทั้งแอป
+    if (this._filterSup)              list = list.filter(h => this._normName(h.supervisorName) === this._filterSup);
     // ใหม่สุดอยู่บน
     list = list.slice().sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
 
@@ -599,11 +602,11 @@ const App = {
       <div class="sec-header">
         <div>
           <div class="sec-title">รายการครัวเรือน</div>
-          <div class="sec-sub">พบ ${hhs.length} ครัวเรือน${isAdmin ? '' : this._isStaff() ? ` (ทีม ${this.esc(this._supLabel(this._team))})` : ' (ของคุณ)'} · ${this._syncBadge()}</div>
+          <div class="sec-sub">พบ ${hhs.length} ครัวเรือน${isAdmin ? (this._filterSup ? ` · กรองทีม ${this.esc(this._supLabel(this._filterSup))} ${list.length} หลัง` : '') : this._isStaff() ? ` (ทีม ${this.esc(this._supLabel(this._team))})` : ' (ของคุณ)'} · ${this._syncBadge()}</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           ${this._canManage() && hhs.length > 0 ? `<button class="btn btn-ghost btn-sm" onclick="App.exportData()">⬇ Export Excel</button>` : ''}
-          ${isAdmin ? (() => { const n = DB.getTrash().length;
+          ${this._canManage() ? (() => { const n = this._trashItems().length;
             return `<button class="btn btn-ghost btn-sm" onclick="App.navigate('trash')">🗑 ถังขยะ${n ? ` (${n})` : ''}</button>`; })() : ''}
           ${hhs.length > 0 ? `<button class="btn btn-ghost btn-sm" id="syncBtn" onclick="App.syncToCloud()">☁️ Sync</button>` : ''}
           <button class="btn btn-ghost btn-sm" id="pullBtn" onclick="App.pullFromCloud()">☁️ ดึงข้อมูล</button>
@@ -621,6 +624,17 @@ const App = {
           placeholder="🔍 ค้นหาชื่อผู้สำรวจ" autocomplete="off"
           style="flex:1;min-width:150px;padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-family:inherit;font-size:14px;background:var(--white);color:var(--gray-800);" />
         ${noCoordList.length > 0 ? `<button class="btn btn-sm ${this._filterNoCoords ? 'btn-danger' : 'btn-ghost'}" onclick="App.toggleNoCoords()">📍 พิกัดไม่ครบ ${noCoordList.length}</button>` : ''}
+        ${(() => {
+          if (!isAdmin) return '';                       // staff เห็นแต่ทีมตัวเองอยู่แล้ว ไม่ต้องมี
+          const sups = [...new Set(hhs.map(h => this._normName(h.supervisorName)).filter(Boolean))]
+                         .sort((a, b) => a.localeCompare(b, 'th'));
+          if (sups.length < 2) return '';                // มีทีมเดียว ตัวกรองไม่มีประโยชน์
+          const opt = (v, t) => `<option value="${this.esc(v)}" ${this._filterSup === v ? 'selected' : ''}>${this.esc(t)}</option>`;
+          return `<select onchange="App.setSupFilter(this.value)" title="กรองตามผู้ควบคุม"
+            style="padding:8px 10px;border:1.5px solid ${this._filterSup ? 'var(--primary)' : 'var(--gray-200)'};border-radius:8px;font-family:inherit;font-size:13px;background:var(--white);color:var(--gray-800);max-width:190px;">
+            ${opt('', `👔 ทุกทีม (${sups.length})`)}${sups.map(n => opt(n, this._supLabel(n))).join('')}
+          </select>`;
+        })()}
       </div>` : ''}
 
       ${hhs.length === 0 ? `
@@ -664,6 +678,7 @@ const App = {
                 ${tripNoCo ? '<span class="tag" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;">📍 เที่ยวไม่มีพิกัด</span>' : ''}
                 ${(typeof DataRound !== 'undefined' && DataRound.isOld(hh)) ? '<span class="tag" style="background:#e5e7eb;color:#4b5563;border:1px solid #9ca3af;">📦 รอบก่อน</span>' : ''}
                 ${mapCo ? '<span class="tag" style="background:#ffedd5;color:#9a3412;border:1px solid #fdba74;" title="พิกัดจากแผนที่/พิมพ์เอง ไม่ใช่ GPS ที่จุดจริง — ควรสุ่มตรวจ">🗺 พิกัดจากแผนที่</span>' : ''}
+                ${isAdmin && hh.supervisorName ? `<span class="tag tag-gray">👔 ${this.esc(this._supLabel(hh.supervisorName))}</span>` : ''}
                 <span class="tag tag-blue">👥 ${totM} คน</span>
                 <span class="tag tag-green">🚗 ${t} เที่ยว</span>
                 <span class="tag tag-gray">📅 ${hh.surveyDate}</span>
@@ -710,6 +725,10 @@ const App = {
     return Issues.forHousehold(hh).hard > 0 || this._hhMapCoords(hh);
   },
 
+  // ถังขยะที่บทบาทนี้เห็น — ผู้ควบคุมเห็นเฉพาะทีมตัวเอง (เครื่องเขามีแต่ข้อมูลทีมอยู่แล้ว
+  // แต่กรองซ้ำกันเหนียว เผื่อเคยล็อกอินเป็น admin บนเครื่องเดียวกันมาก่อน)
+  _trashItems() { return DB.getTrash(this._isStaff() ? this._team : ''); },
+
   // ปุ่มสถานะแบบ segmented
   _segBtn(label, val) {
     const on = (this._filterStatus || 'all') === val;
@@ -717,6 +736,8 @@ const App = {
   },
 
   setStatus(v) { this._filterStatus = v; this.render(); },
+
+  setSupFilter(v) { this._filterSup = v; this.render(); },
 
   setNameFilter(v) {
     this._filterName = v;
@@ -726,7 +747,7 @@ const App = {
   },
 
   resetFilters() {
-    this._filterStatus = 'all'; this._filterName = ''; this._filterNoCoords = false;
+    this._filterStatus = 'all'; this._filterName = ''; this._filterNoCoords = false; this._filterSup = '';
     this.render();
   },
 
@@ -1489,7 +1510,7 @@ const App = {
 
   confirmDeleteHousehold(id) {
     const hh = DB.getHousehold(id);
-    const isAdmin = this._isAdmin();
+    const isAdmin = this._canManage();   // ผู้ควบคุมลบของทีมตัวเองได้ (rules บังคับขอบเขตอีกชั้น)
     const label = `<strong>[${hh?.houseNo || hh?.id}]</strong> พร้อมสมาชิก ${hh?.members.length || 0} คน`;
     this.showModal('🗑 ลบครัวเรือน',
       `<p style="color:var(--gray-600)">จะลบครัวเรือน ${label}</p>
@@ -1513,10 +1534,10 @@ const App = {
 
   // ลบออกจากระบบ (soft delete) — ซ่อนทุกที่ + ส่งขึ้น cloud ทันที · กู้คืนได้จากถังขยะ
   systemDeleteHousehold(id) {
-    if (!this._isAdmin()) { this.toast('เฉพาะผู้ดูแลระบบเท่านั้น', 'error'); return; }
-    const hh = DB.softDeleteHousehold(id, this._adminUsername || 'admin');
+    if (!this._canManage()) { this.toast('เฉพาะผู้ดูแลระบบ / ผู้ควบคุมเท่านั้น', 'error'); return; }
+    const hh = DB.softDeleteHousehold(id, this._whoAmI());
     if (!hh) { this.toast('ไม่พบครัวเรือน', 'error'); return; }
-    this._autoPush(() => FB.pushHousehold(hh));
+    this._autoPush(() => FB.pushHousehold(hh, e => this._undoDelete(e, () => DB.restoreHousehold(id))));
     this.closeModal();
     this.toast('ลบออกจากระบบแล้ว · กู้คืนได้จากถังขยะ', 'success');
     this.navigate('home');
@@ -1555,7 +1576,7 @@ const App = {
   confirmDeleteMember(mid) {
     const m = DB.getMember(this.hhId, mid);
     if (!m) { this.toast('ไม่พบสมาชิก', 'error'); return; }
-    const isAdmin = this._isAdmin();
+    const isAdmin = this._canManage();   // ผู้ควบคุมลบของทีมตัวเองได้ (rules บังคับขอบเขตอีกชั้น)
     const label = `<strong>สมาชิกที่ ${m.seq}</strong> พร้อมการเดินทาง ${m.trips?.length || 0} เที่ยว`;
     this.showModal('🗑 ลบสมาชิก',
       `<p style="color:var(--gray-600)">จะลบ ${label}</p>
@@ -1587,13 +1608,25 @@ const App = {
   // ลบออกจากระบบ (soft delete) — ซ่อนทุกที่ + ส่งขึ้น cloud ทันที · กู้คืนได้จากถังขยะ
   // ใช้กับสมาชิกที่ไม่มีตัวตนจริง (กดเพิ่มแล้วไม่ได้กรอก) — rules ยอมให้เฉพาะ admin เปลี่ยนค่า _deleted
   systemDeleteMember(mid) {
-    if (!this._isAdmin()) { this.toast('เฉพาะผู้ดูแลระบบเท่านั้น', 'error'); return; }
-    const m = DB.softDeleteMember(this.hhId, mid, this._adminUsername || 'admin');
+    if (!this._canManage()) { this.toast('เฉพาะผู้ดูแลระบบ / ผู้ควบคุมเท่านั้น', 'error'); return; }
+    const hhId = this.hhId;
+    const m = DB.softDeleteMember(hhId, mid, this._whoAmI());
     if (!m) { this.toast('ไม่พบสมาชิก', 'error'); return; }
-    this._autoPush(() => FB.pushMember(this.hhId, m));
+    this._autoPush(() => FB.pushMember(hhId, m, e => this._undoDelete(e, () => DB.restoreMember(hhId, mid))));
     this.closeModal();
     this.toast('ลบออกจากระบบแล้ว · กู้คืนได้จากถังขยะ', 'success');
-    this.navigate('household', this.hhId);   // บ้านยังอยู่ กลับเข้าหน้าบ้าน
+    this.navigate('household', hhId);   // บ้านยังอยู่ กลับเข้าหน้าบ้าน
+  },
+
+  // ชื่อที่บันทึกว่า "ใครลบ" — ผู้ควบคุมใช้ชื่อทีม ผู้ดูแลใช้ username
+  _whoAmI() { return (this._isStaff() ? this._team : this._adminUsername) || 'admin'; },
+
+  // rules ปฏิเสธ (เช่นลบข้ามทีม หรือยังไม่ได้ deploy rules ใหม่) → ย้อนสถานะในเครื่องกลับ
+  // ไม่งั้นผู้ใช้จะเห็นว่าลบแล้ว ทั้งที่บนระบบยังอยู่ และของจะกลับมาตอน "ดึงข้อมูล" รอบหน้า
+  _undoDelete(err, undo) {
+    undo();
+    this.toast('ลบไม่สำเร็จ — สิทธิ์ไม่พอ' + (err && err.code ? ` (${err.code})` : '') + ' · ย้อนกลับให้แล้ว', 'error');
+    this.render();
   },
 
   // ===================== MODAL: TRIP =====================
