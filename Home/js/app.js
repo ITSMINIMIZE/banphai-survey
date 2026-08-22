@@ -8,6 +8,9 @@ const App = {
   _team: '',            // staff: ชื่อผู้ควบคุม = ทีมที่ตัวเองดูแล
   _bootHandled: false,  // กันเข้าแอปซ้ำเมื่อ auth event ยิงหลายครั้ง
   _filterSup: '',       // admin: กรองรายการเฉพาะทีมของผู้ควบคุมคนนี้ ('' = ทุกทีม)
+  _filterDay: '',       // กรองตามวันที่ทำแบบสำรวจจริง 'YYYY-MM-DD' ('' = ทุกวัน)
+  _filterFrom: '',      // กรองช่วงเวลา 'HH:MM' — ว่าง = ไม่จำกัด
+  _filterTo: '',
 
   // ---- สิทธิ์ ----
   _isAdmin()   { return this._role === 'admin'; },
@@ -581,6 +584,13 @@ const App = {
     if (nameQ)                        list = list.filter(h => (h.surveyorName || '').toLowerCase().includes(nameQ));
     // ใช้ _normName ตัวเดียวกับ _visibleHouseholds จะได้จับคู่ชื่อแบบเดียวกันทั้งแอป
     if (this._filterSup)              list = list.filter(h => this._normName(h.supervisorName) === this._filterSup);
+    if (this._filterDay)              list = list.filter(h => this._dayKey(h) === this._filterDay);
+    const fMin = this._toMin(this._filterFrom), tMin = this._toMin(this._filterTo);
+    if (fMin !== null || tMin !== null) list = list.filter(h => {
+      const m = this._minOfDay(h);
+      if (m === null) return false;
+      return (fMin === null || m >= fMin) && (tMin === null || m <= tMin);
+    });
     // ใหม่สุดอยู่บน
     list = list.slice().sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
 
@@ -635,6 +645,26 @@ const App = {
             ${opt('', `👔 ทุกทีม (${sups.length})`)}${sups.map(n => opt(n, this._supLabel(n))).join('')}
           </select>`;
         })()}
+      </div>
+
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;font-size:13px;color:var(--gray-600);">
+        ${(() => {
+          const days = [...new Set(hhs.map(h => this._dayKey(h)).filter(Boolean))].sort();
+          if (days.length < 2) return '';        // วันเดียว ไม่ต้องมีให้เลือก
+          const o = (v,t) => `<option value="${v}" ${this._filterDay===v?'selected':''}>${t}</option>`;
+          return `<span>📅</span><select onchange="App.setDayFilter(this.value)" title="กรองตามวันที่สำรวจ"
+            style="padding:7px 10px;border:1.5px solid ${this._filterDay?'var(--primary)':'var(--gray-200)'};border-radius:8px;font-family:inherit;font-size:13px;background:var(--white);color:var(--gray-800);">
+            ${o('', `ทุกวัน (${days.length} วัน)`)}${days.map(d => o(d, this._dayLabel(d) + ' · ' + hhs.filter(h=>this._dayKey(h)===d).length + ' หลัง')).join('')}
+          </select>`;
+        })()}
+        <span>🕒</span>
+        <input type="time" value="${this._filterFrom}" onchange="App.setTimeFilter('from', this.value)" title="ตั้งแต่เวลา"
+          style="padding:6px 8px;border:1.5px solid ${this._filterFrom?'var(--primary)':'var(--gray-200)'};border-radius:8px;font-family:inherit;font-size:13px;background:var(--white);color:var(--gray-800);" />
+        <span>–</span>
+        <input type="time" value="${this._filterTo}" onchange="App.setTimeFilter('to', this.value)" title="ถึงเวลา"
+          style="padding:6px 8px;border:1.5px solid ${this._filterTo?'var(--primary)':'var(--gray-200)'};border-radius:8px;font-family:inherit;font-size:13px;background:var(--white);color:var(--gray-800);" />
+        ${(this._filterDay || this._filterFrom || this._filterTo)
+          ? `<button class="btn btn-ghost btn-sm" onclick="App.clearTimeFilter()">ล้างวัน/เวลา</button>` : ''}
       </div>` : ''}
 
       ${hhs.length === 0 ? `
@@ -681,7 +711,19 @@ const App = {
                 ${isAdmin && hh.supervisorName ? `<span class="tag tag-gray">👔 ${this.esc(this._supLabel(hh.supervisorName))}</span>` : ''}
                 <span class="tag tag-blue">👥 ${totM} คน</span>
                 <span class="tag tag-green">🚗 ${t} เที่ยว</span>
-                <span class="tag tag-gray">📅 ${hh.surveyDate}</span>
+                ${(() => {
+                  const d = this._madeAt(hh);
+                  if (!d) return `<span class="tag tag-gray">📅 ${this.esc(hh.surveyDate || '—')}</span>`;
+                  return `<span class="tag tag-gray" title="เวลาที่ทำแบบสำรวจ (ไม่เปลี่ยนแม้แก้ไขภายหลัง)">📅 ${this._dayLabel(this._dayKey(hh))} ${this._hhmm(d)} น.</span>`;
+                })()}
+                ${(() => {
+                  // แสดงเมื่อแก้หลังสร้างเกิน 1 นาที — กันขึ้นทันทีที่เพิ่งกดบันทึกครั้งแรก
+                  if (!hh.updatedAt || !hh.createdAt) return '';
+                  const u = new Date(hh.updatedAt), c = new Date(hh.createdAt);
+                  if (isNaN(u) || isNaN(c) || u - c < 60000) return '';
+                  const sameDay = this._dayKey({ createdAt: hh.updatedAt }) === this._dayKey(hh);
+                  return `<span class="tag" style="background:#eef2ff;color:#4338ca;border:1px solid #c7d2fe;" title="เวลาที่แก้ไขล่าสุด">✏️ แก้ ${sameDay ? '' : this._dayLabel(this._dayKey({createdAt: hh.updatedAt})) + ' '}${this._hhmm(u)} น.</span>`;
+                })()}
                 ${hh.residentialType ? `<span class="tag tag-gray">${hh.residentialType}</span>` : ''}
               </div>
             </div>
@@ -725,6 +767,28 @@ const App = {
     return Issues.forHousehold(hh).hard > 0 || this._hhMapCoords(hh);
   },
 
+  // ── เวลาที่ทำแบบสำรวจจริง = createdAt (ไม่เคยเปลี่ยน) · ระเบียนเก่าที่ไม่มี ใช้ surveyDate แทน
+  _madeAt(hh) {
+    const iso = hh?.createdAt || (hh?.surveyDate ? hh.surveyDate + 'T00:00:00.000Z' : '');
+    if (!iso) return null;
+    const d = new Date(iso);
+    return isNaN(d) ? null : d;
+  },
+  // คีย์วันแบบเวลาท้องถิ่น (ไม่ใช่ UTC) — ไม่งั้นงานหลังเที่ยงคืนจะข้ามวันผิด
+  _dayKey(hh) {
+    const d = this._madeAt(hh);
+    if (!d) return '';
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  },
+  _minOfDay(hh) { const d = this._madeAt(hh); return d ? d.getHours()*60 + d.getMinutes() : null; },
+  _hhmm(d)      { return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; },
+  _TH_MON: ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'],
+  _dayLabel(key) {
+    const [y,m,dd] = key.split('-').map(Number);
+    return `${dd} ${this._TH_MON[m-1]}`;
+  },
+  _toMin(hhmm) { const p = String(hhmm||'').split(':'); return p.length===2 ? (+p[0])*60 + (+p[1]) : null; },
+
   // ถังขยะที่บทบาทนี้เห็น — ผู้ควบคุมเห็นเฉพาะทีมตัวเอง (เครื่องเขามีแต่ข้อมูลทีมอยู่แล้ว
   // แต่กรองซ้ำกันเหนียว เผื่อเคยล็อกอินเป็น admin บนเครื่องเดียวกันมาก่อน)
   _trashItems() { return DB.getTrash(this._isStaff() ? this._team : ''); },
@@ -738,6 +802,9 @@ const App = {
   setStatus(v) { this._filterStatus = v; this.render(); },
 
   setSupFilter(v) { this._filterSup = v; this.render(); },
+  setDayFilter(v) { this._filterDay = v; this.render(); },
+  setTimeFilter(which, v) { if (which === 'from') this._filterFrom = v; else this._filterTo = v; this.render(); },
+  clearTimeFilter() { this._filterDay = ''; this._filterFrom = ''; this._filterTo = ''; this.render(); },
 
   setNameFilter(v) {
     this._filterName = v;
@@ -748,6 +815,7 @@ const App = {
 
   resetFilters() {
     this._filterStatus = 'all'; this._filterName = ''; this._filterNoCoords = false; this._filterSup = '';
+    this._filterDay = ''; this._filterFrom = ''; this._filterTo = '';
     this.render();
   },
 

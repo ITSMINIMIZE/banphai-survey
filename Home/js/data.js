@@ -180,12 +180,21 @@ const DB = {
     return hh;
   },
 
+  // ประทับเวลาแก้ไขล่าสุดที่ระดับบ้าน — สมาชิก/เที่ยวเปลี่ยนก็ถือว่าบ้านถูกแก้
+  // createdAt ไม่เคยถูกแตะ (เวลาที่ทำแบบสำรวจจริง) — ตัวนี้เป็นคนละตัวกัน
+  _touch(hhId) {
+    const hh = this.getHousehold(hhId);
+    if (hh) { hh.updatedAt = new Date().toISOString(); this.save(); }
+    return hh;
+  },
+
   updateHousehold(id, data) {
     const hh = this.getHousehold(id);
     if (!hh) return null;
-    // ไม่อัพเดต id, createdAt, members
-    const { id: _id, createdAt: _ca, members: _m, ...rest } = data;
+    // ไม่อัพเดต id, createdAt, members — createdAt ต้องคงเดิมตลอดอายุระเบียน
+    const { id: _id, createdAt: _ca, updatedAt: _ua, members: _m, ...rest } = data;
     Object.assign(hh, rest);
+    hh.updatedAt = new Date().toISOString();
     this.save();
     return hh;
   },
@@ -225,7 +234,7 @@ const DB = {
       trips: []
     };
     hh.members.push(m);
-    this.save();
+    this._touch(hhId);
     return m;
   },
 
@@ -233,7 +242,7 @@ const DB = {
     const m = this.getMember(hhId, mid);
     if (!m) return null;
     Object.assign(m, data);
-    this.save();
+    this._touch(hhId);
     return m;
   },
 
@@ -242,7 +251,7 @@ const DB = {
     if (!hh) return;
     hh.members = hh.members.filter(m => m.id !== mid);
     hh.members.forEach((m, i) => { m.seq = i + 1; });
-    this.save();
+    this._touch(hhId);
   },
 
   // ===== TRIPS =====
@@ -266,7 +275,7 @@ const DB = {
       parkingFee:        data.parkingFee        || ''
     };
     m.trips.push(trip);
-    this.save();
+    this._touch(hhId);
     return trip;
   },
 
@@ -276,7 +285,7 @@ const DB = {
     const trip = m.trips.find(t => t.id === tripId);
     if (!trip) return null;
     Object.assign(trip, data);
-    this.save();
+    this._touch(hhId);
     return trip;
   },
 
@@ -285,7 +294,7 @@ const DB = {
     if (!m) return;
     m.trips = m.trips.filter(t => t.id !== tripId);
     m.trips.forEach((t, i) => { t.seq = i + 1; });
-    this.save();
+    this._touch(hhId);
   },
 
   // ===== ถังขยะ: ลบออกจากระบบ (soft) / กู้คืน =====

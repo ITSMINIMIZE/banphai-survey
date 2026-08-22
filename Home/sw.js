@@ -1,5 +1,5 @@
 // Service Worker — Home Interview
-const CACHE_VERSION = 'hi-v64-staffdelete';
+const CACHE_VERSION = 'hi-v65-timefilter';
 const CORE_ASSETS = [
   './',
   './index.html',
