@@ -1,5 +1,5 @@
 // Service Worker — Home Interview
-const CACHE_VERSION = 'hi-v80-samepin';
+const CACHE_VERSION = 'hi-v81-clearautofill';
 const CORE_ASSETS = [
   './',
   './index.html',

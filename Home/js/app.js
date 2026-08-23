@@ -2194,6 +2194,7 @@ const App = {
     MapPicker.open(coordsEl?.value || '', (coords, name) => {
       if (coordsEl) {
         coordsEl.value = coords;
+        delete coordsEl.dataset.autofill;   // ผู้ใช้เลือกเอง ไม่ใช่ค่าที่ระบบเติมให้อีกต่อไป
         // อัพเดตแสดงพิกัดใต้ input
         const hint = coordsEl.nextElementSibling;
         if (hint && hint.style.fontSize === '11px') {
@@ -2212,9 +2213,27 @@ const App = {
 
   // ถ้าเลือก "กลับบ้าน" → auto-fill ปลายทาง = บ้าน
   _onPurposeChange(val) {
-    if (val !== 'กลับบ้าน') return;
     const hh = DB.getHousehold(this.hhId);
     if (!hh) return;
+    const destEl0   = document.getElementById('t_destination');
+    const coordsEl0 = document.getElementById('t_destinationCoords');
+    const typeEl0   = document.getElementById('t_destType');
+    const dropNote = () => {
+      const n = coordsEl0?.nextElementSibling;
+      if (n && n.style.fontSize === '11px') n.remove();
+    };
+    // เปลี่ยนออกจาก "กลับบ้าน" → ล้างปลายทางที่ระบบเติมให้เอง
+    // ไม่งั้นพิกัดบ้านค้างอยู่ กลายเป็นต้นทาง=ปลายทาง
+    // ล้างเฉพาะที่ยังเป็นค่าที่ระบบเติม (ธง autofill) — ถ้าผู้สำรวจเลือกหมุดเองแล้วจะไม่แตะ
+    if (val !== 'กลับบ้าน') {
+      if (coordsEl0 && coordsEl0.dataset.autofill === '1') {
+        coordsEl0.value = ''; delete coordsEl0.dataset.autofill; dropNote();
+        if (destEl0) destEl0.value = '';
+        if (typeEl0) typeEl0.value = '';
+        this._toggleOther('t_destType');
+      }
+      return;
+    }
     const homeAddr = [
       hh.houseNo ? 'บ้านเลขที่ ' + hh.houseNo : '',
       hh.road    ? 'ถ.' + hh.road              : ''
@@ -2225,7 +2244,7 @@ const App = {
     const typeEl   = document.getElementById('t_destType');
 
     if (destEl)   destEl.value   = homeAddr;
-    if (coordsEl) coordsEl.value = hh.coordinates || '';
+    if (coordsEl) { coordsEl.value = hh.coordinates || ''; coordsEl.dataset.autofill = '1'; }
     if (typeEl)   typeEl.value   = 'ที่พัก / บ้านของตัวเอง';
 
     // แสดงพิกัดใต้ input
