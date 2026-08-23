@@ -2352,6 +2352,13 @@ const App = {
         this.toast('เที่ยวก่อนหน้าเป็น "กลับบ้าน" อยู่แล้ว — ต้องออกจากบ้านก่อนถึงจะกลับบ้านได้อีก', 'error'); return;
       }
     }
+    // ต้นทางกับปลายทางต้องไม่ใช่หมุดเดียวกัน — ระยะทาง 0 ใช้ทำ OD ไม่ได้
+    const oCo = document.getElementById('t_originCoords')?.value.trim() || '';
+    const dCo = document.getElementById('t_destinationCoords')?.value.trim() || '';
+    if (samePin(oCo, dCo)) {
+      this.toast('ต้นทางกับปลายทางเป็นหมุดเดียวกัน — เลือกปลายทางใหม่', 'error'); return;
+    }
+
     // เลือก "อื่น ๆ" ต้องพิมพ์เสมอ
     const missOther = [
       this._missOther(purpose, this._readOther('t_purpose'), 'วัตถุประสงค์'),

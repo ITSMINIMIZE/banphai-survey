@@ -445,6 +445,16 @@ function gridBucket(gender, workStatus) {
   return '';
 }
 
+// ── ต้นทาง–ปลายทางเป็นหมุดเดียวกันไหม ────────────────────────────────────────
+// เคสจริง: กด "กลับบ้าน" แล้วระบบเติมพิกัดบ้านให้เป็นปลายทางอัตโนมัติ
+// พอเปลี่ยนแค่วัตถุประสงค์ พิกัดที่เติมไว้ยังค้างอยู่ → ต้นทางกับปลายทางเป็นจุดเดียวกัน
+// พิกัดถูกคัดลอกมาตรง ๆ จึงเทียบตัวอักษรได้เลย ไม่ต้องคำนวณระยะ
+// (คนละที่ที่ปักหมุดเองจะไม่มีทางได้สตริงเท่ากันอยู่แล้ว)
+const samePin = (c1, c2) => {
+  const a = String(c1 || '').trim(), b = String(c2 || '').trim();
+  return !!a && a === b;
+};
+
 // เลือก 'อื่น ๆ' แล้วไม่พิมพ์ระบุ — ผู้สำรวจชอบกดผ่านเพื่อความเร็ว เท่ากับไม่ได้ตอบ
 const OTHER = 'อื่น ๆ';
 const needOther = (val, other) => val === OTHER && !String(other || '').trim();
@@ -531,6 +541,8 @@ const Issues = {
     const hard = [], soft = [];
     if (!t) return { hard, soft };
     if (!t.originCoords)      hard.push('ไม่มีพิกัดต้นทาง');
+    if (samePin(t.originCoords, t.destinationCoords))
+      hard.push('ต้นทางกับปลายทางเป็นหมุดเดียวกัน');
     if (!t.destinationCoords) hard.push('ไม่มีพิกัดปลายทาง');
     if (!t.purpose)           hard.push('ไม่ระบุวัตถุประสงค์');
     if (!t.departureTime)     hard.push('ไม่ระบุเวลาออกเดินทาง');
