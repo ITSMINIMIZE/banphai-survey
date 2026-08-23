@@ -799,14 +799,23 @@ const App = {
 
   // เที่ยวนี้จะเป็นเที่ยวแรกของวันไหม — เทียบด้วยเวลาออกเดินทาง ไม่ใช่ลำดับที่กรอก
   // (seq เรียงตามลำดับที่กรอก ผู้สำรวจอาจกรอกย้อนได้)
-  _isFirstTripOfDay(editingId, departureTime) {
+  // เที่ยวของสมาชิกคนนี้ เรียงตามลำดับที่กรอก (ไม่ใช่เวลา — ออกเย็นกลับเช้าจะสลับกัน)
+  _tripsInOrder() {
     const m = DB.getMemberView(this.hhId, this.memberId);
-    const others = (m?.trips || []).filter(t => t.id !== editingId);
-    if (!others.length) return true;                       // ยังไม่มีเที่ยวอื่น = เที่ยวแรกแน่นอน
-    // มีเที่ยวที่ยังไม่กรอกเวลา → เรียงลำดับไม่ได้ ไม่ฟันธงว่าอันนี้มาก่อน (ไม่บล็อก)
-    if (others.some(t => !t.departureTime)) return false;
-    // เท่ากันไม่นับว่ามาก่อน — เผื่อกรอกเวลาซ้ำกัน จะได้ไม่บล็อกโดยไม่จำเป็น
-    return others.every(t => String(departureTime) < String(t.departureTime));
+    return (m?.trips || []).slice().sort((a, b) => (a.seq || 0) - (b.seq || 0));
+  },
+  // เที่ยวที่กำลังบันทึกเป็น "รายการแรก" ไหม
+  // เพิ่มใหม่ = ต่อท้ายเสมอ → เป็นรายการแรกเฉพาะตอนยังไม่มีเที่ยวอื่นเลย
+  _isFirstTrip(editingId) {
+    const trips = this._tripsInOrder();
+    if (!trips.length) return true;
+    return editingId ? trips[0].id === editingId : false;
+  },
+  // เที่ยวก่อนหน้า (ตามลำดับ) เป็น "กลับบ้าน" อยู่แล้วไหม
+  _prevTripIsHome(editingId) {
+    const trips = this._tripsInOrder();
+    const idx = editingId ? trips.findIndex(t => t.id === editingId) : trips.length;
+    return idx > 0 && trips[idx - 1].purpose === 'กลับบ้าน';
   },
 
   // ── ช่อง "ระบุ" คู่กับ select ที่มีตัวเลือก 'อื่น ๆ' ─────────────────────────
@@ -2331,9 +2340,14 @@ const App = {
     // --- validate required ---
     if (!purpose)       { this.toast('กรุณาเลือกวัตถุประสงค์การเดินทาง', 'error'); return; }
     if (!departureTime) { this.toast('กรุณากรอกเวลาออกเดินทาง', 'error'); return; }
-    // วันหนึ่งเริ่มที่บ้าน — เที่ยวแรกจึงเป็น "กลับบ้าน" ไม่ได้ ต้องออกจากบ้านก่อนถึงจะกลับได้
-    if (purpose === 'กลับบ้าน' && this._isFirstTripOfDay(this.editingTripId, departureTime)) {
-      this.toast('เที่ยวแรกของวันเป็น "กลับบ้าน" ไม่ได้ — ต้องมีเที่ยวที่ออกจากบ้านก่อน', 'error'); return;
+    // ลูกโซ่การเดินทาง — ตัดสินจากลำดับที่กรอก ไม่ใช่เวลา
+    if (purpose === 'กลับบ้าน') {
+      if (this._isFirstTrip(this.editingTripId)) {
+        this.toast('เที่ยวแรกเป็น "กลับบ้าน" ไม่ได้ — ต้องมีเที่ยวที่ออกจากบ้านก่อน', 'error'); return;
+      }
+      if (this._prevTripIsHome(this.editingTripId)) {
+        this.toast('เที่ยวก่อนหน้าเป็น "กลับบ้าน" อยู่แล้ว — ต้องออกจากบ้านก่อนถึงจะกลับบ้านได้อีก', 'error'); return;
+      }
     }
     // เลือก "อื่น ๆ" ต้องพิมพ์เสมอ
     const missOther = [
