@@ -1194,7 +1194,8 @@ const App = {
         </div>
         <div class="form-row">
           <label class="form-label req">สถานะการทำงาน / เรียน</label>
-          <select id="f_workStatus" class="form-select" autocomplete="off" onchange="App._onWorkStatusChange(this.value)">
+          <select id="f_workStatus" class="form-select" autocomplete="off"
+            onchange="App._onWorkStatusChange(this.value); App._toggleOther('f_workStatus')">
             <option value="">— เลือก —</option>
             ${OPT.workStatus.map(o => `<option value="${o}" ${o === m.workStatus ? 'selected' : ''}>${o}</option>`).join('')}
           </select>
@@ -1205,7 +1206,8 @@ const App = {
       <div class="form-grid">
         <div class="form-row">
           <label class="form-label">อาชีพ</label>
-          <select id="f_occupation" class="form-select" autocomplete="off" ${nw ? 'disabled' : ''}>
+          <select id="f_occupation" class="form-select" autocomplete="off" ${nw ? 'disabled' : ''}
+            onchange="App._toggleOther('f_occupation')">
             <option value="">— เลือก —</option>
             ${OPT.occupation.map(o => `<option value="${o}" ${o === occVal ? 'selected' : ''}>${o}</option>`).join('')}
           </select>
@@ -1276,6 +1278,7 @@ const App = {
     if (occ) {
       if (nw) { occ.value = 'อยู่บ้านเฉย ๆ'; occ.disabled = true; }
       else    { occ.disabled = false; }
+      this._toggleOther('f_occupation');   // อาชีพถูกเปลี่ยนอัตโนมัติ → ช่อง "ระบุ" ต้องตามด้วย
     }
     if (wp) wp.style.display = nw ? 'none' : 'block';
   },

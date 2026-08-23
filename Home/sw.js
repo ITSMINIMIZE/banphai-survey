@@ -1,5 +1,5 @@
 // Service Worker — Home Interview
-const CACHE_VERSION = 'hi-v77-tripchain-seq';
+const CACHE_VERSION = 'hi-v78-otherfix';
 const CORE_ASSETS = [
   './',
   './index.html',
