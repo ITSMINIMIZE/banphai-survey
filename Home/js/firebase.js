@@ -249,32 +249,71 @@ const FB = {
       hhMap[doc.id] = d;
     });
 
-    // pull members ของแต่ละ household แบบ parallel
-    const memberSnaps = await Promise.all(hhDocs.map(doc =>
-      this._withTimeout(doc.ref.collection('members').get({ source: 'server' }))
-    ));
-
-    // จัดเก็บ member doc refs + reset trips
-    const allMemberDocs = [];
-    memberSnaps.forEach((snap, i) => {
-      const hhId = hhDocs[i].id;
-      snap.docs.forEach(mDoc => {
-        const m = this._strip(mDoc.data());
+    // ── ทางเร็ว: 2 คำขอครอบคลุมสมาชิกและเที่ยวทั้งหมด ──
+    // ของเดิมยิง 1 คำขอต่อบ้าน แล้วอีก 1 ต่อสมาชิก — ที่ 2,000 บ้านคือหลายพันคำขอพร้อมกัน
+    // เบราว์เซอร์คิวไม่ไหว ชนกำแพง timeout 20 วิ แล้ว Promise.all พังทั้งก้อน = ดึงข้อมูลไม่ผ่านเลย
+    // rules เปิด collectionGroup ให้เฉพาะบัญชีจริง (ผู้ดูแล/ผู้ควบคุม) ผู้สำรวจ anonymous ใช้ไม่ได้
+    // จึงต้องมีทางถอยไว้ — แต่ผู้สำรวจดึงเฉพาะบ้านตัวเอง จำนวนน้อย ทางถอยจึงไหว
+    let fast = false;
+    try {
+      const [memSnap, tripSnap] = await Promise.all([
+        this._withTimeout(this.db.collectionGroup('members').get({ source: 'server' }), 60000),
+        this._withTimeout(this.db.collectionGroup('trips').get({ source: 'server' }), 60000),
+      ]);
+      const memByPath = {};
+      memSnap.docs.forEach(d => {
+        const p = d.ref.path.split('/');          // households/{hhId}/members/{mId}
+        const hh = hhMap[p[1]];
+        if (!hh) return;                          // นอกขอบเขตของบทบาทนี้
+        const m = this._strip(d.data());
         m.trips = [];
-        hhMap[hhId].members.push(m);
-        allMemberDocs.push({ hhId, mId: mDoc.id, ref: mDoc.ref, mRef: m });
+        hh.members.push(m);
+        memByPath[p[1] + '/' + p[3]] = m;
       });
-    });
+      tripSnap.docs.forEach(d => {
+        const p = d.ref.path.split('/');          // households/{hh}/members/{m}/trips/{t}
+        const m = memByPath[p[1] + '/' + p[3]];
+        if (!m) return;
+        m.trips.push(this._strip(d.data()));
+      });
+      fast = true;
+    } catch (e) {
+      console.warn('[FB] collectionGroup ใช้ไม่ได้ ใช้วิธีเดิมแทน:', e.code || e.message || e);
+      Object.values(hhMap).forEach(hh => { hh.members = []; });   // ล้างของที่อาจใส่ไปแล้วบางส่วน
+    }
 
-    // pull trips ของแต่ละ member แบบ parallel
-    const tripSnaps = await Promise.all(allMemberDocs.map(({ ref }) =>
-      this._withTimeout(ref.collection('trips').get({ source: 'server' }))
-    ));
-    tripSnaps.forEach((snap, i) => {
-      snap.docs.forEach(tDoc => {
-        allMemberDocs[i].mRef.trips.push(this._strip(tDoc.data()));
+    if (!fast) {
+      // ── ทางถอย: ไล่ทีละบ้าน แต่จำกัดจำนวนที่ยิงพร้อมกัน ──
+      // ไม่ยิงทีเดียวทั้งหมดเหมือนเดิม ไม่งั้นชน timeout พร้อมกันหมด
+      const chunk = async (items, size, fn) => {
+        const out = [];
+        for (let i = 0; i < items.length; i += size) {
+          out.push(...await Promise.all(items.slice(i, i + size).map(fn)));
+        }
+        return out;
+      };
+      const memberSnaps = await chunk(hhDocs, 25, doc =>
+        this._withTimeout(doc.ref.collection('members').get({ source: 'server' }), 30000));
+
+      const allMemberDocs = [];
+      memberSnaps.forEach((snap, i) => {
+        const hhId = hhDocs[i].id;
+        snap.docs.forEach(mDoc => {
+          const m = this._strip(mDoc.data());
+          m.trips = [];
+          hhMap[hhId].members.push(m);
+          allMemberDocs.push({ hhId, mId: mDoc.id, ref: mDoc.ref, mRef: m });
+        });
       });
-    });
+
+      const tripSnaps = await chunk(allMemberDocs, 25, ({ ref }) =>
+        this._withTimeout(ref.collection('trips').get({ source: 'server' }), 30000));
+      tripSnaps.forEach((snap, i) => {
+        snap.docs.forEach(tDoc => {
+          allMemberDocs[i].mRef.trips.push(this._strip(tDoc.data()));
+        });
+      });
+    }
 
     // sort
     Object.values(hhMap).forEach(hh => {
