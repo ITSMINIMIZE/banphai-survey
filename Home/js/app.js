@@ -801,9 +801,12 @@ const App = {
   // (seq เรียงตามลำดับที่กรอก ผู้สำรวจอาจกรอกย้อนได้)
   _isFirstTripOfDay(editingId, departureTime) {
     const m = DB.getMemberView(this.hhId, this.memberId);
-    const others = (m?.trips || []).filter(t => t.id !== editingId && t.departureTime);
+    const others = (m?.trips || []).filter(t => t.id !== editingId);
     if (!others.length) return true;                       // ยังไม่มีเที่ยวอื่น = เที่ยวแรกแน่นอน
-    return others.every(t => String(departureTime) <= String(t.departureTime));
+    // มีเที่ยวที่ยังไม่กรอกเวลา → เรียงลำดับไม่ได้ ไม่ฟันธงว่าอันนี้มาก่อน (ไม่บล็อก)
+    if (others.some(t => !t.departureTime)) return false;
+    // เท่ากันไม่นับว่ามาก่อน — เผื่อกรอกเวลาซ้ำกัน จะได้ไม่บล็อกโดยไม่จำเป็น
+    return others.every(t => String(departureTime) < String(t.departureTime));
   },
 
   // ── ช่อง "ระบุ" คู่กับ select ที่มีตัวเลือก 'อื่น ๆ' ─────────────────────────
