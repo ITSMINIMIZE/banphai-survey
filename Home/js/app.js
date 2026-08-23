@@ -1404,7 +1404,7 @@ const App = {
               </div>
               <div class="trip-actions">
                 <button class="icon-btn" onclick="App.openTripForm('${t.id}')" title="แก้ไข">✏️</button>
-                <button class="icon-btn del" onclick="App.deleteTrip('${t.id}')" title="ลบ">🗑</button>
+                <button class="icon-btn del" onclick="App.confirmDeleteTrip('${t.id}')" title="ลบ">🗑</button>
               </div>
             </div>`;
           }).join('')}
@@ -2399,9 +2399,52 @@ const App = {
     this.render();
   },
 
+  // ลอกแพตเทิร์นเดียวกับลบครัวเรือน/สมาชิก — ของเดิมกด 🗑 แล้วลบทันทีไม่มีถามยืนยันเลย
+  confirmDeleteTrip(tripId) {
+    const m = DB.getMemberView(this.hhId, this.memberId);
+    const t = (m?.trips || []).find(x => x.id === tripId);
+    if (!t) { this.toast('ไม่พบการเดินทาง', 'error'); return; }
+    const canSys = this._canManage();   // ผู้ดูแล + ผู้ควบคุม (rules บังคับขอบเขตทีมอีกชั้น)
+    const where  = [t.origin || t.originType || '—', t.destination || t.destinationType || '—'].join(' → ');
+    this.showModal('🗑 ลบการเดินทาง',
+      `<p style="color:var(--gray-600)">จะลบ <strong>เที่ยวที่ ${t.seq}</strong>
+         ${t.purpose ? `· ${this.esc(t.purpose)}` : ''}${t.departureTime ? ` · ${this.esc(t.departureTime)} น.` : ''}</p>
+       <p style="font-size:12.5px;color:var(--gray-500);margin-top:2px;">${this.esc(where)}</p>
+       <div style="margin-top:14px;padding:12px;background:var(--gray-100);border-radius:8px;">
+         <div style="font-weight:700;font-size:13px;">🖥 ลบจากเครื่องนี้</div>
+         <div style="font-size:12px;color:var(--gray-600);margin-top:2px;">ล้างแคชในเครื่อง · ข้อมูลบนระบบยังอยู่ ดึงกลับได้</div>
+       </div>
+       ${canSys ? `
+       <div style="margin-top:10px;padding:12px;background:rgba(239,68,68,.08);border:1px solid var(--danger);border-radius:8px;">
+         <div style="font-weight:700;font-size:13px;color:var(--danger);">☁️ ลบออกจากระบบ</div>
+         <div style="font-size:12px;color:var(--gray-600);margin-top:2px;">
+           หายจากรายการ · กราฟ · Export ทุกที่ทันที (ทุกเครื่อง)<br>
+           <b>เก็บไว้ในถังขยะ — กู้คืนได้ภายหลัง</b>
+         </div>
+       </div>` : ''}`,
+      `<button class="btn btn-ghost" onclick="App.closeModal()">ยกเลิก</button>
+       <button class="btn btn-ghost" style="color:var(--gray-700)" onclick="App.deleteTrip('${tripId}')">🖥 ลบจากเครื่องนี้</button>
+       ${canSys ? `<button class="btn btn-danger" onclick="App.systemDeleteTrip('${tripId}')">☁️ ลบออกจากระบบ</button>` : ''}`
+    );
+  },
+
   deleteTrip(tripId) {
     DB.deleteTrip(this.hhId, this.memberId, tripId);
+    this.closeModal();
     this.toast('ลบจากเครื่องนี้แล้ว · Cloud ยังอยู่', 'success');
+    this.render();
+  },
+
+  // ลบออกจากระบบ (soft delete) — ผู้ควบคุมทำได้เฉพาะทีมตัวเอง (บังคับที่ rules)
+  systemDeleteTrip(tripId) {
+    if (!this._canManage()) { this.toast('เฉพาะผู้ดูแลระบบ / ผู้ควบคุมเท่านั้น', 'error'); return; }
+    const hhId = this.hhId, mId = this.memberId;
+    const t = DB.softDeleteTrip(hhId, mId, tripId, this._whoAmI());
+    if (!t) { this.toast('ไม่พบการเดินทาง', 'error'); return; }
+    this._autoPush(() => FB.pushTrip(hhId, mId, t,
+      e => this._undoDelete(e, () => DB.restoreTrip(hhId, mId, tripId))));
+    this.closeModal();
+    this.toast('ลบออกจากระบบแล้ว · กู้คืนได้จากถังขยะ', 'success');
     this.render();
   },
 

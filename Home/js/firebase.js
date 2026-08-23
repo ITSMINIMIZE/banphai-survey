@@ -130,10 +130,10 @@ const FB = {
     if (this._isOldById(hhId)) { this._warnOld(); return; }
     this._pushDoc(this.db.collection(this.COLLECTION).doc(hhId).collection('members').doc(m.id), this._memberData(m), onErr);
   },
-  pushTrip(hhId, mId, t) {
+  pushTrip(hhId, mId, t, onErr) {
     if (!t) return;
     if (this._isOldById(hhId)) { this._warnOld(); return; }
-    this._pushDoc(this.db.collection(this.COLLECTION).doc(hhId).collection('members').doc(mId).collection('trips').doc(t.id), t);
+    this._pushDoc(this.db.collection(this.COLLECTION).doc(hhId).collection('members').doc(mId).collection('trips').doc(t.id), t, onErr);
   },
 
   // ===== SYNC =====

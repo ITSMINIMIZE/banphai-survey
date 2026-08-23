@@ -1,5 +1,5 @@
 // Service Worker — Home Interview
-const CACHE_VERSION = 'hi-v75-firsttrip-fix';
+const CACHE_VERSION = 'hi-v76-triptrash';
 const CORE_ASSETS = [
   './',
   './index.html',
