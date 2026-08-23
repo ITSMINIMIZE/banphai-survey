@@ -641,8 +641,10 @@ function set(id, val) {
 
 // ── TAB: ติดตามงาน ─────────────────────────────────────────────────────────────
 // ขั้นต่ำ/คน — 100% = QUOTA × จำนวนผู้สำรวจในทีม/จุด
-const HOME_QUOTA_PER_PERSON = 12;  // บ้าน/คน
-const ROAD_QUOTA_PER_PERSON = 80;  // คัน/คน
+// Home เก็บ 2 วัน → 12 บ้าน/คน/วัน = 24 ต่อคนตลอดงาน
+// (ถ้าเปลี่ยนจำนวนวันเก็บข้อมูล ต้องมาแก้ตรงนี้ — ค่านี้อยู่ใน Dashboard ที่เดียว ไม่มีในแอปสำรวจ)
+const HOME_QUOTA_PER_PERSON = 24;  // บ้าน/คน (12/วัน × 2 วัน)
+const ROAD_QUOTA_PER_PERSON = 80;  // คัน/คน (เก็บวันเดียว)
 
 function statusChip(pct, actual, target) {
   const cls = pct >= 100 ? 'chip-ok' : pct >= 50 ? 'chip-warn' : 'chip-err';
