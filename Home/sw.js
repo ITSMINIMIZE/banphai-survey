@@ -1,5 +1,5 @@
 // Service Worker — Home Interview
-const CACHE_VERSION = 'hi-v78-otherfix';
+const CACHE_VERSION = 'hi-v79-gridcheck';
 const CORE_ASSETS = [
   './',
   './index.html',

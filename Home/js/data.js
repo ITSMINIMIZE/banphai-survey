@@ -433,6 +433,18 @@ const DB = {
 // ถ้าแยกกันเขียน หน้าจอกับไฟล์จะบอกไม่ตรงกัน แล้วไม่มีใครรู้ว่าอันไหนถูก
 //   hard = ทำให้ใช้วิเคราะห์ไม่ได้ (ต้องแก้ก่อนส่งงาน)
 //   soft = ใช้ได้แต่คุณภาพลด
+// เพศ + สถานะการทำงาน → ช่องในตารางสรุปครัวเรือน (ส่วนที่ 1)
+// 'อื่น ๆ' ไม่มีช่องรองรับในตาราง → คืน '' = แมปไม่ได้
+function gridBucket(gender, workStatus) {
+  const g = gender === 'ชาย' ? 'm' : gender === 'หญิง' ? 'f' : '';
+  if (!g) return '';
+  if (workStatus === 'ทำงาน')        return g + '_work';
+  if (workStatus === 'เรียนหนังสือ') return g + '_study';
+  if (workStatus === 'ว่างงาน (ยังหางานทำไม่ได้)' ||
+      workStatus === 'ไม่ทำงาน (อยู่บ้านเฉย ๆ)')   return g + '_notw';
+  return '';
+}
+
 // เลือก 'อื่น ๆ' แล้วไม่พิมพ์ระบุ — ผู้สำรวจชอบกดผ่านเพื่อความเร็ว เท่ากับไม่ได้ตอบ
 const OTHER = 'อื่น ๆ';
 const needOther = (val, other) => val === OTHER && !String(other || '').trim();
@@ -448,6 +460,29 @@ const Issues = {
     else if (!hh.members.some(m => (m.trips || []).length))   hard.push('ไม่มีสมาชิกคนไหนเดินทางเลย');
     // เลือก "อื่น ๆ" แล้วไม่พิมพ์ระบุ = เท่ากับไม่ได้ตอบ
     if (needOther(hh.residentialType, hh.residentialTypeOther)) hard.push('เลือกประเภทที่อยู่ "อื่น ๆ" แต่ไม่ได้ระบุ');
+    // ── สมาชิกที่บันทึกไว้ ต้องไม่เกินตารางสรุป ──
+    // ตอนกดบันทึกสมาชิกมีตัวบล็อกอยู่แล้ว แต่ระเบียนที่บันทึกไปก่อนหน้านั้น
+    // หรือที่หลุดมาเพราะแก้ตารางสรุปทีหลัง จะนั่งอยู่เฉย ๆ โดยไม่มีอะไรเตือน
+    // กฎนี้จับของที่บันทึกไปแล้ว จะได้เห็นในการ์ดและตัวกรอง "ไม่สมบูรณ์"
+    {
+      const grid = hh.memberGrid || {};
+      const mem  = (hh.members || []).filter(m => !m._deleted);
+      const over = [];
+      // เกินรายช่อง (เพศ × สถานะ)
+      OPT.memberGridRows.forEach(row => {
+        if (row.key.endsWith('_child')) return;          // เด็กต่ำกว่า 6 ปี ไม่ถูกสัมภาษณ์ ไม่มีระเบียน
+        const got = mem.filter(m => gridBucket(m.gender, m.workStatus) === row.key).length;
+        const want = +(grid[row.key] || 0);
+        if (got > want) over.push(`${row.label} ${got}/${want} คน`);
+      });
+      // เกินยอดรวมรายเพศ (จับกรณีสถานะเป็น 'อื่น ๆ' ที่แมปช่องไม่ได้ด้วย)
+      [['ชาย', ['m_study','m_work','m_notw']], ['หญิง', ['f_study','f_work','f_notw']]].forEach(([g, keys]) => {
+        const got  = mem.filter(m => m.gender === g).length;
+        const want = keys.reduce((a, k) => a + (+(grid[k] || 0)), 0);
+        if (got > want) over.push(`${g}รวม ${got}/${want} คน`);
+      });
+      if (over.length) hard.push('สมาชิกเกินตารางสรุป — ' + over.join(' · '));
+    }
     if (!hh.houseNo)         soft.push('ไม่มีบ้านเลขที่');
     if (!hh.householdIncome) soft.push('ไม่มีรายได้ครัวเรือน');
     if (!hh.residentialType) soft.push('ไม่มีประเภทที่อยู่อาศัย');
