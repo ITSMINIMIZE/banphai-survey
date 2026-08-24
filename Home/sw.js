@@ -1,5 +1,5 @@
 // Service Worker — Home Interview
-const CACHE_VERSION = 'hi-v82-fastpull';
+const CACHE_VERSION = 'hi-v83-tripchain';
 const CORE_ASSETS = [
   './',
   './index.html',

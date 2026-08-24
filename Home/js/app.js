@@ -1348,7 +1348,7 @@ const App = {
     this._autoPush(() => FB.pushMember(this.hhId, savedMember));
 
     // --- auto-update household income if sum > current ---
-    const updatedHH  = DB.getHousehold(this.hhId);
+    const updatedHH  = DB.getHouseholdView(this.hhId);   // ไม่รวมสมาชิกที่ลบออกจากระบบแล้ว
     const memberSum  = (updatedHH?.members || []).reduce((s, m) => {
       const n = +m.income;
       return (!m.income || m.income === 'ไม่ระบุ' || isNaN(n)) ? s : s + n;
@@ -1364,7 +1364,7 @@ const App = {
     // ไปหน้าการเดินทางต่อเลย + เปิดฟอร์มการเดินทางครั้งแรกให้อัตโนมัติ
     this.memberTab = 'trips';
     this.render();
-    const mem = DB.getMember(this.hhId, this.memberId);
+    const mem = DB.getMemberView(this.hhId, this.memberId);   // เที่ยวที่ลบแล้วไม่นับ
     if (mem && mem.trips.length === 0) this.openTripForm(null);
   },
 
@@ -1791,7 +1791,7 @@ const App = {
 
   // ===================== MEMBER: ไปหน้าสมาชิกเลย ไม่มี modal =====================
   completeMember() {
-    const m = DB.getMember(this.hhId, this.memberId);
+    const m = DB.getMemberView(this.hhId, this.memberId);   // เที่ยวที่ลบแล้วไม่นับ
     if (!m) return this.navigate('household', this.hhId);
     if (m.trips.length < 2) {
       this.toast('ต้องมีการเดินทางอย่างน้อย 2 ครั้ง', 'error'); return;
@@ -1816,7 +1816,8 @@ const App = {
     const m = DB.getMember(this.hhId, mid);
     if (!m) { this.toast('ไม่พบสมาชิก', 'error'); return; }
     const isAdmin = this._canManage();   // ผู้ควบคุมลบของทีมตัวเองได้ (rules บังคับขอบเขตอีกชั้น)
-    const label = `<strong>สมาชิกที่ ${m.seq}</strong> พร้อมการเดินทาง ${m.trips?.length || 0} เที่ยว`;
+    const liveTrips = (m.trips || []).filter(t => !t._deleted).length;   // ไม่นับเที่ยวที่ลบแล้ว
+    const label = `<strong>สมาชิกที่ ${m.seq}</strong> พร้อมการเดินทาง ${liveTrips} เที่ยว`;
     this.showModal('🗑 ลบสมาชิก',
       `<p style="color:var(--gray-600)">จะลบ ${label}</p>
        <div style="margin-top:14px;padding:12px;background:var(--gray-100);border-radius:8px;">
@@ -1871,8 +1872,11 @@ const App = {
   // ===================== MODAL: TRIP =====================
   openTripForm(tripId) {
     this.editingTripId = tripId;
-    const hh = DB.getHousehold(this.hhId);
-    const m  = DB.getMember(this.hhId, this.memberId);
+    // ⚠️ ต้องใช้ View ทั้งคู่ — ของดิบรวมเที่ยวที่ลบออกจากระบบแล้ว
+    // ทำให้ "เที่ยวแรก" คิดผิด แล้วไปดึงปลายทางของเที่ยวที่ลบไปแล้วมาเป็นต้นทาง
+    // แทนที่จะดึงพิกัดบ้าน
+    const hh = DB.getHouseholdView(this.hhId);
+    const m  = DB.getMemberView(this.hhId, this.memberId);
     const t  = tripId ? m?.trips.find(x => x.id === tripId) : null;
     const isEdit = !!t;
     const segs   = t?.segments?.length ? t.segments : [{ mode:'', duration:'', fare:'' }];
@@ -1886,6 +1890,7 @@ const App = {
     let defOrigin       = t?.origin            || '';
     let defOriginCoords = t?.originCoords      || '';
     let defOriginType   = t?.originType        || '';
+    let defOriginOther  = t?.originTypeOther   || '';
 
     if (!isEdit) {
       if (!m || m.trips.length === 0) {
@@ -1893,12 +1898,14 @@ const App = {
         defOrigin       = homeAddr;
         defOriginCoords = hh?.coordinates || '';
         defOriginType   = 'ที่พัก / บ้านของตัวเอง';
+        defOriginOther  = '';
       } else {
         // การเดินทางถัดไป: ต้นทาง = ปลายทางของครั้งก่อน
         const last      = m.trips[m.trips.length - 1];
-        defOrigin       = last.destination       || '';
-        defOriginCoords = last.destinationCoords || '';
-        defOriginType   = last.destinationType   || '';
+        defOrigin       = last.destination           || '';
+        defOriginCoords = last.destinationCoords     || '';
+        defOriginType   = last.destinationType       || '';
+        defOriginOther  = last.destinationTypeOther  || '';   // สืบทอดข้อความ "ระบุ" มาด้วย
       }
     }
 
@@ -1915,6 +1922,17 @@ const App = {
         if (!defOriginType) defOriginType = prev.destinationType || '';
       }
     }
+
+    // ต้นทางมาจากไหน — บอกให้ชัดว่าถ้าจะแก้ต้องไปแก้ที่ไหน
+    const tripsView = (m?.trips || []).slice().sort((a, b) => (a.seq || 0) - (b.seq || 0));
+    const myIdx = isEdit ? tripsView.findIndex(x => x.id === t.id) : tripsView.length;
+    const isFirstTripHere = myIdx <= 0;
+    const originNote = isFirstTripHere
+      ? 'เที่ยวแรก — ต้นทางคือบ้าน (แก้ที่ข้อมูลบ้าน)'
+      : `ต้องเท่ากับปลายทางของเที่ยวที่ ${tripsView[myIdx - 1]?.seq || myIdx} — แก้ที่เที่ยวนั้น`;
+    const originFixHint = isFirstTripHere
+      ? 'ไปปักพิกัดบ้านที่หน้าข้อมูลบ้านก่อน'
+      : `ไปใส่พิกัดปลายทางของเที่ยวที่ ${tripsView[myIdx - 1]?.seq || myIdx} ก่อน`;
 
     // เวลาที่เริ่มเดินทาง: ให้ผู้สำรวจกรอกเองเสมอ — ไม่เติมให้อัตโนมัติ
     // (เดิมเติมเวลาถึงปลายทางของเที่ยวก่อนหน้าให้ ทำให้เผลอกดผ่านโดยไม่ได้ถามจริง)
@@ -1969,30 +1987,29 @@ const App = {
       </div>`;
 
     this.showModal(isEdit ? '✏️ แก้ไขการเดินทาง' : '🚗 เพิ่มการเดินทาง', `
-      <!-- ต้นทาง (auto จากปลายทางก่อนหน้า/บ้าน — แก้ได้ถ้าพิกัดขาด) -->
+      <!-- ต้นทาง: อ่านอย่างเดียว — ต้องเท่ากับปลายทางของเที่ยวก่อนหน้าเสมอ (เที่ยวแรก = บ้าน)
+           แก้เองไม่ได้ ไม่งั้นลูกโซ่ขาด เที่ยวที่ 1 ปลายทาง A แต่เที่ยวที่ 2 ต้นทาง B -->
       <div class="section-label"><span class="od-pill od-pill-from">🟢 ต้นทาง — จุดเริ่มต้น</span></div>
       <div class="form-row">
         <label class="form-label">สถานที่ตั้งต้นทาง
-          <span style="font-size:11px;font-weight:400;color:var(--gray-400);margin-left:6px;">ดึงจากปลายทางก่อนหน้า · แก้ได้ถ้าพิกัดขาด</span>
+          <span style="font-size:11px;font-weight:400;color:var(--gray-400);margin-left:6px;">${originNote}</span>
         </label>
-        <div style="display:flex;gap:8px;">
-          <input id="t_origin" class="form-input" autocomplete="off"
-            value="${defOrigin}" placeholder="เช่น ตลาด, โรงเรียน" style="flex:1;min-width:0;" />
-          <button type="button" onclick="App._openMap('t_originCoords','t_origin')"
-            style="padding:9px 12px;background:var(--primary-light);color:var(--primary);
-                   border:1.5px solid var(--primary);border-radius:var(--radius-sm);
-                   font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">🗺 แผนที่</button>
-        </div>
+        <input id="t_origin" class="form-input" autocomplete="off" readonly
+          value="${this.esc(defOrigin)}" placeholder="—"
+          style="width:100%;background:var(--gray-100);color:var(--gray-600);cursor:not-allowed;" />
         <input type="hidden" id="t_originCoords" value="${defOriginCoords}" />
-        ${defOriginCoords ? `<div style="font-size:11px;color:var(--gray-400);margin-top:3px;">📍 ${defOriginCoords}</div>` : ''}
+        ${defOriginCoords
+          ? `<div style="font-size:11px;color:var(--gray-400);margin-top:3px;">📍 ${defOriginCoords}</div>`
+          : `<div style="font-size:11px;color:var(--danger);margin-top:3px;">⚠️ ไม่มีพิกัดต้นทาง — ${originFixHint}</div>`}
       </div>
       <div class="form-grid">
         <div class="form-row">
           <label class="form-label">ลักษณะสถานที่</label>
-          <select id="t_originType" class="form-select" autocomplete="off" onchange="App._toggleOther('t_originType')">
+          <select id="t_originType" class="form-select" autocomplete="off" disabled
+            style="background:var(--gray-100);color:var(--gray-600);cursor:not-allowed;">
             <option value="">— เลือก —</option>${selOpt(OPT.locationType, defOriginType)}
           </select>
-          ${this._otherBox('t_originType', t?.originTypeOther, defOriginType, 'ระบุลักษณะสถานที่ต้นทาง')}
+          <input type="hidden" id="t_originType_other" value="${this.esc(defOriginOther)}" />
         </div>
         <div class="form-row">
           <label class="form-label req">เวลาที่เริ่มเดินทาง${prevArrival ? ` <span style="font-size:11px;color:var(--gray-400);">(ครั้งที่แล้วถึง ${prevArrival})</span>` : ''}</label>
@@ -2022,6 +2039,10 @@ const App = {
             style="padding:9px 12px;background:var(--primary-light);color:var(--primary);
                    border:1.5px solid var(--primary);border-radius:var(--radius-sm);
                    font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">🗺 แผนที่</button>
+          <button type="button" onclick="App._clearDest()" title="ล้างสถานที่ปลายทาง"
+            style="padding:9px 11px;background:transparent;color:var(--danger);
+                   border:1.5px solid var(--danger);border-radius:var(--radius-sm);
+                   font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;flex-shrink:0;">✕</button>
         </div>
         <input type="hidden" id="t_destinationCoords" value="${t?.destinationCoords || ''}" />
         ${t?.destinationCoords ? `<div style="font-size:11px;color:var(--gray-400);margin-top:3px;">📍 ${t.destinationCoords}</div>` : ''}
@@ -2186,6 +2207,21 @@ const App = {
   _setHhCoordsSource(src) {
     const el = document.getElementById('m_coordsSource');
     if (el) el.value = src;
+  },
+
+  // ล้างสถานที่ปลายทางทั้งชุด — เดิมเลือกผิดแล้วลบไม่ได้ มีแต่เลือกทับไปเรื่อย ๆ
+  _clearDest() {
+    const c = document.getElementById('t_destinationCoords');
+    const n = document.getElementById('t_destination');
+    const ty = document.getElementById('t_destType');
+    if (c) {
+      const note = c.nextElementSibling;
+      if (note && note.style.fontSize === '11px') note.remove();
+      c.value = ''; delete c.dataset.autofill;
+    }
+    if (n) n.value = '';
+    if (ty) { ty.value = ''; this._toggleOther('t_destType'); }
+    this.toast('ล้างสถานที่ปลายทางแล้ว', 'success');
   },
 
   _openMap(coordsId, nameId) {
@@ -2399,7 +2435,7 @@ const App = {
     // เวลาออกต้องไม่ก่อนเวลาถึงของเที่ยวก่อนหน้า
     // ครอบคลุมตอนแก้ไขด้วย — หา "เที่ยวก่อนหน้า" จากลำดับ seq ไม่ใช่เที่ยวสุดท้ายเสมอไป
     {
-      const m2    = DB.getMember(this.hhId, this.memberId);
+      const m2    = DB.getMemberView(this.hhId, this.memberId);   // เที่ยวที่ลบแล้วไม่นับ
       const trips = (m2?.trips || []).slice().sort((a, b) => (a.seq || 0) - (b.seq || 0));
       const idx   = this.editingTripId ? trips.findIndex(x => x.id === this.editingTripId) : trips.length;
       const prevArr = idx > 0 ? trips[idx - 1].arrivalTime : '';
