@@ -170,8 +170,15 @@ const MapPicker = {
         // โหมดเพิ่มเอง: ปักหมุดให้ชื่อที่พิมพ์ค้นไว้ → คงชื่อ
         this._manualPending = false;
       } else {
-        // คลิกแผนที่เปล่า → manual (ไม่ reverse geocode — เลิกใช้ Nominatim · ชื่อพิมพ์/เลือกเอง)
+        // ⚠️ แตะเลือกจุดใหม่บนแผนที่ = คนละที่กับผลค้นหาที่เลือกไว้ ต้องล้างชื่อทิ้ง
+        // ถ้าไม่ล้าง ชื่อจริง (เช่น "โรงพยาบาลบ้านไผ่") จะติดไปกับพิกัดใหม่
+        // แล้ว auto-learn เอาไปบันทึกทับในฐานสถานที่ ทำให้ที่จริงเพี้ยนทั้งระบบ
+        if (this.selectedName) {
+          this.selectedName = null;
+          this._notice('ล้างชื่อเดิมแล้ว — ตั้งชื่อจุดใหม่ตอนกดยืนยัน');
+        }
         this.selectedSource = 'manual';
+        this.userAdjusted   = false;
       }
       this._updateCoordsDisplay();
     });
@@ -196,6 +203,21 @@ const MapPicker = {
     );
   },
 
+  SAME_PLACE_M: 150,   // ลากไม่เกินนี้ = ที่เดิม (แค่ขยับให้ตรง) · เกินนี้ = คนละที่
+  _metersApart(la1, lo1, la2, lo2) {
+    if ([la1, lo1, la2, lo2].some(v => typeof v !== 'number' || isNaN(v))) return Infinity;
+    const dLat = (la2 - la1) * 111320;
+    const dLon = (lo2 - lo1) * 111320 * Math.cos(la1 * Math.PI / 180);
+    return Math.sqrt(dLat * dLat + dLon * dLon);
+  },
+  // แจ้งในหน้าแผนที่ว่าชื่อถูกล้าง — ไม่ให้ผู้สำรวจงงว่าทำไมชื่อหาย
+  _notice(msg) {
+    const el = document.getElementById('mapSearchResults');
+    if (el) el.innerHTML = `<div style="padding:8px 10px;color:${this.ACCENT};font-size:13px;font-weight:600;">📌 ${this._esc(msg)}</div>`;
+    const inp = document.getElementById('mapSearchInput');
+    if (inp) inp.value = '';
+  },
+
   _placeMarker(lat, lon) {
     if (!this.map) return;   // แผนที่ยังไม่เปิด → ไม่ปักหมุด (พิกัดเก็บไว้ที่ selectedLat แล้ว)
     this.selectedLat = lat;
@@ -204,8 +226,18 @@ const MapPicker = {
       this.marker = L.marker([lat, lon], { draggable: true }).addTo(this.map);
       this.marker.on('dragend', () => {
         const p = this.marker.getLatLng();
+        // ลากใกล้ ๆ = ขยับให้ตรงขึ้นของที่เดิม → คงชื่อไว้ (auto-learn เก็บเป็น user_adjusted)
+        // ลากไกล = เปลี่ยนเป็นที่อื่น → ต้องล้างชื่อ ไม่งั้นชื่อจริงไปติดพิกัดผิด
+        const far = this._metersApart(this.selectedLat, this.selectedLon, p.lat, p.lng) > this.SAME_PLACE_M;
         this.selectedLat = p.lat; this.selectedLon = p.lng;
-        this.userAdjusted = true;   // ลากแก้ → ปรับพิกัด คงชื่อเดิม (ไม่ reverse)
+        if (far && this.selectedName) {
+          this.selectedName = null;
+          this.selectedSource = 'manual';
+          this.userAdjusted = false;
+          this._notice('ลากออกไกลจากที่เดิม — ล้างชื่อแล้ว ตั้งชื่อใหม่ตอนกดยืนยัน');
+        } else {
+          this.userAdjusted = true;
+        }
         this._updateCoordsDisplay();
       });
     } else {
