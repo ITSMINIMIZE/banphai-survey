@@ -2031,21 +2031,22 @@ const App = {
       <!-- ปลายทาง -->
       <div class="section-label"><span class="od-pill od-pill-to">🔴 ปลายทาง — จุดหมาย</span></div>
       <div class="form-row">
-        <label class="form-label">สถานที่ตั้งปลายทาง</label>
+        <label class="form-label req">สถานที่ตั้งปลายทาง</label>
+        <!-- เอาช่องพิมพ์ชื่ออิสระออก — พิมพ์เองแล้วไม่มีพิกัด ใช้ทำ OD ไม่ได้
+             ต้องผ่านการค้นหาหรือปักหมุด (ปักหมุดเองก็ต้องตั้งชื่อ) ชื่อจึงมาคู่กับพิกัดเสมอ -->
         <div style="display:flex;gap:8px;">
-          <input id="t_destination" class="form-input" autocomplete="off"
-            placeholder="เช่น ตลาด, โรงเรียน" value="${t?.destination || ''}" style="flex:1;min-width:0;" />
           <button type="button" onclick="App._openMap('t_destinationCoords','t_destination')"
-            style="padding:9px 12px;background:var(--primary-light);color:var(--primary);
+            style="flex:1;padding:11px 12px;background:var(--primary-light);color:var(--primary);
                    border:1.5px solid var(--primary);border-radius:var(--radius-sm);
-                   font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">🗺 แผนที่</button>
-          <button type="button" onclick="App._clearDest()" title="ล้างสถานที่ปลายทาง"
-            style="padding:9px 11px;background:transparent;color:var(--danger);
+                   font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;">🔍 ค้นหาสถานที่</button>
+          <button type="button" onclick="App._clearDest()"
+            style="padding:11px 14px;background:transparent;color:var(--danger);
                    border:1.5px solid var(--danger);border-radius:var(--radius-sm);
-                   font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;flex-shrink:0;">✕</button>
+                   font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;flex-shrink:0;">✕ ล้างค่า</button>
         </div>
+        <input type="hidden" id="t_destination"       value="${this.esc(t?.destination || '')}" />
         <input type="hidden" id="t_destinationCoords" value="${t?.destinationCoords || ''}" />
-        ${t?.destinationCoords ? `<div style="font-size:11px;color:var(--gray-400);margin-top:3px;">📍 ${t.destinationCoords}</div>` : ''}
+        <div id="t_destShow" style="margin-top:6px;">${this._destShowHTML(t?.destination || '', t?.destinationCoords || '')}</div>
       </div>
       <div class="form-row">
         <label class="form-label">ลักษณะสถานที่ปลายทาง</label>
@@ -2242,18 +2243,33 @@ const App = {
     return changed;
   },
 
+  // แถบแสดงปลายทางที่เลือกไว้ (อ่านอย่างเดียว) — ยังไม่เลือกก็บอกให้กดค้นหา
+  _destShowHTML(name, coords) {
+    if (!coords && !name)
+      return `<div style="font-size:12px;color:var(--gray-400);">ยังไม่ได้เลือก — กด "🔍 ค้นหาสถานที่"</div>`;
+    return `<div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius-sm);padding:8px 10px;">
+      <div style="font-size:14px;font-weight:600;color:var(--gray-800);">${this.esc(name) || '(ไม่มีชื่อ)'}</div>
+      ${coords ? `<div style="font-size:11px;color:var(--gray-400);margin-top:2px;">📍 ${this.esc(coords)}</div>`
+               : `<div style="font-size:11px;color:var(--danger);margin-top:2px;">⚠️ ไม่มีพิกัด — กดค้นหาใหม่</div>`}
+    </div>`;
+  },
+  _refreshDestShow() {
+    const box = document.getElementById('t_destShow');
+    if (!box) return;
+    box.innerHTML = this._destShowHTML(
+      document.getElementById('t_destination')?.value || '',
+      document.getElementById('t_destinationCoords')?.value || '');
+  },
+
   // ล้างสถานที่ปลายทางทั้งชุด — เดิมเลือกผิดแล้วลบไม่ได้ มีแต่เลือกทับไปเรื่อย ๆ
   _clearDest() {
     const c = document.getElementById('t_destinationCoords');
     const n = document.getElementById('t_destination');
     const ty = document.getElementById('t_destType');
-    if (c) {
-      const note = c.nextElementSibling;
-      if (note && note.style.fontSize === '11px') note.remove();
-      c.value = ''; delete c.dataset.autofill;
-    }
+    if (c) { c.value = ''; delete c.dataset.autofill; }
     if (n) n.value = '';
     if (ty) { ty.value = ''; this._toggleOther('t_destType'); }
+    this._refreshDestShow();
     this.toast('ล้างสถานที่ปลายทางแล้ว', 'success');
   },
 
@@ -2264,19 +2280,13 @@ const App = {
       if (coordsEl) {
         coordsEl.value = coords;
         delete coordsEl.dataset.autofill;   // ผู้ใช้เลือกเอง ไม่ใช่ค่าที่ระบบเติมให้อีกต่อไป
-        // อัพเดตแสดงพิกัดใต้ input
+        // ช่องที่ยังเป็น input แบบเดิม (ที่ทำงาน) ยังต้องอัปเดตป้ายพิกัดใต้ช่อง
         const hint = coordsEl.nextElementSibling;
-        if (hint && hint.style.fontSize === '11px') {
-          hint.textContent = '📍 ' + coords;
-        } else {
-          const d = document.createElement('div');
-          d.style.cssText = 'font-size:11px;color:var(--gray-400);margin-top:3px;';
-          d.textContent = '📍 ' + coords;
-          coordsEl.insertAdjacentElement('afterend', d);
-        }
+        if (hint && hint.style.fontSize === '11px') hint.textContent = '📍 ' + coords;
       }
-      // เลือกผลค้นหา/ปักหมุดที่มีชื่อ → ดึงชื่อมาใส่
+      // ชื่อมาคู่กับพิกัดเสมอแล้ว (ปักหมุดเองก็ถูกบังคับให้ตั้งชื่อใน MapPicker)
       if (nameEl && name) nameEl.value = name;
+      this._refreshDestShow();              // ไม่มีแถบนี้ในฟอร์มอื่นก็ข้ามไปเอง
     });
   },
 
@@ -2287,10 +2297,7 @@ const App = {
     const destEl0   = document.getElementById('t_destination');
     const coordsEl0 = document.getElementById('t_destinationCoords');
     const typeEl0   = document.getElementById('t_destType');
-    const dropNote = () => {
-      const n = coordsEl0?.nextElementSibling;
-      if (n && n.style.fontSize === '11px') n.remove();
-    };
+    const dropNote = () => this._refreshDestShow();
     // เปลี่ยนออกจาก "กลับบ้าน" → ล้างปลายทางที่ระบบเติมให้เอง
     // ไม่งั้นพิกัดบ้านค้างอยู่ กลายเป็นต้นทาง=ปลายทาง
     // ล้างเฉพาะที่ยังเป็นค่าที่ระบบเติม (ธง autofill) — ถ้าผู้สำรวจเลือกหมุดเองแล้วจะไม่แตะ
@@ -2316,18 +2323,8 @@ const App = {
     if (coordsEl) { coordsEl.value = hh.coordinates || ''; coordsEl.dataset.autofill = '1'; }
     if (typeEl)   typeEl.value   = 'ที่พัก / บ้านของตัวเอง';
 
-    // แสดงพิกัดใต้ input
-    if (hh.coordinates) {
-      const existing = coordsEl?.nextElementSibling;
-      if (existing && existing.style.fontSize === '11px') {
-        existing.textContent = '📍 ' + hh.coordinates;
-      } else if (coordsEl) {
-        const d = document.createElement('div');
-        d.style.cssText = 'font-size:11px;color:var(--gray-400);margin-top:3px;';
-        d.textContent = '📍 ' + hh.coordinates;
-        coordsEl.insertAdjacentElement('afterend', d);
-      }
-    }
+    this._refreshDestShow();   // แถบแสดงปลายทางวาดใหม่จากค่าที่เพิ่งเติม
+    if (!hh.coordinates) this.toast('บ้านหลังนี้ยังไม่มีพิกัด — ไปปักพิกัดบ้านก่อน', 'warning');
   },
 
   // โหมดที่มีค่าโดยสาร (รถโดยสาร/รับจ้าง) → ช่องค่าโดยสารโผล่เฉพาะตอนเลือกโหมดเหล่านี้

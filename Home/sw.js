@@ -1,5 +1,5 @@
 // Service Worker — Home Interview
-const CACHE_VERSION = 'hi-v84-relink';
+const CACHE_VERSION = 'hi-v85-placesearch';
 const CORE_ASSETS = [
   './',
   './index.html',

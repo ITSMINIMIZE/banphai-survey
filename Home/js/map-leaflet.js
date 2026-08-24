@@ -401,6 +401,14 @@ const MapPicker = {
   confirm() {
     if (this.selectedLat === null) return;
     const coords = `${this.selectedLat.toFixed(6)}, ${this.selectedLon.toFixed(6)}`;
+    // ปักหมุดเองบนแผนที่โดยไม่ผ่านการค้นหา → ยังไม่มีชื่อ ต้องให้พิมพ์ก่อน
+    // ไม่งั้นได้พิกัดลอย ๆ ที่ไม่รู้ว่าที่ไหน และเข้า auto-learn ไม่ได้
+    if (!this.selectedName) {
+      const typed = (prompt('ปักหมุดเองต้องตั้งชื่อสถานที่ด้วย\nเช่น ตลาดสดบ้านไผ่, บ้านญาติ') || '').trim();
+      if (!typed) return;                      // ไม่พิมพ์ = ยังไม่ยืนยัน (หมุดยังอยู่ แก้ต่อได้)
+      this.selectedName   = typed;
+      this.selectedSource = this.selectedSource || 'manual';
+    }
     const name = this.selectedName || '';
     // best-effort save — ไม่บล็อก UX (cache อัปเดตทันที, Firestore เขียนเบื้องหลัง)
     if (name && typeof PlaceService !== 'undefined') {
