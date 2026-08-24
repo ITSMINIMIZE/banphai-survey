@@ -2209,6 +2209,39 @@ const App = {
     if (el) el.value = src;
   },
 
+  // ── ทำให้ลูกโซ่ต่อกันทั้งชุด ────────────────────────────────────────────────
+  // ต้นทางถูกคัดลอกเก็บไว้ในระเบียนตอนเปิดฟอร์ม ไม่ได้อ้างอิงสด ๆ
+  // แก้ปลายทางของเที่ยวก่อนหน้าแล้วต้นทางของเที่ยวถัดไปจึงค้างค่าเก่า
+  // ตัวนี้ไล่ทั้งชุด: ต้นทางของแต่ละเที่ยว = ปลายทางของเที่ยวก่อนหน้า (เที่ยวแรก = บ้าน)
+  // ครอบคลุมทั้งการแก้ปลายทาง และการลบเที่ยวกลางสาย (เที่ยวถัดไปต้องเชื่อมกับเที่ยวที่เหลือ)
+  _relinkChain() {
+    const hh = DB.getHouseholdView(this.hhId);
+    const m  = DB.getMemberView(this.hhId, this.memberId);
+    const trips = (m?.trips || []).slice().sort((a, b) => (a.seq || 0) - (b.seq || 0));
+    if (!trips.length) return 0;
+    const homeAddr = [
+      hh?.houseNo ? 'บ้านเลขที่ ' + hh.houseNo : '',
+      hh?.road    ? 'ถ.' + hh.road              : ''
+    ].filter(Boolean).join(' ') || 'ที่พักอาศัย';
+
+    let changed = 0;
+    trips.forEach((t, i) => {
+      const src = i === 0
+        ? { origin: homeAddr, originCoords: hh?.coordinates || '',
+            originType: 'ที่พัก / บ้านของตัวเอง', originTypeOther: '' }
+        : { origin:          trips[i-1].destination          || '',
+            originCoords:    trips[i-1].destinationCoords    || '',
+            originType:      trips[i-1].destinationType      || '',
+            originTypeOther: trips[i-1].destinationTypeOther || '' };
+      // บ้านยังไม่มีพิกัด → อย่าไปล้างพิกัดต้นทางที่มีอยู่แล้วทิ้ง
+      if (i === 0 && !src.originCoords) delete src.originCoords;
+      if (Object.keys(src).every(k => (t[k] || '') === src[k])) return;   // ตรงอยู่แล้ว ไม่ต้องเขียน
+      const saved = DB.updateTrip(this.hhId, this.memberId, t.id, src);
+      if (saved) { this._autoPush(() => FB.pushTrip(this.hhId, this.memberId, saved)); changed++; }
+    });
+    return changed;
+  },
+
   // ล้างสถานที่ปลายทางทั้งชุด — เดิมเลือกผิดแล้วลบไม่ได้ มีแต่เลือกทับไปเรื่อย ๆ
   _clearDest() {
     const c = document.getElementById('t_destinationCoords');
@@ -2472,6 +2505,9 @@ const App = {
       this.toast('เพิ่มการเดินทางแล้ว' + oldW, oldW ? 'warning' : 'success');
     }
     this._autoPush(() => FB.pushTrip(this.hhId, this.memberId, savedTrip));
+    // ปลายทางเปลี่ยน → ต้นทางของเที่ยวถัดไปต้องเปลี่ยนตาม
+    const relinked = this._relinkChain();
+    if (relinked) this.toast(`อัปเดตต้นทางของเที่ยวถัดไปให้ตรงกันแล้ว (${relinked} เที่ยว)`, 'success');
     this.editingTripId = null;
     this.closeModal();
     this.memberTab = 'trips';
@@ -2509,6 +2545,7 @@ const App = {
 
   deleteTrip(tripId) {
     DB.deleteTrip(this.hhId, this.memberId, tripId);
+    this._relinkChain();        // ลบกลางสาย → เที่ยวถัดไปต้องเชื่อมกับเที่ยวที่เหลือ
     this.closeModal();
     this.toast('ลบจากเครื่องนี้แล้ว · Cloud ยังอยู่', 'success');
     this.render();
@@ -2522,6 +2559,7 @@ const App = {
     if (!t) { this.toast('ไม่พบการเดินทาง', 'error'); return; }
     this._autoPush(() => FB.pushTrip(hhId, mId, t,
       e => this._undoDelete(e, () => DB.restoreTrip(hhId, mId, tripId))));
+    this._relinkChain();        // ลบกลางสาย → เที่ยวถัดไปต้องเชื่อมกับเที่ยวที่เหลือ
     this.closeModal();
     this.toast('ลบออกจากระบบแล้ว · กู้คืนได้จากถังขยะ', 'success');
     this.render();
