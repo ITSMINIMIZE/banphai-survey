@@ -9,6 +9,8 @@ const App = {
   _bootHandled: false,  // กันเข้าแอปซ้ำเมื่อ auth event ยิงหลายครั้ง
   _filterSup: '',       // admin: กรองรายการเฉพาะทีมของผู้ควบคุมคนนี้ ('' = ทุกทีม)
   _filterDay: '',       // กรองตามวันที่ทำแบบสำรวจจริง 'YYYY-MM-DD' ('' = ทุกวัน)
+  _filterZone: '',      // กรองตามโซนที่พิกัดบ้านตกอยู่ ('' = ทุกโซน)
+  _zonesReady: false,   // โหลดรูปโซนจากระบบสำเร็จหรือยัง (ไม่สำเร็จ = ไม่โชว์ป้าย/ตัวกรอง)
 
 
   // ---- สิทธิ์ ----
@@ -339,6 +341,7 @@ const App = {
         <button class="tb-logout" onclick="App.logout()">ออก</button>
       </div>`;
     }
+    this._loadZones();           // ป้ายโซนบนการ์ด — โหลดพื้นหลัง ไม่ขวางการใช้งาน
     if (!this._restoreView()) this.navigate('home');
     this._silentPull();
   },
@@ -597,10 +600,11 @@ const App = {
     const status = this._filterStatus || 'all';
     const nameQ  = this._normName(this._filterName || '');   // เลือกจาก dropdown → เทียบตรงตัว
     const noCoordList = hhs.filter(h => this._hhCoordsIncomplete(h));
-    // ตัวกรองทำงานเป็นชั้น: ผู้ควบคุม → ผู้สำรวจ → วัน
+    // ตัวกรองทำงานเป็นชั้น: ผู้ควบคุม → ผู้สำรวจ → วัน → โซน
     // แต่ละ dropdown สร้างรายการจากขอบเขตของชั้นก่อนหน้า จะได้ไม่มีตัวเลือกที่เลือกแล้วได้ 0
     const scopeSup  = this._filterSup ? hhs.filter(h => this._normName(h.supervisorName) === this._filterSup) : hhs;
     const scopeSurv = nameQ ? scopeSup.filter(h => this._normName(h.surveyorName) === nameQ) : scopeSup;
+    const scopeDay  = this._filterDay ? scopeSurv.filter(h => this._dayKey(h) === this._filterDay) : scopeSurv;
     let list = hhs;
     // สมบูรณ์ = ไม่มีประเด็นเลย · ไม่สมบูรณ์ = มีประเด็นใดๆ (ไม่มีคนเดินทาง / พิกัดไม่ครบ / พิกัดจากแผนที่)
     if (status === 'complete')        list = list.filter(h => !this._hhHasIssue(h));
@@ -610,6 +614,10 @@ const App = {
     // ใช้ _normName ตัวเดียวกับ _visibleHouseholds จะได้จับคู่ชื่อแบบเดียวกันทั้งแอป
     if (this._filterSup)              list = list.filter(h => this._normName(h.supervisorName) === this._filterSup);
     if (this._filterDay)              list = list.filter(h => this._dayKey(h) === this._filterDay);
+    if (this._filterZone === '__outside__')
+      list = list.filter(h => this._hhZoneInfo(h).outside);          // ทุกโซนที่อยู่นอกพื้นที่ศึกษา
+    else if (this._filterZone)
+      list = list.filter(h => this._hhZone(h) === this._filterZone);
 
     // ใหม่สุดอยู่บน
     list = list.slice().sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
@@ -693,6 +701,40 @@ const App = {
           </select>
           ${this._filterDay ? `<button class="btn btn-ghost btn-sm" onclick="App.clearTimeFilter()">ล้างตัวกรองวัน</button>` : ''}
         </div>`;
+      })()}
+
+      ${(() => {
+        // ตัวกรองโซน — เป้าหมายหลักคือคัดบ้านที่เก็บนอกพื้นที่ศึกษาออกไปดูทีเดียว
+        // รายการสร้างจากโซนที่มีอยู่จริงในข้อมูล ไม่ใช่โซนทั้ง 232 รูป
+        if (!this._zonesReady) return '';
+        const info = h => this._hhZoneInfo(h);
+        const rows = scopeDay.map(h => ({ h, k: this._hhZone(h), z: info(h) })).filter(r => r.k);
+        if (!rows.length) return '';
+        const keys = [...new Set(rows.map(r => r.k))];
+        const num  = k => /^\d+$/.test(k) ? +k : Infinity;      // "นอกขอบเขต" ไปท้ายสุด
+        keys.sort((a, b) => num(a) - num(b) || String(a).localeCompare(String(b), 'th'));
+        const cnt   = k => rows.filter(r => r.k === k).length;
+        const textOf= k => this._zoneText(rows.find(r => r.k === k).z);
+        const isOut = k => rows.find(r => r.k === k).z.outside;
+        const outN  = rows.filter(r => r.z.outside).length;
+        const o = (v, t) => `<option value="${this.esc(v)}" ${this._filterZone === v ? 'selected' : ''}>${this.esc(t)}</option>`;
+        const inKeys  = keys.filter(k => !isOut(k));
+        const outKeys = keys.filter(k =>  isOut(k));
+        const grp = (label, ks) => ks.length
+          ? `<optgroup label="${this.esc(label)}">${ks.map(k => o(k, textOf(k) + ' · ' + cnt(k) + ' หลัง')).join('')}</optgroup>` : '';
+        return `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;font-size:13px;color:var(--gray-600);">
+          <span>🗺</span><select onchange="App.setZoneFilter(this.value)" title="กรองตามโซนที่พิกัดบ้านตกอยู่"
+            style="padding:7px 10px;border:1.5px solid ${this._filterZone ? 'var(--primary)' : 'var(--gray-200)'};border-radius:8px;font-family:inherit;font-size:13px;background:var(--white);color:var(--gray-800);max-width:260px;">
+            ${o('', `ทุกโซน · ${rows.length} หลัง`)}
+            ${outN ? o('__outside__', `⚠️ นอกพื้นที่ศึกษาทั้งหมด · ${outN} หลัง`) : ''}
+            ${grp('ในพื้นที่ศึกษา', inKeys)}
+            ${grp('นอกพื้นที่ศึกษา', outKeys)}
+          </select>
+          ${outN ? `<button class="btn btn-sm ${this._filterZone === '__outside__' ? 'btn-danger' : 'btn-ghost'}"
+            onclick="App.setZoneFilter('${this._filterZone === '__outside__' ? '' : '__outside__'}')"
+            title="บ้านที่พิกัดตกนอกพื้นที่ศึกษา (โซนเกิน ${ZoneService.internalMax}) — ตรวจแล้วคัดทิ้งได้">📍 นอกพื้นที่ ${outN}</button>` : ''}
+          ${this._filterZone ? `<button class="btn btn-ghost btn-sm" onclick="App.setZoneFilter('')">ล้างตัวกรองโซน</button>` : ''}
+        </div>`;
       })()}` : ''}
 
       ${hhs.length === 0 ? `
@@ -731,6 +773,19 @@ const App = {
                   if (q.hard) t.push(`<span class="tag" style="background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;">🔴 ต้องแก้ ${q.hard}</span>`);
                   if (q.soft) t.push(`<span class="tag" style="background:#fef3c7;color:#b45309;border:1px solid #fcd34d;">🟠 ควรแก้ ${q.soft}</span>`);
                   return t.join('');
+                })()}
+                ${(() => {
+                  // ป้ายโซน — บอกว่าบ้านหลังนี้เก็บมาจากโซนไหน
+                  // นอกพื้นที่ศึกษา = ขึ้นแดง เพราะเป็นตัวที่ต้องคัดทิ้ง
+                  const z = this._hhZoneInfo(hh);
+                  if (!z.known) return '';        // ยังไม่โหลดโซน / ไม่มีพิกัด (มีป้ายของตัวเองอยู่แล้ว)
+                  const st = z.outside
+                    ? 'background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;'
+                    : 'background:#e0f2fe;color:#075985;border:1px solid #7dd3fc;';
+                  const tip = z.outside
+                    ? `อยู่นอกพื้นที่ศึกษา (โซนเกิน ${ZoneService.internalMax}) — ควรตรวจว่าเก็บผิดพื้นที่หรือปักหมุดผิด`
+                    : 'โซนที่พิกัดบ้านตกอยู่ (ชุดเดียวกับที่ใช้ตอน Export)';
+                  return `<span class="tag" style="${st}" title="${this.esc(tip)}">🗺 ${this.esc(this._zoneText(z))}</span>`;
                 })()}
                 ${homeNoCo ? `<span class="tag" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;">📍 ${badCoords(hh.coordinates) ? 'พิกัดบ้านไม่ใช่พิกัด' : 'บ้านไม่มีพิกัด'}</span>` : ''}
                 ${tripNoCo ? '<span class="tag" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;">📍 เที่ยวไม่มีพิกัด</span>' : ''}
@@ -792,6 +847,32 @@ const App = {
   // (เดิม hardcode 3 อย่าง ทำให้การ์ดแดงแต่ตัวกรองไม่จับ เช่น ไม่ระบุเพศ/อายุ · เที่ยวไม่ครบลูกโซ่)
   // พิกัดไม่ครบรวมอยู่ใน Issues แล้ว (ไม่มีพิกัดบ้าน / ไม่มีพิกัดต้นทาง-ปลายทาง)
   // เหลือ _hhMapCoords ไว้ต่างหาก เพราะเป็นคำเตือน "ควรสุ่มตรวจ" ที่ไม่ได้อยู่ใน Issues
+  // ── โซนของบ้าน ────────────────────────────────────────────────────────────
+  // ใช้รูปโซนชุดเดียวกับตอน Export (ZoneService) — เลขที่เห็นบนการ์ดจึงตรงกับในไฟล์เสมอ
+  // โหลดพื้นหลัง: ยังไม่เสร็จ/ออฟไลน์ = ไม่มีป้ายกับตัวกรอง แต่ทุกอย่างอื่นใช้งานได้ตามปกติ
+  async _loadZones() {
+    if (this._zonesReady) return;
+    try {
+      await ZoneService.load();
+      this._zonesReady = true;
+      if (this.page === 'home') this.render();   // มาถึงทีหลัง → วาดป้ายเพิ่มให้เอง
+    } catch (_) { /* ไม่มีข้อมูลโซน/ออฟไลน์ — ข้ามไป ไม่ต้องรบกวนผู้สำรวจ */ }
+  },
+
+  // ข้อมูลโซนของบ้าน — { known, n, label, district, outside }
+  // known:false = ยังโหลดโซนไม่เสร็จ หรือบ้านไม่มีพิกัด → ไม่ต้องแสดงอะไร
+  _hhZoneInfo(hh) {
+    if (!this._zonesReady) return { known: false };
+    return ZoneService.info(hh && hh.coordinates);
+  },
+  // ค่าที่ใช้เป็น "คีย์" ของตัวกรอง ('' = ไม่รู้จัก)
+  _hhZone(hh) {
+    const z = this._hhZoneInfo(hh);
+    return z.known ? (z.n == null ? 'นอกขอบเขต' : String(z.n)) : '';
+  },
+  // ป้ายที่เอาขึ้นจอ — มีชื่ออำเภอ/จังหวัดต่อท้ายให้ด้วยถ้าชุดโซนมี
+  _zoneText(z) { return z.district ? `${z.label} · ${z.district}` : z.label; },
+
   _hhHasIssue(hh) {
     return Issues.forHousehold(hh).hard > 0 || this._hhMapCoords(hh);
   },
@@ -932,7 +1013,8 @@ const App = {
   setStatus(v) { this._filterStatus = v; this.render(); },
 
   setSupFilter(v)  { this._filterSup = v;  this._pruneFilters(); this.render(); },
-  setDayFilter(v) { this._filterDay = v; this.render(); },
+  setDayFilter(v) { this._filterDay = v; this._pruneFilters(); this.render(); },
+  setZoneFilter(v) { this._filterZone = v; this.render(); },
   clearTimeFilter() { this._filterDay = ''; this.render(); },
 
   setNameFilter(v) { this._filterName = v; this._pruneFilters(); this.render(); },
@@ -947,11 +1029,17 @@ const App = {
     const bySurv = this._filterName ? bySup.filter(h => this._normName(h.surveyorName) === this._filterName) : bySup;
     if (this._filterDay && !bySurv.some(h => this._dayKey(h) === this._filterDay))
       this._filterDay = '';
+    const byDay = this._filterDay ? bySurv.filter(h => this._dayKey(h) === this._filterDay) : bySurv;
+    if (this._filterZone === '__outside__') {
+      if (!byDay.some(h => this._hhZoneInfo(h).outside)) this._filterZone = '';
+    } else if (this._filterZone && !byDay.some(h => this._hhZone(h) === this._filterZone)) {
+      this._filterZone = '';
+    }
   },
 
   resetFilters() {
     this._filterStatus = 'all'; this._filterName = ''; this._filterNoCoords = false; this._filterSup = '';
-    this._filterDay = '';
+    this._filterDay = ''; this._filterZone = '';
     this.render();
   },
 

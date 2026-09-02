@@ -4,6 +4,11 @@
 const ZoneService = {
   _features: null,   // cache ต่อ session
 
+  // เส้นแบ่ง "ในพื้นที่ / นอกพื้นที่" — โซนเลขเกินค่านี้คือโซนภายนอก (จังหวัดรอบ ๆ)
+  // ค่าจริงเก็บคู่กับชุดโซนที่ config/zones.internalMax · Dashboard ใช้ตัวเดียวกัน
+  // ต้องตรงกัน ไม่งั้นแอปกับรายงานจะบอกคนละเรื่องว่าบ้านหลังไหนอยู่นอกพื้นที่
+  internalMax: 131,
+
   // โหลดโซนจากระบบ (ครั้งเดียว แล้ว cache)
   async load() {
     if (this._features) return this._features;
@@ -12,6 +17,8 @@ const ZoneService = {
     const meta = await FB.db.collection('config').doc('zones').get();
     if (!meta.exists || !(meta.data().chunks > 0))
       throw new Error('ยังไม่มีข้อมูลโซนในระบบ (อัปโหลดผ่าน tools → Import Zones)');
+    const im = +meta.data().internalMax;
+    if (im > 0) this.internalMax = im;
     const n = meta.data().chunks;
     const docs = await Promise.all(
       Array.from({ length: n }, (_, i) => FB.db.collection('config').doc('zones_c' + i).get())
@@ -77,13 +84,47 @@ const ZoneService = {
   },
 
   _find(lat, lon) {
-    for (const f of this._features) {
-      if (this._inFeature(lat, lon, f)) {
-        const pr = f.properties || {};
-        const n = +pr.N;
-        return isNaN(n) ? (pr.name || 'ไม่ระบุ') : n;   // เลขล้วน — Excel มองเป็น number
-      }
+    const f = this._findFeature(lat, lon);
+    if (!f) return '(นอกพื้นที่)';
+    const pr = f.properties || {};
+    const n = +pr.N;
+    return isNaN(n) ? (pr.name || 'ไม่ระบุ') : n;   // เลขล้วน — Excel มองเป็น number
+  },
+
+  _findFeature(lat, lon) {
+    for (const f of this._features) if (this._inFeature(lat, lon, f)) return f;
+    return null;
+  },
+
+  // ข้อมูลโซนแบบเต็มของพิกัดหนึ่ง — ใช้ทำป้ายกับตัวกรองในแอป
+  //   { n, label, district, outside, known }
+  //   outside = อยู่นอกพื้นที่ศึกษา (โซนเลขเกิน internalMax หรือไม่ตกในรูปไหนเลย)
+  //   known   = false เมื่อยังไม่ได้โหลดโซน / พิกัดใช้ไม่ได้ → ผู้เรียกไม่ต้องแสดงอะไร
+  _infoMemo: new Map(),
+  info(coordStr) {
+    if (!this._features) return { known: false };
+    const p = String(coordStr || '').split(',').map(x => parseFloat(x.trim()));
+    if (p.length !== 2 || isNaN(p[0]) || isNaN(p[1])) return { known: false };
+    const key = p[0] + ',' + p[1];
+    if (this._infoMemo.has(key)) return this._infoMemo.get(key);
+
+    const f = this._findFeature(p[0], p[1]);
+    let out;
+    if (!f) {
+      out = { known: true, n: null, label: 'นอกขอบเขตโซน', district: '', outside: true };
+    } else {
+      const pr = f.properties || {};
+      const n  = +pr.N;
+      const nm = pr.D_NAME || pr.d_name || pr.DISTRICT_T || '';
+      out = {
+        known: true,
+        n: isNaN(n) ? null : n,
+        label: isNaN(n) ? (pr.name || 'ไม่ระบุ') : ('โซน ' + n),
+        district: nm,
+        outside: !isNaN(n) && n > this.internalMax
+      };
     }
-    return '(นอกพื้นที่)';
+    this._infoMemo.set(key, out);
+    return out;
   }
 };
