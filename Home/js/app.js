@@ -715,8 +715,8 @@ const App = {
           const addr = [hh.houseNo ? 'บ้านเลขที่ ' + hh.houseNo : '', hh.moo ? 'ม.' + hh.moo : '', hh.road].filter(Boolean).join(' ');
           // แยกประเด็นให้ชัด: ไม่มีคนเดินทาง / บ้านไม่มีพิกัด / เที่ยวไม่มีพิกัด / พิกัดจากแผนที่ (มีพิกัดแต่ควรตรวจ)
           const noTraveler = Issues.forHousehold(hh).hard > 0;   // การ์ดแดง = มีปัญหาที่ต้องแก้จริง
-          const homeNoCo   = !hh.coordinates;
-          const tripNoCo   = !homeNoCo && (hh.members || []).some(m => (m.trips || []).some(t => !t.originCoords || !t.destinationCoords));
+          const homeNoCo   = !validCoords(hh.coordinates);
+          const tripNoCo   = !homeNoCo && (hh.members || []).some(m => (m.trips || []).some(t => this._tripNoCoords(t)));
           const mapCo      = this._hhMapCoords(hh);
           return `<div class="hh-card${noTraveler ? ' hh-card-incomplete' : ''}" onclick="App.navigate('household','${hh.id}')">
             <div class="hh-card-icon">🏠</div>
@@ -732,7 +732,7 @@ const App = {
                   if (q.soft) t.push(`<span class="tag" style="background:#fef3c7;color:#b45309;border:1px solid #fcd34d;">🟠 ควรแก้ ${q.soft}</span>`);
                   return t.join('');
                 })()}
-                ${homeNoCo ? '<span class="tag" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;">📍 บ้านไม่มีพิกัด</span>' : ''}
+                ${homeNoCo ? `<span class="tag" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;">📍 ${badCoords(hh.coordinates) ? 'พิกัดบ้านไม่ใช่พิกัด' : 'บ้านไม่มีพิกัด'}</span>` : ''}
                 ${tripNoCo ? '<span class="tag" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;">📍 เที่ยวไม่มีพิกัด</span>' : ''}
                 ${(typeof DataRound !== 'undefined' && DataRound.isOld(hh)) ? '<span class="tag" style="background:#e5e7eb;color:#4b5563;border:1px solid #9ca3af;">📦 รอบก่อน</span>' : ''}
                 ${mapCo ? '<span class="tag" style="background:#ffedd5;color:#9a3412;border:1px solid #fdba74;" title="พิกัดจากแผนที่/พิมพ์เอง ไม่ใช่ GPS ที่จุดจริง — ควรสุ่มตรวจ">🗺 พิกัดจากแผนที่</span>' : ''}
@@ -766,13 +766,12 @@ const App = {
   // household พิกัดไม่ครบ = บ้านไม่มีพิกัด หรือมีเที่ยวที่ต้นทาง/ปลายทางไม่มีพิกัด
   // (ที่ทำงาน/โรงเรียนไม่นับ)
   _hhCoordsIncomplete(hh) {
-    if (!hh.coordinates) return true;
-    return (hh.members || []).some(m =>
-      (m.trips || []).some(t => !t.originCoords || !t.destinationCoords));
+    if (!validCoords(hh.coordinates)) return true;
+    return (hh.members || []).some(m => this._memberNoCoords(m));
   },
 
   // เที่ยวนี้พิกัดไม่ครบ (ต้นทางหรือปลายทางขาด) — ใช้ไฮไลต์การ์ดเที่ยวสีแดง
-  _tripNoCoords(t) { return !t.originCoords || !t.destinationCoords; },
+  _tripNoCoords(t) { return !validCoords(t.originCoords) || !validCoords(t.destinationCoords); },
 
   // สมาชิกคนนี้มีเที่ยวที่พิกัดไม่ครบ — ใช้ไฮไลต์การ์ดสมาชิกสีแดง
   _memberNoCoords(m) { return (m.trips || []).some(t => this._tripNoCoords(t)); },
@@ -786,7 +785,7 @@ const App = {
   _hhComplete(hh) { return (hh.members || []).some(m => (m.trips || []).length > 0); },
 
   // มีพิกัดแต่มาจากแผนที่/พิมพ์เอง (ไม่ใช่ GPS จุดจริง) — ควรตรวจ
-  _hhMapCoords(hh) { return hh.coordsSource === 'manual' && !!hh.coordinates; },
+  _hhMapCoords(hh) { return hh.coordsSource === 'manual' && validCoords(hh.coordinates); },
 
   // มีประเด็นต้องดู — ใช้ Issues เป็นแหล่งเดียวกับที่ทำให้การ์ดขึ้นสีแดง
   // ตัวกรอง "ไม่สมบูรณ์" จะได้ตรงกับการ์ดแดงเป๊ะ และกฎใหม่ทุกข้อเข้ามาเองโดยไม่ต้องแก้ที่นี่อีก
@@ -1028,7 +1027,8 @@ const App = {
             <span class="tag tag-gray">📋 บันทึก ${hh.surveyDate}</span>
             ${hh.surveyorName  ? `<span class="tag tag-gray">🧑‍💼 ${this.esc(hh.surveyorName)}</span>`  : ''}
             ${hh.supervisorName? `<span class="tag tag-gray">👔 ${this.esc(this._supLabel(hh.supervisorName))}</span>`  : ''}
-            ${hh.coordinates   ? `<span class="tag tag-blue">📍 ${hh.coordinates}</span>`     : ''}
+            ${validCoords(hh.coordinates) ? `<span class="tag tag-blue">📍 ${this.esc(hh.coordinates)}</span>` : ''}
+            ${badCoords(hh.coordinates) ? `<span class="tag" style="background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;" title="ช่องพิกัดมีข้อความอยู่ แต่ไม่ใช่ค่าพิกัด — ใช้หาโซน/วาดแผนที่ไม่ได้">📍 ไม่ใช่พิกัด: ${this.esc(coordSnip(hh.coordinates))}</span>` : ''}
             ${hh.coordsSource === 'manual' ? `<span class="tag" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;" title="พิกัดมาจากแผนที่/พิมพ์เอง ไม่ใช่ GPS ที่จุดจริง — ควรสุ่มตรวจ">⚠️ พิกัดจากแผนที่</span>` : ''}
             ${hh.deviceId      ? `<span class="tag tag-gray" title="Device ID: ${hh.deviceId}">💻 ${hh.deviceId.slice(0,8)}…</span>` : ''}
             ${hh.clientIp      ? `<span class="tag tag-gray">🌐 ${hh.clientIp}</span>`          : ''}
@@ -1547,6 +1547,7 @@ const App = {
                    border-radius:var(--radius-sm);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">🗺 สำรอง</button>
         </div>
         <input type="hidden" id="m_coordsSource" value="${hh?.coordsSource||''}" />
+        <div id="m_coordsWarn" style="font-size:11px;color:var(--danger);font-weight:600;margin-top:3px;display:${badCoords(hh?.coordinates)?'block':'none'};">⚠️ ยังไม่ใช่พิกัด — ต้องเป็นตัวเลข "lat, lng" (กด 📍 GPS หรือ 🗺 สำรอง)</div>
         <div style="font-size:11px;color:var(--gray-400);margin-top:3px;">แนะนำกด 📍 GPS ที่จุดบ้านจริง · ใช้ 🗺 แผนที่เฉพาะเครื่องที่ไม่มี GPS</div>
       </div>
       <div class="form-grid">
@@ -1684,7 +1685,9 @@ const App = {
     if (!data.surveyorName)    errs.push('ชื่อผู้สำรวจ');
     if (!data.supervisorName)  errs.push('ชื่อผู้ควบคุม');
     if (!data.travelDate)      errs.push('วันที่เดินทาง');
-    if (!data.coordinates)     errs.push('พิกัด GPS');
+    if (!data.coordinates)          errs.push('พิกัด GPS');
+    // พิมพ์ชื่อสถานที่ลงช่องพิกัดแล้วผ่าน = ข้อมูลเสียตั้งแต่ต้นทาง (Export ได้โซน "(ไม่มีพิกัด)")
+    else if (!validCoords(data.coordinates)) errs.push('พิกัด GPS ที่เป็นตัวเลข "lat, lng" (กด 📍 GPS หรือ 🗺 สำรอง)');
     if (!data.houseNo)         errs.push('บ้านเลขที่');
     if (!data.subdistrict)     errs.push('ตำบล');
     if (!data.district)        errs.push('อำเภอ');
@@ -1751,8 +1754,11 @@ const App = {
     this._saveSurveyorNames(data.surveyorName, data.supervisorName);
     const hh = DB.updateHousehold(id, data);
     this._autoPush(() => FB.pushHousehold(hh));
+    // บ้านเปลี่ยน (พิกัด/บ้านเลขที่/ถนน) → ต้นทางเที่ยวแรกของทุกคนในบ้านต้องตามไปด้วย
+    const rl = this._relinkHousehold(id);
+    const rlMsg = rl.trips ? ` · ปรับต้นทางตามบ้านใหม่ ${rl.trips} เที่ยว (${rl.people} คน)` : '';
     this.closeModal();
-    this.toast('บันทึกข้อมูลบ้านแล้ว' + this._oldWarn(hh), this._oldWarn(hh) ? 'warning' : 'success');
+    this.toast('บันทึกข้อมูลบ้านแล้ว' + rlMsg + this._oldWarn(hh), this._oldWarn(hh) ? 'warning' : 'success');
     this.render();
   },
 
@@ -1905,7 +1911,7 @@ const App = {
       if (!m || m.trips.length === 0) {
         // การเดินทางแรก: ต้นทาง = บ้าน + ลักษณะสถานที่เป็นบ้าน
         defOrigin       = homeAddr;
-        defOriginCoords = hh?.coordinates || '';
+        defOriginCoords = validCoords(hh?.coordinates) ? hh.coordinates : '';
         defOriginType   = 'ที่พัก / บ้านของตัวเอง';
         defOriginOther  = '';
       } else {
@@ -1922,7 +1928,7 @@ const App = {
     if (isEdit && !defOriginCoords && m) {
       const idx = m.trips.findIndex(x => x.id === t.id);
       if (idx === 0) {
-        defOriginCoords = hh?.coordinates || '';
+        defOriginCoords = validCoords(hh?.coordinates) ? hh.coordinates : '';
         if (!defOrigin) defOrigin = homeAddr;
       } else if (idx > 0) {
         const prev = m.trips[idx - 1];
@@ -2007,9 +2013,9 @@ const App = {
           value="${this.esc(defOrigin)}" placeholder="—"
           style="width:100%;background:var(--gray-100);color:var(--gray-600);cursor:not-allowed;" />
         <input type="hidden" id="t_originCoords" value="${defOriginCoords}" />
-        ${defOriginCoords
+        ${validCoords(defOriginCoords)
           ? `<div style="font-size:11px;color:var(--gray-400);margin-top:3px;">📍 ${defOriginCoords}</div>`
-          : `<div style="font-size:11px;color:var(--danger);margin-top:3px;">⚠️ ไม่มีพิกัดต้นทาง — ${originFixHint}</div>`}
+          : `<div style="font-size:11px;color:var(--danger);margin-top:3px;">⚠️ ${badCoords(defOriginCoords) ? `ต้นทางเก็บไว้ว่า "${this.esc(coordSnip(defOriginCoords))}" ซึ่งไม่ใช่พิกัด` : 'ไม่มีพิกัดต้นทาง'} — ${originFixHint}</div>`}
       </div>
       <div class="form-grid">
         <div class="form-row">
@@ -2207,7 +2213,7 @@ const App = {
     const coordsEl = document.getElementById('m_coords');
     MapPicker.open(coordsEl?.value || '', coords => {
       if (coordsEl) coordsEl.value = coords;
-      this._setHhCoordsSource('manual');   // ปักจากแผนที่ = ติดธงให้ admin ตรวจ
+      this._setHhCoordsSource('manual');   // ปักจากแผนที่ = ติดธงให้ admin ตรวจ (เรียกแล้วป้ายเตือนอัปเดตเอง)
       const p = coords.split(',');
       this._reverseGeocode(parseFloat(p[0]), parseFloat(p[1]));  // เติม อำเภอ/จังหวัด
     });
@@ -2217,6 +2223,14 @@ const App = {
   _setHhCoordsSource(src) {
     const el = document.getElementById('m_coordsSource');
     if (el) el.value = src;
+    this._refreshHhCoordsWarn();
+  },
+
+  // ป้ายเตือนใต้ช่องพิกัดบ้าน — โผล่เฉพาะตอนมีข้อความอยู่แต่ไม่ใช่พิกัด
+  _refreshHhCoordsWarn() {
+    const warn = document.getElementById('m_coordsWarn');
+    if (!warn) return;
+    warn.style.display = badCoords(document.getElementById('m_coords')?.value) ? 'block' : 'none';
   },
 
   // ── ทำให้ลูกโซ่ต่อกันทั้งชุด ────────────────────────────────────────────────
@@ -2224,9 +2238,10 @@ const App = {
   // แก้ปลายทางของเที่ยวก่อนหน้าแล้วต้นทางของเที่ยวถัดไปจึงค้างค่าเก่า
   // ตัวนี้ไล่ทั้งชุด: ต้นทางของแต่ละเที่ยว = ปลายทางของเที่ยวก่อนหน้า (เที่ยวแรก = บ้าน)
   // ครอบคลุมทั้งการแก้ปลายทาง และการลบเที่ยวกลางสาย (เที่ยวถัดไปต้องเชื่อมกับเที่ยวที่เหลือ)
-  _relinkChain() {
-    const hh = DB.getHouseholdView(this.hhId);
-    const m  = DB.getMemberView(this.hhId, this.memberId);
+  // รับ hhId/memberId ได้ เพื่อให้ไล่ทั้งบ้านได้ ไม่ใช่เฉพาะคนที่เปิดหน้าอยู่
+  _relinkChain(hhId = this.hhId, memberId = this.memberId) {
+    const hh = DB.getHouseholdView(hhId);
+    const m  = DB.getMemberView(hhId, memberId);
     const trips = (m?.trips || []).slice().sort((a, b) => (a.seq || 0) - (b.seq || 0));
     if (!trips.length) return 0;
     const homeAddr = [
@@ -2237,7 +2252,8 @@ const App = {
     let changed = 0;
     trips.forEach((t, i) => {
       const src = i === 0
-        ? { origin: homeAddr, originCoords: hh?.coordinates || '',
+        // พิกัดบ้านที่ไม่ใช่พิกัดจริง (พิมพ์ชื่อลงไป) ห้ามคัดลอกลงเที่ยว — ไม่งั้นข้อมูลเสียกระจายต่อ
+        ? { origin: homeAddr, originCoords: validCoords(hh?.coordinates) ? hh.coordinates : '',
             originType: 'ที่พัก / บ้านของตัวเอง', originTypeOther: '' }
         : { origin:          trips[i-1].destination          || '',
             originCoords:    trips[i-1].destinationCoords    || '',
@@ -2246,10 +2262,26 @@ const App = {
       // บ้านยังไม่มีพิกัด → อย่าไปล้างพิกัดต้นทางที่มีอยู่แล้วทิ้ง
       if (i === 0 && !src.originCoords) delete src.originCoords;
       if (Object.keys(src).every(k => (t[k] || '') === src[k])) return;   // ตรงอยู่แล้ว ไม่ต้องเขียน
-      const saved = DB.updateTrip(this.hhId, this.memberId, t.id, src);
-      if (saved) { this._autoPush(() => FB.pushTrip(this.hhId, this.memberId, saved)); changed++; }
+      const saved = DB.updateTrip(hhId, memberId, t.id, src);
+      if (saved) { this._autoPush(() => FB.pushTrip(hhId, memberId, saved)); changed++; }
     });
     return changed;
+  },
+
+  // ── แก้ข้อมูลบ้าน → ต้นทางเที่ยวแรกของทุกคนในบ้านตามให้เอง ──────────────────
+  // เคสจริง: กรอกบ้านไว้ก่อนโดยยังไม่ได้ปักพิกัด เก็บสมาชิก+เที่ยวจนครบ
+  // แล้วค่อยกลับมาปักพิกัดบ้านทีหลัง — ต้นทางเที่ยวแรกถูกคัดลอกไว้ตอนกรอก
+  // จึงค้างเป็น "ไม่มีพิกัด" ตลอด จนกว่าจะเปิดเที่ยวนั้นแล้วกดบันทึกใหม่ทีละคน
+  // (บ้านเลขที่/ถนนก็เหมือนกัน — แก้แล้วชื่อต้นทางเที่ยวแรกยังเป็นของเก่า)
+  // _relinkChain เขียนเฉพาะที่ค่าไม่ตรง จึงเรียกทุกครั้งที่บันทึกบ้านได้โดยไม่เปลืองเปล่า
+  _relinkHousehold(hhId) {
+    const hh = DB.getHouseholdView(hhId);
+    let trips = 0, people = 0;
+    (hh?.members || []).forEach(m => {
+      const n = this._relinkChain(hhId, m.id);
+      if (n) { trips += n; people++; }
+    });
+    return { trips, people };
   },
 
   // แถบแสดงปลายทางที่เลือกไว้ (อ่านอย่างเดียว) — ยังไม่เลือกก็บอกให้กดค้นหา
@@ -2258,8 +2290,8 @@ const App = {
       return `<div style="font-size:12px;color:var(--gray-400);">ยังไม่ได้เลือก — กด "🔍 ค้นหาสถานที่"</div>`;
     return `<div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius-sm);padding:8px 10px;">
       <div style="font-size:14px;font-weight:600;color:var(--gray-800);">${this.esc(name) || '(ไม่มีชื่อ)'}</div>
-      ${coords ? `<div style="font-size:11px;color:var(--gray-400);margin-top:2px;">📍 ${this.esc(coords)}</div>`
-               : `<div style="font-size:11px;color:var(--danger);margin-top:2px;">⚠️ ไม่มีพิกัด — กดค้นหาใหม่</div>`}
+      ${validCoords(coords) ? `<div style="font-size:11px;color:var(--gray-400);margin-top:2px;">📍 ${this.esc(coords)}</div>`
+               : `<div style="font-size:11px;color:var(--danger);margin-top:2px;">⚠️ ${badCoords(coords) ? 'ที่เก็บไว้ไม่ใช่พิกัด' : 'ไม่มีพิกัด'} — กดค้นหาใหม่</div>`}
     </div>`;
   },
   _refreshDestShow() {
@@ -2329,11 +2361,13 @@ const App = {
     const typeEl   = document.getElementById('t_destType');
 
     if (destEl)   destEl.value   = homeAddr;
-    if (coordsEl) { coordsEl.value = hh.coordinates || ''; coordsEl.dataset.autofill = '1'; }
+    if (coordsEl) { coordsEl.value = validCoords(hh.coordinates) ? hh.coordinates : ''; coordsEl.dataset.autofill = '1'; }
     if (typeEl)   typeEl.value   = 'ที่พัก / บ้านของตัวเอง';
 
     this._refreshDestShow();   // แถบแสดงปลายทางวาดใหม่จากค่าที่เพิ่งเติม
-    if (!hh.coordinates) this.toast('บ้านหลังนี้ยังไม่มีพิกัด — ไปปักพิกัดบ้านก่อน', 'warning');
+    if (!validCoords(hh.coordinates))
+      this.toast(badCoords(hh.coordinates) ? 'พิกัดบ้านที่กรอกไว้ไม่ใช่พิกัด — ไปแก้ที่ข้อมูลบ้านก่อน'
+                                           : 'บ้านหลังนี้ยังไม่มีพิกัด — ไปปักพิกัดบ้านก่อน', 'warning');
   },
 
   // โหมดที่มีค่าโดยสาร (รถโดยสาร/รับจ้าง) → ช่องค่าโดยสารโผล่เฉพาะตอนเลือกโหมดเหล่านี้

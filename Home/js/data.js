@@ -455,6 +455,33 @@ const samePin = (c1, c2) => {
   return !!a && a === b;
 };
 
+// ── พิกัดที่ใช้งานได้จริง ────────────────────────────────────────────────────
+// ช่องพิกัดบ้านพิมพ์เองได้ ของจริงที่เจอคือกรอก "ชื่อ" ลงไปแทนพิกัด
+// (ชื่อหมู่บ้าน · บ้านเลขที่ · จดโน้ตไว้ก่อนว่าจะกลับมาปักทีหลัง)
+// เดิมทุกที่เช็คแค่ "ไม่ว่าง" → ข้อความพวกนี้ผ่านหมด บ้านขึ้นเขียวว่าครบ
+// แต่ตอน Export โซนออกมาเป็น "(ไม่มีพิกัด)" และวาดบนแผนที่ไม่ได้เลย
+// กติกา: ต้องเป็น "lat, lng" ที่เป็นตัวเลข อยู่ในช่วงที่เป็นไปได้ และไม่ใช่ 0,0
+// (0,0 = กลางทะเลนอกทวีปแอฟริกา = ค่าที่หลุดมาจากที่อ่าน GPS ไม่ได้ ไม่ใช่จุดที่ตั้งใจปัก)
+const parseCoords = (s) => {
+  const m = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/.exec(String(s || ''));
+  if (!m) return null;
+  const lat = +m[1], lon = +m[2];
+  if (!isFinite(lat) || !isFinite(lon)) return null;
+  if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+  if (lat === 0 && lon === 0) return null;
+  return { lat, lon };
+};
+const validCoords = (s) => !!parseCoords(s);
+// มีข้อความอยู่ แต่ไม่ใช่พิกัด — แยกจาก "ว่างเปล่า" เพื่อบอกเหตุผลให้ตรงเรื่อง
+const badCoords = (s) => !!String(s || '').trim() && !validCoords(s);
+// ตัดข้อความยาว ๆ ก่อนเอาไปต่อในข้อความเตือน
+const coordSnip = (s) => { const v = String(s || '').trim(); return v.length > 24 ? v.slice(0, 24) + '…' : v; };
+// ข้อความปัญหาของช่องพิกัดหนึ่งช่อง — ผ่าน = คืน '' (ใช้ร่วมกันทุกช่องจะได้พูดเหมือนกัน)
+const coordIssue = (val, label) =>
+  validCoords(val) ? ''
+  : badCoords(val) ? `${label}ไม่ใช่พิกัด — กรอกไว้ว่า "${coordSnip(val)}" (ต้องเป็น lat, lng)`
+  : `ไม่มี${label}`;
+
 // เลือก 'อื่น ๆ' แล้วไม่พิมพ์ระบุ — ผู้สำรวจชอบกดผ่านเพื่อความเร็ว เท่ากับไม่ได้ตอบ
 const OTHER = 'อื่น ๆ';
 const needOther = (val, other) => val === OTHER && !String(other || '').trim();
@@ -463,7 +490,7 @@ const Issues = {
   household(hh) {
     const hard = [], soft = [];
     if (!hh) return { hard, soft };
-    if (!hh.coordinates)    hard.push('ไม่มีพิกัดบ้าน');
+    { const c = coordIssue(hh.coordinates, 'พิกัดบ้าน'); if (c) hard.push(c); }
     if (!hh.surveyorName)   hard.push('ไม่มีชื่อผู้สำรวจ');
     if (!hh.supervisorName) hard.push('ไม่มีชื่อผู้ควบคุม');
     if (!(hh.members || []).length)                          hard.push('ยังไม่มีสมาชิกเลย');
@@ -508,7 +535,9 @@ const Issues = {
     if (needOther(m.occupation, m.occupationOther)) hard.push('เลือกอาชีพ "อื่น ๆ" แต่ไม่ได้ระบุ');
     if (!m.occupation) soft.push('ไม่ระบุอาชีพ');
     if (!m.education)  soft.push('ไม่ระบุการศึกษา');
-    if (m.workStatus === 'ทำงาน' && !m.workplaceCoords) soft.push('ทำงานแต่ไม่มีพิกัดที่ทำงาน');
+    if (m.workStatus === 'ทำงาน' && !validCoords(m.workplaceCoords))
+      soft.push(badCoords(m.workplaceCoords) ? 'พิกัดที่ทำงานไม่ใช่พิกัด — กรอกไว้ว่า "' + coordSnip(m.workplaceCoords) + '"'
+                                            : 'ทำงานแต่ไม่มีพิกัดที่ทำงาน');
     // ลูกโซ่การเดินทางต้องปิด — วันหนึ่งเริ่มที่บ้าน ออกไปแล้วต้องมีขากลับ
     // จึงต้องมีอย่างน้อย 2 เที่ยว: มีเที่ยวเดียวแปลว่าเก็บขาไปหรือขากลับหายไปข้างหนึ่ง
     // (แม้เที่ยวเดียวนั้นจะเป็น 'กลับบ้าน' ก็ยังผิด เพราะยังไม่มีเที่ยวที่ออกจากบ้าน)
@@ -532,10 +561,10 @@ const Issues = {
   trip(t) {
     const hard = [], soft = [];
     if (!t) return { hard, soft };
-    if (!t.originCoords)      hard.push('ไม่มีพิกัดต้นทาง');
+    { const c = coordIssue(t.originCoords, 'พิกัดต้นทาง'); if (c) hard.push(c); }
     if (samePin(t.originCoords, t.destinationCoords))
       hard.push('ต้นทางกับปลายทางเป็นหมุดเดียวกัน');
-    if (!t.destinationCoords) hard.push('ไม่มีพิกัดปลายทาง');
+    { const c = coordIssue(t.destinationCoords, 'พิกัดปลายทาง'); if (c) hard.push(c); }
     if (!t.purpose)           hard.push('ไม่ระบุวัตถุประสงค์');
     if (!t.departureTime)     hard.push('ไม่ระบุเวลาออกเดินทาง');
     if (!(t.segments || []).some(g => g && g.mode)) hard.push('ไม่ระบุวิธีเดินทาง');

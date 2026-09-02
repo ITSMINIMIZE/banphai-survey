@@ -1,5 +1,5 @@
 // Service Worker — Home Interview
-const CACHE_VERSION = 'hi-v87-drilldown';
+const CACHE_VERSION = 'hi-v88-realcoords';
 const CORE_ASSETS = [
   './',
   './index.html',
