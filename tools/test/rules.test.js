@@ -14,9 +14,9 @@ const ctx = {
 };
 vm.createContext(ctx);
 // const ระดับบนสุดของสคริปต์ไม่ไปอยู่บน global object — ต้องต่อบรรทัดส่งออกเอง
-vm.runInContext(src + '\n;globalThis.__x = { Issues, OPT, DB, gridBucket, needOther, validCoords };',
+vm.runInContext(src + '\n;globalThis.__x = { Issues, OPT, DB, gridBucket, needOther, validCoords, newId };',
   ctx, { filename: 'data.js' });
-const { Issues, OPT } = ctx.__x;
+const { Issues, OPT, newId } = ctx.__x;
 
 let pass = 0, fail = 0;
 const t = (name, fn) => {
@@ -144,6 +144,51 @@ t('สมาชิกเกินตารางสรุป = ต้องแ�
                member({ id:'M2', seq:2, trips: roundTrip() }) ]
   });
   has(Issues.household(hh).hard, 'เกินตาราง');
+});
+
+console.log('\n═══ id ของระเบียน ═══');
+
+t('สร้างรวดเดียวหลายรายการต้องไม่ได้ id ซ้ำ', () => {
+  // เคสจริงที่เจอ: สร้างบ้าน 3 หลังรวดเดียว ได้ id ซ้ำ → getHousehold() คืนตัวแรกเสมอ
+  // สมาชิกเลยไปกองรวมผิดบ้าน และบน Firestore doc จะทับกันหายไปทั้งใบ
+  const ids = Array.from({ length: 500 }, () => newId('HH'));
+  eq(new Set(ids).size, 500, 'จำนวน id ที่ไม่ซ้ำ');
+});
+
+t('รูปแบบ id ปกติยังเหมือนเดิม (ต่อเลขเฉพาะตอนชน)', () => {
+  const id = newId('HH');
+  if (!/^HH-\d+(-\d+)?$/.test(id)) throw new Error('รูปแบบ id เปลี่ยนไป: ' + id);
+});
+
+console.log('\n═══ จัดกลุ่มสถานะของบ้าน ═══');
+
+// จำลอง App._hhStatus — บ้านหนึ่งหลังต้องตกอยู่ในกลุ่มเดียวเท่านั้น
+const statusOf = hh => {
+  const q = Issues.forHousehold(hh);
+  if (q.hard > 0) return 'hard';
+  if (q.soft > 0) return 'soft';
+  return 'ok';
+};
+
+t('บ้านที่ข้อมูลครบ = ok', () => {
+  eq(statusOf(household({ members: [ member({ trips: roundTrip() }) ] })), 'ok');
+});
+
+t('บ้านที่มีปัญหาต้องแก้ = hard (การ์ดแดง)', () => {
+  eq(statusOf(household({ members: [ member({ trips: [] }) ] })), 'hard');
+});
+
+t('บ้านที่มีแต่ปัญหาควรแก้ = soft (ไม่แดง)', () => {
+  // ไม่ระบุอาชีพ/การศึกษา = ควรแก้ · ที่เหลือครบหมด
+  const hh = household({ members: [ member({ occupation: '', education: '', trips: roundTrip() }) ] });
+  const q = Issues.forHousehold(hh);
+  eq(q.hard, 0, 'ไม่ควรมีปัญหาต้องแก้ · ' + JSON.stringify(q.details));
+  eq(statusOf(hh), 'soft');
+});
+
+t('มีทั้งต้องแก้และควรแก้ = นับเป็น hard อย่างเดียว (ไม่ซ้ำกลุ่ม)', () => {
+  const hh = household({ members: [ member({ occupation: '', education: '', trips: [] }) ] });
+  eq(statusOf(hh), 'hard');
 });
 
 console.log(`\n${'─'.repeat(46)}\nผ่าน ${pass} · ไม่ผ่าน ${fail}\n`);

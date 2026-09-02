@@ -607,8 +607,11 @@ const App = {
     const scopeDay  = this._filterDay ? scopeSurv.filter(h => this._dayKey(h) === this._filterDay) : scopeSurv;
     let list = hhs;
     // สมบูรณ์ = ไม่มีประเด็นเลย · ไม่สมบูรณ์ = มีประเด็นใดๆ (ไม่มีคนเดินทาง / พิกัดไม่ครบ / พิกัดจากแผนที่)
-    if (status === 'complete')        list = list.filter(h => !this._hhHasIssue(h));
-    else if (status === 'incomplete') list = list.filter(h => this._hhHasIssue(h));
+    // 'incomplete' เก็บไว้รองรับสถานะที่จำไว้จากเวอร์ชันก่อน = ต้องแก้ + ควรแก้ รวมกัน
+    if (status === 'complete')        list = list.filter(h => this._hhStatus(h) === 'ok');
+    else if (status === 'hard')       list = list.filter(h => this._hhStatus(h) === 'hard');
+    else if (status === 'soft')       list = list.filter(h => this._hhStatus(h) === 'soft');
+    else if (status === 'incomplete') list = list.filter(h => this._hhStatus(h) !== 'ok');
     if (this._filterNoCoords)         list = list.filter(h => this._hhCoordsIncomplete(h));
     if (nameQ)                        list = list.filter(h => this._normName(h.surveyorName) === nameQ);
     // ใช้ _normName ตัวเดียวกับ _visibleHouseholds จะได้จับคู่ชื่อแบบเดียวกันทั้งแอป
@@ -656,7 +659,15 @@ const App = {
       ${hhs.length > 0 ? `
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;">
         <div style="display:inline-flex;gap:2px;background:var(--gray-100);padding:3px;border-radius:8px;flex-shrink:0;">
-          ${this._segBtn('ทั้งหมด','all')}${this._segBtn('✅ สมบูรณ์','complete')}${this._segBtn('⚠️ ไม่สมบูรณ์','incomplete')}
+          ${(() => {
+            // นับครั้งเดียวแล้วใช้ซ้ำ — _hhStatus เรียก Issues ซึ่งไล่ทุกสมาชิกทุกเที่ยว
+            const n = { ok: 0, hard: 0, soft: 0 };
+            hhs.forEach(h => n[this._hhStatus(h)]++);
+            return this._segBtn('ทั้งหมด', 'all', hhs.length)
+                 + this._segBtn('✅ ครบ', 'complete', n.ok)
+                 + this._segBtn('🔴 ต้องแก้', 'hard', n.hard)
+                 + this._segBtn('🟠 ควรแก้', 'soft', n.soft);
+          })()}
         </div>
         ${(() => {
           // dropdown แทนช่องพิมพ์ — หน้างานพิมพ์บนมือถือยาก และเลือกจากรายชื่อไม่มีทางพิมพ์ผิด
@@ -847,6 +858,22 @@ const App = {
   // (เดิม hardcode 3 อย่าง ทำให้การ์ดแดงแต่ตัวกรองไม่จับ เช่น ไม่ระบุเพศ/อายุ · เที่ยวไม่ครบลูกโซ่)
   // พิกัดไม่ครบรวมอยู่ใน Issues แล้ว (ไม่มีพิกัดบ้าน / ไม่มีพิกัดต้นทาง-ปลายทาง)
   // เหลือ _hhMapCoords ไว้ต่างหาก เพราะเป็นคำเตือน "ควรสุ่มตรวจ" ที่ไม่ได้อยู่ใน Issues
+  _hhHasIssue(hh) {
+    return Issues.forHousehold(hh).hard > 0 || this._hhMapCoords(hh);
+  },
+
+  // สถานะของบ้านหนึ่งหลัง — บ้านหนึ่งหลังตกอยู่ในกลุ่มเดียวเท่านั้น
+  //   'hard' = การ์ดแดง ต้องแก้ก่อนส่งงาน
+  //   'soft' = ยังใช้ได้แต่คุณภาพลด (รวมพิกัดจากแผนที่ที่ควรสุ่มตรวจ)
+  //   'ok'   = ไม่มีประเด็นอะไรเลย
+  // ใช้ Issues เป็นแหล่งเดียวกับที่ทำให้การ์ดแดง — ตัวกรองจึงตรงกับสีที่เห็นเสมอ
+  _hhStatus(hh) {
+    const q = Issues.forHousehold(hh);
+    if (q.hard > 0) return 'hard';
+    if (q.soft > 0 || this._hhMapCoords(hh)) return 'soft';
+    return 'ok';
+  },
+
   // ── โซนของบ้าน ────────────────────────────────────────────────────────────
   // ใช้รูปโซนชุดเดียวกับตอน Export (ZoneService) — เลขที่เห็นบนการ์ดจึงตรงกับในไฟล์เสมอ
   // โหลดพื้นหลัง: ยังไม่เสร็จ/ออฟไลน์ = ไม่มีป้ายกับตัวกรอง แต่ทุกอย่างอื่นใช้งานได้ตามปกติ
@@ -873,9 +900,6 @@ const App = {
   // ป้ายที่เอาขึ้นจอ — มีชื่ออำเภอ/จังหวัดต่อท้ายให้ด้วยถ้าชุดโซนมี
   _zoneText(z) { return z.district ? `${z.label} · ${z.district}` : z.label; },
 
-  _hhHasIssue(hh) {
-    return Issues.forHousehold(hh).hard > 0 || this._hhMapCoords(hh);
-  },
 
   // เที่ยวนี้จะเป็นเที่ยวแรกของวันไหม — เทียบด้วยเวลาออกเดินทาง ไม่ใช่ลำดับที่กรอก
   // (seq เรียงตามลำดับที่กรอก ผู้สำรวจอาจกรอกย้อนได้)
@@ -1005,9 +1029,14 @@ const App = {
   _trashItems() { return DB.getTrash(this._isStaff() ? this._team : ''); },
 
   // ปุ่มสถานะแบบ segmented
-  _segBtn(label, val) {
+  _segBtn(label, val, count) {
     const on = (this._filterStatus || 'all') === val;
-    return `<button onclick="App.setStatus('${val}')" style="border:none;padding:6px 12px;border-radius:6px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;${on ? 'background:var(--primary);color:#fff;' : 'background:transparent;color:var(--gray-600);'}">${label}</button>`;
+    // กลุ่มที่ไม่มีสักหลังยังต้องกดได้ (จะได้เห็นว่า "ไม่มีที่ต้องแก้แล้ว") แค่จางลง
+    const dim = count === 0 && val !== 'all' && !on;
+    const num = count === undefined ? '' :
+      ` <span style="opacity:.75;font-weight:700">${count}</span>`;
+    return `<button onclick="App.setStatus('${val}')" style="border:none;padding:6px 12px;border-radius:6px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;${
+      on ? 'background:var(--primary);color:#fff;' : `background:transparent;color:var(--gray-${dim ? '400' : '600'});`}">${label}${num}</button>`;
   },
 
   setStatus(v) { this._filterStatus = v; this.render(); },

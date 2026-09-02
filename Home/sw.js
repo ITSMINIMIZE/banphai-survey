@@ -1,5 +1,5 @@
 // Service Worker — Home Interview
-const CACHE_VERSION = 'hi-v89-zonetag';
+const CACHE_VERSION = 'hi-v90-redfilter';
 const CORE_ASSETS = [
   './',
   './index.html',

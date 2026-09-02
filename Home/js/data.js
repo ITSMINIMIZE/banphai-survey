@@ -72,6 +72,21 @@ const IDBStore = {
   }
 };
 
+// ===== id ของระเบียน =====
+// เดิมใช้ Date.now() ล้วน — สองรายการที่สร้างในมิลลิวินาทีเดียวกันได้ id ซ้ำ
+// ผลที่ตามมาไม่ส่งเสียงเลยสักทาง:
+//   · doc id บน Firestore ชนกัน → รายการหลังทับรายการแรก หายไปทั้งใบ
+//   · ในเครื่อง getHousehold(id) คืนตัวแรกที่เจอ → สมาชิกไปกองรวมผิดบ้าน
+//   · กฎลูกโซ่หาลำดับด้วย findIndex(x => x.id === t.id) แล้วชี้ผิดรายการ
+// มือคนกดไม่ทันในมิลลิวินาทีเดียวจึงไม่ค่อยโผล่หน้างาน แต่เครื่องมือ seed
+// และการกดรัว ๆ ทำได้สบาย — ต่อเลขนับท้ายเฉพาะตอนชนจริง รูปแบบ id ปกติจึงเหมือนเดิม
+let _idLastAt = 0, _idSeq = 0;
+function newId(prefix) {
+  const now = Date.now();
+  if (now === _idLastAt) _idSeq++; else { _idLastAt = now; _idSeq = 0; }
+  return prefix + '-' + now + (_idSeq ? '-' + _idSeq : '');
+}
+
 const DB = {
   KEY:     'hi_survey_v2',   // localStorage เดิม (ใช้ migrate ครั้งแรก + สำรอง sync ข้อมูลเล็ก)
   IDB_KEY: 'data',
@@ -175,7 +190,7 @@ const DB = {
 
   addHousehold(data) {
     const hh = {
-      id: 'HH-' + Date.now(),
+      id: newId('HH'),
       surveyDate:      data.surveyDate      || CLOCK.todayLocal(),
       travelDate:      data.travelDate      || '',
       surveyorName:    data.surveyorName    || '',
@@ -243,7 +258,7 @@ const DB = {
     const hh = this.getHousehold(hhId);
     if (!hh) return null;
     const m = {
-      id: 'M-' + Date.now(),
+      id: newId('M'),
       seq: hh.members.length + 1,
       gender:               data.gender               || '',
       age:                  data.age                  || '',
@@ -290,7 +305,7 @@ const DB = {
     const m = this.getMember(hhId, mid);
     if (!m) return null;
     const trip = {
-      id: 'T-' + Date.now(),
+      id: newId('T'),
       seq: m.trips.length + 1,
       origin:            data.origin            || '',
       originCoords:      data.originCoords      || '',
